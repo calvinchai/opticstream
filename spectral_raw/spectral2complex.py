@@ -1,608 +1,342 @@
+import numpy as np
+
+
+def load_spetral_file_raw(file_path,aline_length=200, bline_length=350, nifti_header_size = 352):
+        file = open(file_path,'rb')
+        file.seek(nifti_header_size)
+        data = np.fromfile(file,np.uint16,aline_length*bline_length*4096)
+        data = data.reshape((bline_length,2,2048,aline_length))
+        file.close()
+        return data
+
+
+# load_spetral_file_raw('/autofs/space/zircon_006/users/data/I55_spectralraw_slice5_20251124/mosaic_002_image_330_spectral_0764.nii')
+
+
 """
-Python implementation of s2c.m - Spectral to Complex conversion.
+s2c_v.py — simplified per user request.
 
-This module provides:
-- s2c_array: Array-based processing function
-- s2c_file: File-based wrapper
-- CLI support via main
+Requirements:
+  - Input to s2c_v must already be reshaped to (AlineLength, Aline, 2, Bline).
+  - s2c_v returns Jstack_all only (no saving).
+  - calibration .mat path is hardcoded in CALIB_MAT_PATH.
+  - disp_comp_file (if provided) is used for both channels.
+Dependencies:
+  pip install numpy scipy nibabel
 """
-from __future__ import annotations
 
-'/autofs/cluster/octdata2/users/Hui/tools/dg_utils/spectralprocess/dispComp/mineraloil_LSM03/dispersion_compensation_LSM03_mineraloil_20240829/LSM03_mineral_oil_placecorrectionmeanall2.dat'
-'/mnt/sas/I55_testrestart_slice5_20251120/mosaic_001_image_110_spectral_0110.nii'
-'/local_mount/space/zircon/5/users/kchai/I55_1120/mosaic_001_image_100_processed_cropped.nii'
-
-import argparse
 import os
 import re
-import sys
-from pathlib import Path
-from typing import List, Optional, Tuple
-
-import nibabel as nib
+import time
 import numpy as np
 from scipy import interpolate
+from scipy.io import loadmat
+import nibabel as nib
+from math import sqrt
+
+# -----------------------
+# === CONFIG CONSTANTS ===
+# -----------------------
+# Hardcode your calibration .mat path here (must contain 'mu' Nx2 and 'wave_prime')
+CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/Hui/PSCalibration/SpectrometerCal_10xw_20201016/wave-pixel.mat"
 
 
-def buffer2jones(original_buffer: np.ndarray, padding_factor: int, auto_corr_peak_cut: int) -> np.ndarray:
+# -----------------------
+# === Utility I/O funcs ===
+# -----------------------
+def read_spectral_file_raw(filename, header_bytes=352):
     """
-    Convert interpolated buffer to Jones vector via FFT.
-    
-    Parameters
-    ----------
-    original_buffer : np.ndarray
-        Input buffer, shape (depth, aline)
-    padding_factor : int
-        Padding factor (typically 1)
-    auto_corr_peak_cut : int
-        Number of samples to cut from autocorrelation peak
-        
-    Returns
-    -------
-    np.ndarray
-        Jones vector, shape (depth, aline) - complex
+    Read binary spectral file and return raw uint16 array (no reshaping).
     """
-    aline_length = original_buffer.shape[0] // (2 * padding_factor)
-    jones = np.fft.fft(original_buffer, axis=0)
-    jones = jones[:aline_length, :]
-    jones = jones[auto_corr_peak_cut:, :]
-    return jones
+    if not os.path.exists(filename):
+        raise FileNotFoundError(filename)
+    with open(filename, "rb") as f:
+        f.seek(header_bytes, os.SEEK_SET)
+        raw = f.read()
+    return np.frombuffer(raw, dtype=np.uint16)
 
 
-def zero_pad_buffer(original_buffer: np.ndarray, padding_factor: int) -> np.ndarray:
+def save_jstack_nifti(Jstack_all, output_file):
     """
-    Zero-pad buffer using FFT-based method.
-    
-    Parameters
-    ----------
-    original_buffer : np.ndarray
-        Input buffer, shape (depth, aline)
-    padding_factor : int
-        Padding factor
-        
-    Returns
-    -------
-    np.ndarray
-        Zero-padded buffer, shape (depth * padding_factor, aline)
+    Save Jstack_all to a NIfTI file (float32).
     """
-    aline_length = original_buffer.shape[0]
-    number_alines = original_buffer.shape[1]
-    mid_length = aline_length // 2 + 1
-    
-    transformed_buffer = np.fft.fft(original_buffer, axis=0)
-    transformed_buffer[mid_length - 1, :] = transformed_buffer[mid_length - 1, :] / 2
-    
-    padded_transformed_buffer = np.zeros((padding_factor * aline_length, number_alines), dtype=complex)
-    padded_transformed_buffer[:mid_length, :] = transformed_buffer[:mid_length, :]
-    padded_transformed_buffer[-(mid_length - 1):, :] = transformed_buffer[-(mid_length - 1):, :]
-    
-    zero_padded_buffer = np.real(np.fft.ifft(padded_transformed_buffer, axis=0)) * padding_factor
-    return zero_padded_buffer
+    os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
+    img = nib.Nifti1Image(Jstack_all.astype(np.float32), affine=np.eye(4))
+    nib.save(img, output_file)
 
 
-def interpolationwave(
-    parameters: Tuple[int, int, int, int, int, int],
-    calibration_data: Optional[dict] = None
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+# -----------------------
+# === Ported functions ===
+# -----------------------
+def Buffer2Jones(OriginalBuffer, PaddingFactor, AutoCorrPeakCut):
     """
-    Compute interpolated wavelengths for left and right channels.
-    
-    Parameters
-    ----------
-    parameters : tuple
-        (PaddingFactor, PaddingLength, OriginalLineLength1, Start1, OriginalLineLength2, Start2)
-    calibration_data : dict, optional
-        Dictionary with keys 'mu' (position arrays) and 'wave_prime' (wavelength samples).
-        If None, uses default calibration values.
-        
-    Returns
-    -------
-    wavelengths_l : np.ndarray
-        Left channel wavelengths in meters
-    wavelengths_r : np.ndarray
-        Right channel wavelengths in meters
-    interpolated_wavelengths : np.ndarray
-        Interpolated wavelength array
+    Ported from MATLAB Buffer2Jones.
+    OriginalBuffer shape: (L, Aline)
+    Returns: Jones of shape (Depth, Aline)
     """
-    padding_factor, padding_length, original_line_length1, start1, original_line_length2, start2 = parameters
-    
-    # Default calibration data (can be overridden)
-    if calibration_data is None:
-        # These are example values - in practice, load from calibration file
-        # For now, use a simple linear mapping
-        position_l = np.linspace(1, 2048, 18)
-        position_r = np.linspace(1, 2048, 18)
-        wave_sample = np.linspace(800, 870, 18)
+    L = OriginalBuffer.shape[0]
+    # MATLAB computed AlineLength = size(OriginalBuffer,1) / (2*PaddingFactor)
+    AlineLength = int(L / (2 * PaddingFactor))
+    # FFT along axis 0, length L
+    Jones = np.fft.fft(OriginalBuffer, n=L, axis=0)
+    # Keep only first AlineLength rows (MATLAB indexing 1:AlineLength)
+    Jones = Jones[:AlineLength, :]
+    # Remove autocorrelation peak rows 1:AutoCorrPeakCut (MATLAB indexing)
+    if AutoCorrPeakCut > 0:
+        Jones = Jones[AutoCorrPeakCut:, :]
+    return Jones
+
+
+def interpolationwave_101620(Parameters, calib_mat_path=CALIB_MAT_PATH):
+    """
+    Ported from MATLAB interpolationwave_101620; uses hardcoded calib_mat_path by default.
+    Parameters = [PaddingFactor, PaddingLength, OriginalLineLength1, Start1, OriginalLineLength2, Start2]
+    Returns:
+      Wavelengths_l, Wavelengths_r, InterpolatedWavelengths, Ks, Ko1, Ko2
+    """
+    PaddingFactor = Parameters[0]
+    PaddingLength = Parameters[1]
+    OriginalLineLength1 = Parameters[2]
+    Start1 = Parameters[3]
+    OriginalLineLength2 = Parameters[4]
+    Start2 = Parameters[5]
+
+    # Load calibration .mat (expects 'mu' Nx2 and 'wave_prime' or 'wave_sample')
+    m = loadmat(calib_mat_path)
+    if 'mu' not in m:
+        raise KeyError(f"Calibration .mat missing 'mu'. Keys: {list(m.keys())}")
+    mu = m['mu']
+    if 'wave_prime' in m:
+        wave_sample = m['wave_prime'].squeeze()
+    elif 'wave_sample' in m:
+        wave_sample = m['wave_sample'].squeeze()
     else:
-        mu = calibration_data.get('mu')
-        wave_prime = calibration_data.get('wave_prime')
-        if mu is None or wave_prime is None:
-            raise ValueError("calibration_data must contain 'mu' and 'wave_prime' keys")
-        position_l = mu[:, 0] if mu.ndim > 1 else mu
-        position_r = mu[:, 1] if mu.ndim > 1 and mu.shape[1] > 1 else mu
-        wave_sample = wave_prime.flatten() if wave_prime.ndim > 1 else wave_prime
-    
-    # Ensure wave_sample is 1D and matches position_l size
-    if wave_sample.ndim > 1:
-        wave_sample = wave_sample.flatten()
-    if len(wave_sample) != len(position_l):
-        wave_sample = wave_sample.T if wave_sample.shape[0] != len(position_l) else wave_sample
-    
-    # Polynomial fitting (linear)
+        raise KeyError("Calibration .mat missing 'wave_prime'/'wave_sample'")
+
+    position_l = mu[:, 0].squeeze()
+    position_r = mu[:, 1].squeeze()
+    wave_sample = np.asarray(wave_sample).squeeze()
+    if wave_sample.shape != position_l.shape:
+        wave_sample = wave_sample.reshape(position_l.shape)
+
+    # Linear fit (polyfit degree 1) and evaluate 1:2048
     pcoeff1 = np.polyfit(position_l, wave_sample, 1)
     pcoeff2 = np.polyfit(position_r, wave_sample, 1)
-    
-    x1 = np.arange(1, 2049)
+    x1 = np.arange(1, 2048 + 1)
+    x2 = np.arange(1, 2048 + 1)
     lamda_l = np.polyval(pcoeff1, x1)
-    x2 = np.arange(1, 2049)
     lamda_r = np.polyval(pcoeff2, x2)
-    
-    w_l = lamda_l[start1 - 1:start1 + original_line_length1 - 1]
-    w_r = lamda_r[start2 - 1:start2 + original_line_length2 - 1]
-    
-    xx1 = np.linspace(start1, start1 + original_line_length1 - 1, padding_length)
-    xx2 = np.linspace(start2, start2 + original_line_length2 - 1, padding_length)
-    
-    wavelengths_l = 1e-9 * np.interp(xx1, np.arange(start1, start1 + original_line_length1), w_l)
-    wavelengths_r = 1e-9 * np.interp(xx2, np.arange(start2, start2 + original_line_length2), w_r)
-    
-    min_k = 2 * np.pi / min(wavelengths_l[-1], wavelengths_r[-1])
-    max_k = 2 * np.pi / max(wavelengths_l[0], wavelengths_r[0])
-    
-    ks = np.flipud(np.linspace(min_k, max_k, padding_length))
-    interpolated_wavelengths = (2 * np.pi) / ks
-    
-    return wavelengths_l, wavelengths_r, interpolated_wavelengths
+
+    W_l = lamda_l[Start1 - 1: Start1 - 1 + OriginalLineLength1]
+    W_r = lamda_r[Start2 - 1: Start2 - 1 + OriginalLineLength2]
+
+    xx1 = np.linspace(Start1, Start1 + OriginalLineLength1 - 1, PaddingLength)
+    xx2 = np.linspace(Start2, Start2 + OriginalLineLength2 - 1, PaddingLength)
+
+    Wavelengths_l = 1e-9 * np.interp(xx1, np.arange(Start1, Start1 + OriginalLineLength1), W_l)
+    Wavelengths_r = 1e-9 * np.interp(xx2, np.arange(Start2, Start2 + OriginalLineLength2), W_r)
+
+    minK = 2.0 * np.pi / min(Wavelengths_l[-1], Wavelengths_r[-1])
+    maxK = 2.0 * np.pi / max(Wavelengths_l[0], Wavelengths_r[0])
+    Ks = np.flip(np.linspace(minK, maxK, PaddingLength))
+    InterpolatedWavelengths = (2.0 * np.pi) / Ks
+
+    Ko1 = (2.0 * np.pi) / Wavelengths_l
+    Ko2 = (2.0 * np.pi) / Wavelengths_r
+
+    return Wavelengths_l, Wavelengths_r, InterpolatedWavelengths, Ks, Ko1, Ko2
 
 
-def spectral2complex(
-    wavelength_buffers: List[Tuple[np.ndarray, np.ndarray]],
-    phase_dispersion1: np.ndarray,
-    phase_dispersion2: np.ndarray,
-    aline: int,
-    calibration_data: Optional[dict] = None,
-    auto_corr_peak_cut: int = 24,
-    padding_factor: int = 1,
-    original_line_length1: int = 2048,
-    original_line_length2: int = 2048,
-    start1: int = 1,
-    start2: int = 1,
-) -> np.ndarray:
+# -----------------------
+# === Core processing ===
+# -----------------------
+def s2c_v(spectral_array, disp_comp_file=None, AlineLength=2048, AutoCorrPeakCut=24, PaddingFactor=1):
     """
-    Convert wavelength buffer arrays to complex Jones stack.
-    
-    Parameters
-    ----------
-    wavelength_buffers : List[Tuple[np.ndarray, np.ndarray]]
-        List of (wavelength_buffer1, wavelength_buffer2) tuples for each B-line.
-        Each buffer should be shape (aline_length, aline) where aline_length is typically 2048.
-    phase_dispersion1 : np.ndarray
-        Phase dispersion correction for channel 1, shape (aline_length * padding_factor,)
-    phase_dispersion2 : np.ndarray
-        Phase dispersion correction for channel 2, shape (aline_length * padding_factor,)
-    aline : int
-        Number of A-lines
-    calibration_data : dict, optional
-        Calibration data for wavelength interpolation
-    auto_corr_peak_cut : int
-        Number of samples to cut from autocorrelation peak (default: 24)
-    padding_factor : int
-        Padding factor (default: 1)
-    original_line_length1 : int
-        Original line length for channel 1 (default: 2048)
-    original_line_length2 : int
-        Original line length for channel 2 (default: 2048)
-    start1 : int
-        Start index for channel 1 (default: 1)
-    start2 : int
-        Start index for channel 2 (default: 1)
-        
-    Returns
-    -------
-    np.ndarray
-        Complex Jones stack, shape (4*Bline, Aline, Depth)
-        Organized as [real(J1), imag(J1), real(J2), imag(J2)]
+    Process pre-reshaped spectral_array into Jstack_all and return it.
+
+    Input:
+      - spectral_array: MUST be shaped as (AlineLength, Aline, 2, Bline)
+                        (dtype can be uint16 or numeric; will be cast to float64)
+      - disp_comp_file: optional binary float64 dispersion correction file path (used for both channels)
+      - AlineLength, AutoCorrPeakCut, PaddingFactor: processing parameters (kept for compatibility)
+    Output:
+      - Jstack_all: numpy array shaped (4*Aline, Bline, Depth)
     """
-    bline = len(wavelength_buffers)
-    aline_length = wavelength_buffers[0][0].shape[0] if wavelength_buffers else 2048
-    depth_l = 1024 - auto_corr_peak_cut
-    
-    padding_length = 2048 * padding_factor
-    interpolation_parameters = (
-        padding_factor,
-        padding_length,
-        original_line_length1,
-        start1,
-        original_line_length2,
-        start2,
-    )
-    
-    wavelengths_l, wavelengths_r, interpolated_wavelengths = interpolationwave(
-        interpolation_parameters, calibration_data
-    )
-    
-    # Prepare phase corrections
-    phase_correction1 = np.exp(-1j * phase_dispersion1.reshape(aline_length * padding_factor, -1))
-    phase_correction1 = np.tile(phase_correction1, (1, aline))
-    
-    phase_correction2 = np.exp(-1j * phase_dispersion2.reshape(aline_length * padding_factor, -1))
-    phase_correction2 = np.tile(phase_correction2, (1, aline))
-    
-    # Stack all buffers into 3D arrays: (bline, aline_length, aline)
-    wavelength_buffer1_stack = np.stack([buf[0] for buf in wavelength_buffers], axis=0)
-    wavelength_buffer2_stack = np.stack([buf[1] for buf in wavelength_buffers], axis=0)
-    
-    # Flip channel 2 for all B-lines at once
-    wavelength_buffer2_stack = np.flip(wavelength_buffer2_stack, axis=1)
-    
-    # Mean subtraction - vectorized across all B-lines
-    refdata1 = np.mean(wavelength_buffer1_stack, axis=2, keepdims=True)  # (bline, aline_length, 1)
-    refdata2 = np.mean(wavelength_buffer2_stack, axis=2, keepdims=True)  # (bline, aline_length, 1)
-    mean_scan1 = wavelength_buffer1_stack - refdata1  # (bline, aline_length, aline)
-    mean_scan2 = wavelength_buffer2_stack - refdata2  # (bline, aline_length, aline)
-    
-    # Extract original buffers - vectorized slicing
-    original_buffer1 = mean_scan1[:, start1 - 1:start1 + original_line_length1 - 1, :]  # (bline, original_line_length1, aline)
-    original_buffer2 = mean_scan2[:, start2 - 1:start2 + original_line_length2 - 1, :]  # (bline, original_line_length2, aline)
-    
-    # Zero padding - vectorized across B-lines
-    # original_buffer1/2 are (bline, original_line_length, aline)
-    # We can apply FFT along the depth dimension (axis=1) for all B-lines at once
-    aline_length1 = original_buffer1.shape[1]
-    aline_length2 = original_buffer2.shape[1]
-    aline_dim = original_buffer1.shape[2]  # Number of A-lines
-    mid_length1 = aline_length1 // 2 + 1
-    mid_length2 = aline_length2 // 2 + 1
-    
-    # FFT along depth dimension (axis=1) for all B-lines
-    transformed_buffer1 = np.fft.fft(original_buffer1, axis=1)  # (bline, original_line_length1, aline)
-    transformed_buffer2 = np.fft.fft(original_buffer2, axis=1)  # (bline, original_line_length2, aline)
-    
-    # Adjust middle point
-    transformed_buffer1[:, mid_length1 - 1, :] = transformed_buffer1[:, mid_length1 - 1, :] / 2
-    transformed_buffer2[:, mid_length2 - 1, :] = transformed_buffer2[:, mid_length2 - 1, :] / 2
-    
-    # Create padded buffers
-    padding_length1 = padding_factor * aline_length1
-    padding_length2 = padding_factor * aline_length2
-    padded_transformed_buffer1 = np.zeros(
-        (bline, padding_length1, aline_dim), dtype=complex
-    )
-    padded_transformed_buffer2 = np.zeros(
-        (bline, padding_length2, aline_dim), dtype=complex
-    )
-    
-    # Copy FFT data to padded buffers
-    padded_transformed_buffer1[:, :mid_length1, :] = transformed_buffer1[:, :mid_length1, :]
-    padded_transformed_buffer1[:, -(mid_length1 - 1):, :] = transformed_buffer1[:, -(mid_length1 - 1):, :]
-    
-    padded_transformed_buffer2[:, :mid_length2, :] = transformed_buffer2[:, :mid_length2, :]
-    padded_transformed_buffer2[:, -(mid_length2 - 1):, :] = transformed_buffer2[:, -(mid_length2 - 1):, :]
-    
-    # IFFT and take real part
-    zero_padded_buffer1 = np.real(np.fft.ifft(padded_transformed_buffer1, axis=1)) * padding_factor
-    zero_padded_buffer2 = np.real(np.fft.ifft(padded_transformed_buffer2, axis=1)) * padding_factor
-    # Result: (bline, padding_length, aline)
-    
-    # Interpolation - vectorized using np.interp
-    # Reshape for interpolation: (bline * aline, padding_length)
-    bline_dim, padding_len, aline_dim = zero_padded_buffer1.shape
-    interp_len = len(interpolated_wavelengths)
-    
-    zero_padded_buffer1_flat = zero_padded_buffer1.transpose(0, 2, 1).reshape(bline_dim * aline_dim, padding_len)
-    zero_padded_buffer2_flat = zero_padded_buffer2.transpose(0, 2, 1).reshape(bline_dim * aline_dim, padding_len)
-    
-    # Vectorized interpolation: np.interp is fast and works well in a loop over rows
-    # This is much better than the original loop since we've vectorized all other operations
-    interpolated_buffer1_flat = np.array([
-        np.interp(interpolated_wavelengths, wavelengths_l, zero_padded_buffer1_flat[i, :])
-        for i in range(bline_dim * aline_dim)
-    ])
-    interpolated_buffer2_flat = np.array([
-        np.interp(interpolated_wavelengths, wavelengths_r, zero_padded_buffer2_flat[i, :])
-        for i in range(bline_dim * aline_dim)
-    ])
-    
-    # Reshape back: (bline, aline, interp_len) -> (bline, interp_len, aline)
-    interpolated_buffer1 = interpolated_buffer1_flat.reshape(bline_dim, aline_dim, interp_len).transpose(0, 2, 1)
-    interpolated_buffer2 = interpolated_buffer2_flat.reshape(bline_dim, aline_dim, interp_len).transpose(0, 2, 1)
-    
-    # Median subtraction - vectorized
-    median1 = np.median(interpolated_buffer1, axis=1, keepdims=True)  # (bline, 1, aline)
-    median2 = np.median(interpolated_buffer2, axis=1, keepdims=True)  # (bline, 1, aline)
-    interpolated_buffer1 = interpolated_buffer1 - median1
-    interpolated_buffer2 = interpolated_buffer2 - median2
-    
-    # Apply phase correction - vectorized
-    # phase_correction1 is (padding_length, aline), need to broadcast to (bline, padding_length, aline)
-    phase_corr1_broadcast = phase_correction1[None, :, :]  # (1, padding_length, aline)
-    phase_corr2_broadcast = phase_correction2[None, :, :]  # (1, padding_length, aline)
-    interpolated_buffer1 = interpolated_buffer1 * phase_corr1_broadcast
-    interpolated_buffer2 = interpolated_buffer2 * phase_corr2_broadcast
-    
-    # Compute Jones vectors - vectorized FFT
-    # buffer2jones works on (depth, aline), we have (bline, padding_length, aline)
-    # Apply FFT along axis 1 (depth dimension) for all B-lines
-    aline_length_fft = interpolated_buffer1.shape[1] // (2 * padding_factor)
-    jones1_all = np.fft.fft(interpolated_buffer1, axis=1)  # (bline, padding_length, aline)
-    jones1_all = jones1_all[:, :aline_length_fft, :]  # (bline, aline_length_fft, aline)
-    jones1_all = jones1_all[:, auto_corr_peak_cut:, :]  # (bline, depth_l, aline)
-    
-    jones2_all = np.fft.fft(interpolated_buffer2, axis=1)  # (bline, padding_length, aline)
-    jones2_all = jones2_all[:, :aline_length_fft, :]  # (bline, aline_length_fft, aline)
-    jones2_all = jones2_all[:, auto_corr_peak_cut:, :]  # (bline, depth_l, aline)
-    
-    # Transpose to get (bline, aline, depth_l)
-    jones1_3d = jones1_all.transpose(0, 2, 1)  # (bline, aline, depth_l)
-    jones2_3d = jones2_all.transpose(0, 2, 1)  # (bline, aline, depth_l)
-    
-    # Permute to Aline x Bline x Depth
-    jones1_3d = np.transpose(jones1_3d, (1, 0, 2))
-    jones2_3d = np.transpose(jones2_3d, (1, 0, 2))
-    
-    # Split into real/imaginary and concatenate
-    j1_real = np.real(jones1_3d)
-    j1_imag = np.imag(jones1_3d)
-    j1_split = np.concatenate([j1_real, j1_imag], axis=0)  # (2*Bline) x Aline x Depth
-    
-    j2_real = np.real(jones2_3d)
-    j2_imag = np.imag(jones2_3d)
-    j2_split = np.concatenate([j2_real, j2_imag], axis=0)  # (2*Bline) x Aline x Depth
-    
-    # Final concatenation
-    jstack_all = np.concatenate([j1_split, j2_split], axis=0)  # (4*Bline) x Aline x Depth
-    jstack_all = np.flip(jstack_all, axis=2)
-    
-    return jstack_all
+    t0 = time.time()
+
+    arr = np.asarray(spectral_array)
+    if arr.ndim != 4:
+        raise ValueError("spectral_array must be 4-D shaped (AlineLength, Aline, 2, Bline).")
+    if arr.shape[0] != AlineLength:
+        raise ValueError(f"First dimension must equal AlineLength={AlineLength}.")
+
+    # Unpack dims
+    _, Aline, channels, Bline = arr.shape
+    if channels != 2:
+        raise ValueError("Third dimension must be 2 (two channels).")
+
+    # Extract channel buffers; follow MATLAB order: channel1 = arr[:,:,0,:], channel2 = arr[:,:,1,:] and flip channel2 along first axis
+    WavelengthBuffer1_all = arr[:, :, 0, :].astype(np.float64)
+    WavelengthBuffer2_all = arr[:, :, 1, :].astype(np.float64)
+    for k in range(Bline):
+        WavelengthBuffer2_all[:, :, k] = np.flipud(WavelengthBuffer2_all[:, :, k])
+
+    # Basic derived params
+    PaddingLength = AlineLength * PaddingFactor
+    OriginalLineLength1 = AlineLength
+    OriginalLineLength2 = AlineLength
+    InterpolationParameters = [PaddingFactor, PaddingLength, OriginalLineLength1, 1, OriginalLineLength2, 1]  # Start1/Start2 always 1
+
+    # Get wavelengths from hardcoded calibration .mat
+    Wavelengths_l, Wavelengths_r, InterpolatedWavelengths2, Ks, Ko1, Ko2 = interpolationwave_101620(InterpolationParameters, calib_mat_path=CALIB_MAT_PATH)
+    newLen = InterpolatedWavelengths2.shape[0]
+
+    # Load dispersion correction if provided (same for both channels)
+    if disp_comp_file is not None:
+        phaseDispersion = np.fromfile(disp_comp_file, dtype=np.float64)
+        phaseDispersion1 = phaseDispersion2 = phaseDispersion
+    else:
+        phaseDispersion1 = phaseDispersion2 = np.zeros(PaddingLength, dtype=np.float64)
+
+    # Preallocate Jones stacks: Bline x Aline x Depth
+    DepthL = 1024 - AutoCorrPeakCut
+    Jones1_3D = np.zeros((Bline, Aline, DepthL), dtype=np.complex128)
+    Jones2_3D = np.zeros((Bline, Aline, DepthL), dtype=np.complex128)
+
+    # Mean subtraction across Aline
+    refdata1_all = np.mean(WavelengthBuffer1_all, axis=1, keepdims=True)
+    refdata2_all = np.mean(WavelengthBuffer2_all, axis=1, keepdims=True)
+    MeanScan1_all = WavelengthBuffer1_all - refdata1_all
+    MeanScan2_all = WavelengthBuffer2_all - refdata2_all
+
+    # Extract original buffers (Start=1 -> indices 0:OriginalLineLength)
+    OriginalBuffer1_all = MeanScan1_all[0:OriginalLineLength1, :, :]
+    OriginalBuffer2_all = MeanScan2_all[0:OriginalLineLength2, :, :]
+
+    # ZeroPadBuffer simple implementation (replace if you have different rules)
+    def ZeroPadBuffer_simple(buf2d, pad_factor):
+        if pad_factor == 1:
+            return buf2d.copy()
+        L_orig, A = buf2d.shape
+        L_pad = L_orig * pad_factor
+        out = np.zeros((L_pad, A), dtype=buf2d.dtype)
+        out[:L_orig, :] = buf2d
+        return out
+
+    ZeroPaddedBuffer1_all = np.zeros((PaddingLength, Aline, Bline), dtype=np.float64)
+    ZeroPaddedBuffer2_all = np.zeros((PaddingLength, Aline, Bline), dtype=np.float64)
+    for k in range(Bline):
+        ZeroPaddedBuffer1_all[:, :, k] = ZeroPadBuffer_simple(OriginalBuffer1_all[:, :, k], PaddingFactor)
+        ZeroPaddedBuffer2_all[:, :, k] = ZeroPadBuffer_simple(OriginalBuffer2_all[:, :, k], PaddingFactor)
+
+    # Interpolation: reshape to 2D (L_in x (Aline*Bline))
+    L_in = ZeroPaddedBuffer1_all.shape[0]
+    Z1_2D = ZeroPaddedBuffer1_all.reshape(L_in, Aline * Bline, order='F')
+    Z2_2D = ZeroPaddedBuffer2_all.reshape(L_in, Aline * Bline, order='F')
+
+    x1 = Wavelengths_l
+    x2 = Wavelengths_r
+    x_new = InterpolatedWavelengths2
+
+    f1 = interpolate.interp1d(x1, Z1_2D, kind='linear', axis=0, fill_value='extrapolate', assume_sorted=True)
+    f2 = interpolate.interp1d(x2, Z2_2D, kind='linear', axis=0, fill_value='extrapolate', assume_sorted=True)
+    Interp1_2D = f1(x_new)
+    Interp2_2D = f2(x_new)
+
+    InterpolatedBuffer1_all = np.reshape(Interp1_2D, (newLen, Aline, Bline), order='F')
+    InterpolatedBuffer2_all = np.reshape(Interp2_2D, (newLen, Aline, Bline), order='F')
 
 
-def read_spectral_file(
-    filename: str,
-    aline_length: int=2048,
-    aline: int=200,
-    bline: int=350,
-    header_size: int = 352
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Read spectral data for a specific B-line from binary file.
-    
-    Parameters
-    ----------
-    filename : str
-        Path to spectral data file
-    file_ind : int
-        B-line index (0-based)
-    aline_length : int
-        Length of each A-line (typically 2048)
-    aline : int
-        Number of A-lines
-    header_size : int
-        Size of file header in bytes (default: 352)
-        
-    Returns
-    -------
-    wavelength_buffer1 : np.ndarray
-        Channel 1 data, shape (aline_length, aline) - raw, not flipped
-    wavelength_buffer2 : np.ndarray
-        Channel 2 data, shape (aline_length, aline) - raw, not flipped
-        (s2c_array will handle the flipping)
-    """
-    with open(filename, 'rb') as fid:
-        # Read channel 1
-        offset1 = header_size
-        fid.seek(offset1)
-        data = np.fromfile(fid, dtype=np.uint16, count=aline_length * aline * 2 * bline)
-        data = data.reshape(bline,aline,2,aline_length)
-        wavelength_buffer1 = data[:,:,0,:]
-        wavelength_buffer2 = data[:,:,1,:]
-        # data1 = np.frombuffer(fid.read(aline_length * aline * 2), dtype=np.uint16)
-        # wavelength_buffer1 = data1[:aline_length * aline].reshape(aline_length, aline)
-        
-        # # Read channel 2 (raw, s2c_array will flip it)
-        # offset2 = offset1 + aline_length * aline * 2
-        # fid.seek(offset2)
-        # data2 = np.frombuffer(fid.read(aline_length * aline * 2), dtype=np.uint16)
-        # wavelength_buffer2 = data2[:aline_length * aline].reshape(aline_length, aline)
-    
-    return wavelength_buffer1, wavelength_buffer2
+    med1 = np.median(InterpolatedBuffer1_all, axis=1, keepdims=True)
+    med2 = np.median(InterpolatedBuffer2_all, axis=1, keepdims=True)
+    InterpolatedBuffer1_all-= med1
+    InterpolatedBuffer2_all-= med2
+
+    # phase correction (interpolate dispersion to newLen if needed)
+    def make_phase_correction(phaseDispersion, target_len, Aline):
+        if phaseDispersion.size == target_len:
+            ph = phaseDispersion
+        else:
+            idx_old = np.linspace(0.0, 1.0, phaseDispersion.size)
+            idx_new = np.linspace(0.0, 1.0, target_len)
+            ph = np.interp(idx_new, idx_old, phaseDispersion)
+        phase_correction = np.exp(-1j * ph)
+        return np.tile(phase_correction.reshape(target_len, 1), (1, Aline))
+
+    phaseCorrection1 = make_phase_correction(phaseDispersion1, newLen, Aline)
+    phaseCorrection2 = make_phase_correction(phaseDispersion2, newLen, Aline)
+
+    InterpolatedBuffer1_all=  np.multiply(InterpolatedBuffer1_all, phaseCorrection1[...,None],casting='unsafe')
+    InterpolatedBuffer2_all= np.multiply(InterpolatedBuffer2_all,phaseCorrection2[...,None],casting='unsafe')
+
+    # Compute Jones per B-line using Buffer2Jones
+    for FileInd in range(Bline):
+        if (FileInd + 1) % 50 == 0:
+            print(f" bline {FileInd + 1}")
+        InterpBuf1 = InterpolatedBuffer1_all[:, :, FileInd]  # newLen x Aline
+        InterpBuf2 = InterpolatedBuffer2_all[:, :, FileInd]
+        Jones1 = Buffer2Jones(InterpBuf1, PaddingFactor, AutoCorrPeakCut)  # Depth x Aline
+        Jones2 = Buffer2Jones(InterpBuf2, PaddingFactor, AutoCorrPeakCut)
+        Jones1_3D[FileInd, :, :] = Jones1.T
+        Jones2_3D[FileInd, :, :] = Jones2.T
+
+    # permute to Aline x Bline x Depth
+    Jones1_3D = np.transpose(Jones1_3D, (1, 0, 2))
+    Jones2_3D = np.transpose(Jones2_3D, (1, 0, 2))
+
+    # split real & imag, concat
+    J1_real = np.real(Jones1_3D)
+    J1_imag = -np.imag(Jones1_3D)
+
+    J1_split = np.concatenate((J1_real, J1_imag), axis=0)
+
+    J2_real = np.real(Jones2_3D)
+    J2_imag = -np.imag(Jones2_3D)
+    J2_split = np.concatenate((J2_real, J2_imag), axis=0)
+
+    Jstack_all = np.concatenate((J1_split, J2_split), axis=0)
+
+    # flip depth axis (MATLAB flip along 3rd dim)
+    Jstack_all = np.flip(Jstack_all, axis=2)
+
+    elapsed = time.time() - t0
+    print(f"s2c_v done. elapsed: {elapsed:.1f}s. Output shape: {Jstack_all.shape}")
+
+    return Jstack_all
 
 
-def s2c_file(
-    filename: str,
-    file_num: int,
-    disp_comp_file: str,
-    aline_length: int,
-    bline_length: int,
-    output_path: str,
-    calibration_data: Optional[dict] = None,
-    auto_corr_peak_cut: int = 24,
-    padding_factor: int = 1,
-    original_line_length1: int = 2048,
-    original_line_length2: int = 2048,
-    start1: int = 1,
-    start2: int = 1,
-) -> str:
-    """
-    Process spectral file and save complex Jones stack to NIfTI.
-    
-    Parameters
-    ----------
-    filename : str
-        Path to input spectral file
-    file_num : int
-        File number (for logging)
-    disp_comp_file : str
-        Path to dispersion compensation file (binary, double precision)
-    aline_length : int
-        Number of A-lines
-    bline_length : int
-        Number of B-lines
-    output_path : str
-        Output directory path
-    calibration_data : dict, optional
-        Calibration data for wavelength interpolation
-    auto_corr_peak_cut : int
-        Number of samples to cut from autocorrelation peak (default: 24)
-    padding_factor : int
-        Padding factor (default: 1)
-    original_line_length1 : int
-        Original line length for channel 1 (default: 2048)
-    original_line_length2 : int
-        Original line length for channel 2 (default: 2048)
-    start1 : int
-        Start index for channel 1 (default: 1)
-    start2 : int
-        Start index for channel 2 (default: 1)
-        
-    Returns
-    -------
-    str
-        Path to output file
-    """
-    # Generate output filename
-    input_path = Path(filename)
-    base_name = input_path.stem
-    
-    # Replace anything starting with 'spectral' and ending before extension with 'processed_cropped'
-    # Equivalent to MATLAB: regexprep(base_name, 'spectral.*$', 'processed_cropped')
-    new_base = re.sub(r'spectral.*$', 'processed_cropped', base_name, flags=re.IGNORECASE)
-    
-    output_file = Path(output_path) / f"{new_base}.nii"
-    
-    if output_file.exists():
-        print(f"Output file already exists: {output_file}")
-        return str(output_file)
-    
-    print(f'aline = {aline_length}; bline = {bline_length}')
-    
-    # Read dispersion compensation file (same file used for both channels)
-    with open(disp_comp_file, 'rb') as f:
-        phase_dispersion_data = np.frombuffer(f.read(), dtype=np.float64)
-    phase_dispersion1 = phase_dispersion_data
-    phase_dispersion2 = phase_dispersion_data
-    
-    # Read all wavelength buffers from file
-    aline = aline_length
-    wavelength_buffers = []
-    for file_ind in range(bline_length):
-        if (file_ind + 1) % 50 == 0:
-            print(f'Reading bline {file_ind + 1}/{bline_length}')
-        wavelength_buffer1, wavelength_buffer2 = read_spectral_file(
-            filename, file_ind, aline_length, aline
-        )
-        wavelength_buffers.append((wavelength_buffer1, wavelength_buffer2))
-    
-    # Process using s2c_array
-    jstack_all = spectral2complex(
-        wavelength_buffers=wavelength_buffers,
-        phase_dispersion1=phase_dispersion1,
-        phase_dispersion2=phase_dispersion2,
-        aline=aline,
-        calibration_data=calibration_data,
-        auto_corr_peak_cut=auto_corr_peak_cut,
-        padding_factor=padding_factor,
-        original_line_length1=original_line_length1,
-        original_line_length2=original_line_length2,
-        start1=start1,
-        start2=start2,
-    )
-    
-    # Save to NIfTI
-    print(f'Saving output to: {output_file}')
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Create NIfTI image
-    img = nib.Nifti1Image(jstack_all.astype(np.float32), affine=np.eye(4))
-    nib.save(img, str(output_file))
-    
-    return str(output_file)
+# -----------------------
+# === Minimal CLI ===
+# -----------------------
+def parse_args():
+    import argparse
+    p = argparse.ArgumentParser(description="s2c_v CLI (expects pre-reshaped spectral array).")
+    p.add_argument("input_file", help="Input binary spectral filename (352-byte header expected). Use read_spectral_file_raw then reshape externally.")
+    p.add_argument("--reshape", nargs=4, type=int, metavar=('AlineLength','Aline','channels','Bline'),
+                   help="If provided, the CLI will reshape the raw uint16 to this shape (must match file layout). Example: --reshape 2048 64 2 128")
+    p.add_argument("--disp_comp", default=None, help="Optional dispersion correction binary float64 file (applied to both channels).")
+    p.add_argument("--save", action='store_true', help="If set, save output NIfTI to --output")
+    p.add_argument("--output", default=".", help="Output path or filename (if --save).")
+    return p.parse_args()
 
 
-def main():
-    """CLI entry point for s2c."""
-    parser = argparse.ArgumentParser(
-        description='Convert spectral OCT data to complex Jones stack',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        'filename',
-        type=str,
-        help='Path to input spectral file'
-    )
-    parser.add_argument(
-        '--disp-comp-file',
-        type=str,
-        required=True,
-        help='Path to dispersion compensation file (binary, double precision)'
-    )
-    parser.add_argument(
-        '--aline',
-        type=int,
-        required=True,
-        help='Number of A-lines'
-    )
-    parser.add_argument(
-        '--bline',
-        type=int,
-        required=True,
-        help='Number of B-lines'
-    )
-    parser.add_argument(
-        '--output-path',
-        type=str,
-        default='.',
-        help='Output directory path (default: current directory)'
-    )
-    parser.add_argument(
-        '--file-num',
-        type=int,
-        default=1,
-        help='File number for logging (default: 1)'
-    )
-    parser.add_argument(
-        '--auto-corr-peak-cut',
-        type=int,
-        default=24,
-        help='Number of samples to cut from autocorrelation peak (default: 24)'
-    )
-    parser.add_argument(
-        '--padding-factor',
-        type=int,
-        default=1,
-        help='Padding factor (default: 1)'
-    )
-    
-    args = parser.parse_args()
-    
-    # Validate inputs
-    if not os.path.exists(args.filename):
-        print(f"Error: Input file not found: {args.filename}", file=sys.stderr)
-        sys.exit(1)
-    
-    if not os.path.exists(args.disp_comp_file):
-        print(f"Error: Dispersion compensation file not found: {args.disp_comp_file}", file=sys.stderr)
-        sys.exit(1)
-    
-    # Process file
-    try:
-        output_file = s2c_file(
-            filename=args.filename,
-            file_num=args.file_num,
-            disp_comp_file=args.disp_comp_file,
-            aline_length=args.aline,
-            bline_length=args.bline,
-            output_path=args.output_path,
-            auto_corr_peak_cut=args.auto_corr_peak_cut,
-            padding_factor=args.padding_factor,
-        )
-        print(f"Successfully processed: {output_file}")
-    except Exception as e:
-        print(f"Error processing file: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+if __name__ == "__main__":
+    args = parse_args()
+    raw = read_spectral_file_raw(args.input_file)
+    if args.reshape:
+        AlineLength_r, Aline_r, channels_r, Bline_r = args.reshape
+        if channels_r != 2:
+            raise SystemExit("channels must be 2 when reshaping.")
+        # reshape using MATLAB column-major mapping
+        arr = np.reshape(raw, (AlineLength_r, Aline_r, channels_r, Bline_r), order='F')
+    else:
+        raise SystemExit("CLI requires --reshape to be provided (this tool expects pre-reshaped input).")
 
-
-if __name__ == '__main__':
-    main()
-
+    Jstack = s2c_v(arr, disp_comp_file=args.disp_comp, AlineLength=AlineLength_r)
+    print("Jstack_all shape:", Jstack.shape)
+    if args.save:
+        base_name = os.path.splitext(os.path.basename(args.input_file))[0]
+        new_base = re.sub(r'spectral.*$', 'processed_cropped', base_name)
+        out_file = args.output if os.path.splitext(args.output)[1] else os.path.join(args.output, new_base + '.nii')
+        save_jstack_nifti(Jstack, out_file)
+        print("Saved:", out_file)
