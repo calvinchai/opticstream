@@ -13,17 +13,6 @@ def load_spetral_file_raw(file_path,aline_length=200, bline_length=350, nifti_he
 # load_spetral_file_raw('/autofs/space/zircon_006/users/data/I55_spectralraw_slice5_20251124/mosaic_002_image_330_spectral_0764.nii')
 
 
-"""
-s2c_v.py — simplified per user request.
-
-Requirements:
-  - Input to s2c_v must already be reshaped to (AlineLength, Aline, 2, Bline).
-  - s2c_v returns Jstack_all only (no saving).
-  - calibration .mat path is hardcoded in CALIB_MAT_PATH.
-  - disp_comp_file (if provided) is used for both channels.
-Dependencies:
-  pip install numpy scipy nibabel
-"""
 
 import os
 import re
@@ -39,7 +28,7 @@ from math import sqrt
 # -----------------------
 # Hardcode your calibration .mat path here (must contain 'mu' Nx2 and 'wave_prime')
 CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/Hui/PSCalibration/SpectrometerCal_10xw_20201016/wave-pixel.mat"
-
+CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/calibration_nov21/calibration/wave-pixel.mat"
 
 # -----------------------
 # === Utility I/O funcs ===
@@ -87,7 +76,7 @@ def Buffer2Jones(OriginalBuffer, PaddingFactor, AutoCorrPeakCut):
     return Jones
 
 
-def interpolationwave_101620(Parameters, calib_mat_path=CALIB_MAT_PATH):
+def interpolationwave(Parameters, calib_mat_path=CALIB_MAT_PATH):
     """
     Ported from MATLAB interpolationwave_101620; uses hardcoded calib_mat_path by default.
     Parameters = [PaddingFactor, PaddingLength, OriginalLineLength1, Start1, OriginalLineLength2, Start2]
@@ -150,7 +139,7 @@ def interpolationwave_101620(Parameters, calib_mat_path=CALIB_MAT_PATH):
 # -----------------------
 # === Core processing ===
 # -----------------------
-def s2c_v(spectral_array, disp_comp_file=None, AlineLength=2048, AutoCorrPeakCut=24, PaddingFactor=1):
+def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, AutoCorrPeakCut=24, PaddingFactor=1):
     """
     Process pre-reshaped spectral_array into Jstack_all and return it.
 
@@ -188,7 +177,7 @@ def s2c_v(spectral_array, disp_comp_file=None, AlineLength=2048, AutoCorrPeakCut
     InterpolationParameters = [PaddingFactor, PaddingLength, OriginalLineLength1, 1, OriginalLineLength2, 1]  # Start1/Start2 always 1
 
     # Get wavelengths from hardcoded calibration .mat
-    Wavelengths_l, Wavelengths_r, InterpolatedWavelengths2, Ks, Ko1, Ko2 = interpolationwave_101620(InterpolationParameters, calib_mat_path=CALIB_MAT_PATH)
+    Wavelengths_l, Wavelengths_r, InterpolatedWavelengths2, Ks, Ko1, Ko2 = interpolationwave(InterpolationParameters, calib_mat_path=CALIB_MAT_PATH)
     newLen = InterpolatedWavelengths2.shape[0]
 
     # Load dispersion correction if provided (same for both channels)
@@ -269,16 +258,24 @@ def s2c_v(spectral_array, disp_comp_file=None, AlineLength=2048, AutoCorrPeakCut
     InterpolatedBuffer1_all=  np.multiply(InterpolatedBuffer1_all, phaseCorrection1[...,None],casting='unsafe')
     InterpolatedBuffer2_all= np.multiply(InterpolatedBuffer2_all,phaseCorrection2[...,None],casting='unsafe')
 
-    # Compute Jones per B-line using Buffer2Jones
-    for FileInd in range(Bline):
-        if (FileInd + 1) % 50 == 0:
-            print(f" bline {FileInd + 1}")
-        InterpBuf1 = InterpolatedBuffer1_all[:, :, FileInd]  # newLen x Aline
-        InterpBuf2 = InterpolatedBuffer2_all[:, :, FileInd]
-        Jones1 = Buffer2Jones(InterpBuf1, PaddingFactor, AutoCorrPeakCut)  # Depth x Aline
-        Jones2 = Buffer2Jones(InterpBuf2, PaddingFactor, AutoCorrPeakCut)
-        Jones1_3D[FileInd, :, :] = Jones1.T
-        Jones2_3D[FileInd, :, :] = Jones2.T
+    InterpBuf1_big = InterpolatedBuffer1_all.reshape((newLen, Aline * Bline), order='F')
+    InterpBuf2_big = InterpolatedBuffer2_all.reshape((newLen, Aline * Bline), order='F')
+
+    # Single call per channel
+    Jones1_big = Buffer2Jones(InterpBuf1_big, PaddingFactor,
+                              AutoCorrPeakCut)  # Depth x (Aline*Bline)
+    Jones2_big = Buffer2Jones(InterpBuf2_big, PaddingFactor, AutoCorrPeakCut)
+
+    # Depth is rows in Jones_big
+    Depth = Jones1_big.shape[0]
+
+    # Reshape back to (Depth, Aline, Bline) using column-major ordering so grouping matches original loop
+    Jones1_depth_first = Jones1_big.reshape((Depth, Aline, Bline), order='F')
+    Jones2_depth_first = Jones2_big.reshape((Depth, Aline, Bline), order='F')
+
+    # Permute to original Jones1_3D / Jones2_3D layout (Bline x Aline x Depth)
+    Jones1_3D = np.transpose(Jones1_depth_first, (2, 1, 0))
+    Jones2_3D = np.transpose(Jones2_depth_first, (2, 1, 0))
 
     # permute to Aline x Bline x Depth
     Jones1_3D = np.transpose(Jones1_3D, (1, 0, 2))
@@ -332,7 +329,7 @@ if __name__ == "__main__":
     else:
         raise SystemExit("CLI requires --reshape to be provided (this tool expects pre-reshaped input).")
 
-    Jstack = s2c_v(arr, disp_comp_file=args.disp_comp, AlineLength=AlineLength_r)
+    Jstack = spectral2complex(arr, disp_comp_file=args.disp_comp, AlineLength=AlineLength_r)
     print("Jstack_all shape:", Jstack.shape)
     if args.save:
         base_name = os.path.splitext(os.path.basename(args.input_file))[0]

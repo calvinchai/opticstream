@@ -8,11 +8,11 @@ import dask.array as da
 import numpy as np
 from numpy.typing import ArrayLike
 
-def _to_dask(arr: ArrayLike) -> da.Array:
+def _to_dask(arr: ArrayLike, chunks="auto") -> da.Array:
     """Convert array-like to dask array."""
     if isinstance(arr, da.Array):
         return arr
-    return da.from_array(np.asarray(arr), chunks="auto")
+    return da.from_array(np.asarray(arr), chunks=chunks)
 
 def _normalize_overlap(
     overlap: Union[int, Tuple[int, int]],
