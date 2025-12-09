@@ -1,17 +1,6 @@
-import numpy as np
-
-
-def load_spetral_file_raw(file_path,aline_length=200, bline_length=350, nifti_header_size = 352):
-        file = open(file_path,'rb')
-        file.seek(nifti_header_size)
-        data = np.fromfile(file,np.uint16,aline_length*bline_length*4096)
-        data = data.reshape((bline_length,2,2048,aline_length))
-        file.close()
-        return data
 
 
 # load_spetral_file_raw('/autofs/space/zircon_006/users/data/I55_spectralraw_slice5_20251124/mosaic_002_image_330_spectral_0764.nii')
-
 
 
 import os
@@ -33,6 +22,18 @@ CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/calibration_nov21/calibration/w
 # -----------------------
 # === Utility I/O funcs ===
 # -----------------------
+
+
+def load_spectral_file_raw(file_path,aline_length=200, bline_length=350, nifti_header_size = 352):
+        file = open(file_path,'rb')
+        file.seek(nifti_header_size)
+        data = np.fromfile(file,np.uint16,aline_length*bline_length*4096)
+        data = data.reshape((bline_length,2,2048,aline_length))
+        file.close()
+        return data
+
+
+
 def read_spectral_file_raw(filename, header_bytes=352):
     """
     Read binary spectral file and return raw uint16 array (no reshaping).

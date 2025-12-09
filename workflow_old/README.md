@@ -10,6 +10,19 @@ This workflow processes spectral raw data through multiple stages:
 3. **Slice Processing**: Registration of normal and tilted illuminations
 4. **Multi-Slice Processing**: Stacking of 2D images and 3D volumes
 
+### Prefect Assets
+
+All file outputs are tracked as **Prefect assets** using `MaterializationResult`. This provides:
+- **Data Lineage**: Track which tasks produced which files
+- **Dependency Tracking**: Understand file dependencies across the workflow
+- **Caching**: Prefect can detect when assets already exist and skip regeneration
+- **Visibility**: View all data artifacts in the Prefect UI
+
+Each saved file is returned as a `MaterializationResult` with:
+- Unique asset key (e.g., `mosaic_001_tile_0_dbi`)
+- Description of the asset
+- Metadata including file path, modality, and processing parameters
+
 ## Architecture
 
 The workflow follows a hierarchical flow structure:

@@ -1,6 +1,6 @@
 import dask.array as da
 
-def process_complex3d(complex3d: da.Array) -> tuple[da.Array, da.Array, da.Array]:
+def complex2volume(complex3d: da.Array, flip_orientation: bool = False, offset: float = 100) -> tuple[da.Array, da.Array, da.Array]:
     if complex3d.shape[0] % 4 != 0:
         raise ValueError("First dimension size must be multiple of 4.")
     raw_tile_width = complex3d.shape[0] // 4
@@ -19,8 +19,11 @@ def process_complex3d(complex3d: da.Array) -> tuple[da.Array, da.Array, da.Array
             da.arctan(mag1 / mag2) / da.pi * 180,
             axis=2
             )
-    offset = 100 / 180 * da.pi
-    phi = da.angle(j1) - da.angle(j2) + offset * 2
+    offset = da.deg2rad(offset)
+    if not flip_orientation:
+        phi = da.angle(j1) - da.angle(j2) + offset * 2
+    else:
+        phi = da.angle(j2) - da.angle(j1) + offset * 2
     # wrap into [-π, π]
     phi = da.where(phi > da.pi, phi - 2 * da.pi, phi)
     phi = da.where(phi < -da.pi, phi + 2 * da.pi, phi)

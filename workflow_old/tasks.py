@@ -13,8 +13,47 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Tuple, Any
 from prefect import task
 from prefect.tasks import task_input_hash
+from prefect.results import MaterializationResult
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def extract_path_from_asset(asset: MaterializationResult) -> str:
+    """
+    Extract file path from MaterializationResult asset.
+    
+    Parameters
+    ----------
+    asset : MaterializationResult
+        Asset containing file metadata
+    
+    Returns
+    -------
+    str
+        File path from asset metadata
+    """
+    return asset.metadata.get("path", "")
+
+
+def extract_paths_from_assets(assets: Dict[str, MaterializationResult]) -> Dict[str, str]:
+    """
+    Extract file paths from dictionary of MaterializationResult assets.
+    
+    Parameters
+    ----------
+    assets : Dict[str, MaterializationResult]
+        Dictionary of assets
+    
+    Returns
+    -------
+    Dict[str, str]
+        Dictionary of file paths
+    """
+    return {k: extract_path_from_asset(v) for k, v in assets.items()}
 
 
 # ============================================================================
@@ -170,9 +209,9 @@ def save_volumes_task(
     output_base_path: str,
     mosaic_id: str,
     tile_index: int
-) -> Dict[str, str]:
+) -> Dict[str, MaterializationResult]:
     """
-    Save 3D volumes to disk.
+    Save 3D volumes to disk as Prefect assets.
     
     Parameters
     ----------
@@ -187,24 +226,32 @@ def save_volumes_task(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved volume files
+    Dict[str, MaterializationResult]
+        Dictionary with MaterializationResult assets for each volume file
     """
     logger.info(f"Saving volumes for {mosaic_id} tile {tile_index}")
     
     output_dir = Path(output_base_path) / "processed"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    volume_paths = {}
+    volume_assets = {}
     for modality in ["dBI", "O3D", "R3D"]:
         output_path = output_dir / f"{mosaic_id}_tile_{tile_index}_{modality}.nii"
         # TODO: Implement actual saving
         # import nibabel as nib
         # nib.save(nib.Nifti1Image(volumes[modality], affine), output_path)
-        volume_paths[modality] = str(output_path)
-        logger.debug(f"Saved {modality} to {output_path}")
+        
+        # Create asset with unique key
+        asset_key = f"{mosaic_id}_tile_{tile_index}_{modality.lower()}"
+        asset = MaterializationResult(
+            asset_key=asset_key,
+            description=f"{modality} volume for {mosaic_id} tile {tile_index}",
+            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "tile_index": tile_index}
+        )
+        volume_assets[modality] = asset
+        logger.debug(f"Created asset {asset_key} for {output_path}")
     
-    return volume_paths
+    return volume_assets
 
 
 @task(name="save_enface")
@@ -213,9 +260,9 @@ def save_enface_task(
     output_base_path: str,
     mosaic_id: str,
     tile_index: int
-) -> Dict[str, str]:
+) -> Dict[str, MaterializationResult]:
     """
-    Save enface images to disk.
+    Save enface images to disk as Prefect assets.
     
     Parameters
     ----------
@@ -230,24 +277,32 @@ def save_enface_task(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved enface files
+    Dict[str, MaterializationResult]
+        Dictionary with MaterializationResult assets for each enface file
     """
     logger.info(f"Saving enface images for {mosaic_id} tile {tile_index}")
     
     output_dir = Path(output_base_path) / "processed"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    enface_paths = {}
+    enface_assets = {}
     for modality in ["aip", "mip", "orientation", "retardance", "birefringence"]:
         output_path = output_dir / f"{mosaic_id}_tile_{tile_index}_{modality}.nii"
         # TODO: Implement actual saving
         # import nibabel as nib
         # nib.save(nib.Nifti1Image(enface_images[modality], affine), output_path)
-        enface_paths[modality] = str(output_path)
-        logger.debug(f"Saved {modality} to {output_path}")
+        
+        # Create asset with unique key
+        asset_key = f"{mosaic_id}_tile_{tile_index}_{modality}"
+        asset = MaterializationResult(
+            asset_key=asset_key,
+            description=f"{modality.upper()} enface image for {mosaic_id} tile {tile_index}",
+            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "tile_index": tile_index}
+        )
+        enface_assets[modality] = asset
+        logger.debug(f"Created asset {asset_key} for {output_path}")
     
-    return enface_paths
+    return enface_assets
 
 
 # ============================================================================
@@ -325,10 +380,11 @@ def determine_tile_coordinates_task(
 @task(name="save_coordinates")
 def save_coordinates_task(
     coordinates: Dict[str, Tuple[int, int]],
-    output_coord_file: str
-) -> str:
+    output_coord_file: str,
+    mosaic_id: str
+) -> MaterializationResult:
     """
-    Save coordinates to YAML/JSON file.
+    Save coordinates to YAML/JSON file as Prefect asset.
     
     Parameters
     ----------
@@ -336,11 +392,13 @@ def save_coordinates_task(
         Dictionary mapping tile paths to coordinates
     output_coord_file : str
         Path to save coordinates file
+    mosaic_id : str
+        Mosaic identifier
     
     Returns
     -------
-    str
-        Path to saved coordinates file
+    MaterializationResult
+        Asset for the coordinates file
     """
     logger.info(f"Saving coordinates to {output_coord_file}")
     
@@ -352,7 +410,16 @@ def save_coordinates_task(
     # with open(output_path, 'w') as f:
     #     yaml.dump(coordinates, f)
     
-    return str(output_path)
+    # Create asset
+    asset_key = f"{mosaic_id}_coordinates"
+    asset = MaterializationResult(
+        asset_key=asset_key,
+        description=f"Stitching coordinates for {mosaic_id}",
+        metadata={"path": str(output_path), "mosaic_id": mosaic_id, "num_tiles": len(coordinates)}
+    )
+    logger.debug(f"Created asset {asset_key} for {output_path}")
+    
+    return asset
 
 
 # ============================================================================
@@ -509,9 +576,9 @@ def save_stitched_enface_task(
     stitched_enface: Dict[str, Any],
     output_base_path: str,
     mosaic_id: str
-) -> Dict[str, str]:
+) -> Dict[str, MaterializationResult]:
     """
-    Save stitched enface images.
+    Save stitched enface images as Prefect assets.
     
     Parameters
     ----------
@@ -524,22 +591,30 @@ def save_stitched_enface_task(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved stitched enface files
+    Dict[str, MaterializationResult]
+        Dictionary with MaterializationResult assets for each stitched enface file
     """
     logger.info(f"Saving stitched enface images for {mosaic_id}")
     
     output_dir = Path(output_base_path) / "stitched"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    enface_paths = {}
+    enface_assets = {}
     for modality in ["aip", "mip", "orientation", "retardance", "birefringence"]:
         output_path = output_dir / f"{mosaic_id}_{modality}.nii"
         # TODO: Implement actual saving
-        enface_paths[modality] = str(output_path)
-        logger.debug(f"Saved stitched {modality} to {output_path}")
+        
+        # Create asset
+        asset_key = f"{mosaic_id}_stitched_{modality}"
+        asset = MaterializationResult(
+            asset_key=asset_key,
+            description=f"Stitched {modality.upper()} enface image for {mosaic_id}",
+            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "type": "stitched"}
+        )
+        enface_assets[modality] = asset
+        logger.debug(f"Created asset {asset_key} for {output_path}")
     
-    return enface_paths
+    return enface_assets
 
 
 @task(name="save_stitched_volumes")
@@ -547,9 +622,9 @@ def save_stitched_volumes_task(
     stitched_volumes: Dict[str, Any],
     output_base_path: str,
     mosaic_id: str
-) -> Dict[str, str]:
+) -> Dict[str, MaterializationResult]:
     """
-    Save stitched 3D volumes.
+    Save stitched 3D volumes as Prefect assets.
     
     Parameters
     ----------
@@ -562,22 +637,30 @@ def save_stitched_volumes_task(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved stitched volume files
+    Dict[str, MaterializationResult]
+        Dictionary with MaterializationResult assets for each stitched volume file
     """
     logger.info(f"Saving stitched volumes for {mosaic_id}")
     
     output_dir = Path(output_base_path) / "stitched"
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    volume_paths = {}
+    volume_assets = {}
     for modality in ["dBI", "O3D", "R3D"]:
         output_path = output_dir / f"{mosaic_id}_{modality}.nii"
         # TODO: Implement actual saving
-        volume_paths[modality] = str(output_path)
-        logger.debug(f"Saved stitched {modality} to {output_path}")
+        
+        # Create asset
+        asset_key = f"{mosaic_id}_stitched_{modality.lower()}"
+        asset = MaterializationResult(
+            asset_key=asset_key,
+            description=f"Stitched {modality} volume for {mosaic_id}",
+            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "type": "stitched"}
+        )
+        volume_assets[modality] = asset
+        logger.debug(f"Created asset {asset_key} for {output_path}")
     
-    return volume_paths
+    return volume_assets
 
 
 # ============================================================================
@@ -700,9 +783,9 @@ def save_registered_data_task(
     orientation_data: Dict[str, Any],
     output_base_path: str,
     slice_number: int
-) -> Dict[str, str]:
+) -> Dict[str, MaterializationResult]:
     """
-    Save registered orientation data.
+    Save registered orientation data as Prefect assets.
     
     Parameters
     ----------
@@ -717,8 +800,8 @@ def save_registered_data_task(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved registered files
+    Dict[str, MaterializationResult]
+        Dictionary with MaterializationResult assets for registered files
     """
     logger.info(f"Saving registered data for slice {slice_number}")
     
@@ -729,9 +812,22 @@ def save_registered_data_task(
     orientation_path = output_dir / f"slice_{slice_number}_orientation.nii"
     axis_path = output_dir / f"slice_{slice_number}_3daxis.jpg"
     
+    # Create assets
+    orientation_asset = MaterializationResult(
+        asset_key=f"slice_{slice_number}_orientation",
+        description=f"Registered orientation for slice {slice_number}",
+        metadata={"path": str(orientation_path), "slice_number": slice_number, "type": "registered"}
+    )
+    
+    axis_asset = MaterializationResult(
+        asset_key=f"slice_{slice_number}_3daxis",
+        description=f"3D axis visualization for slice {slice_number}",
+        metadata={"path": str(axis_path), "slice_number": slice_number, "type": "visualization"}
+    )
+    
     return {
-        "orientation": str(orientation_path),
-        "3daxis": str(axis_path)
+        "orientation": orientation_asset,
+        "3daxis": axis_asset
     }
 
 
@@ -832,9 +928,9 @@ def save_stacked_data_task(
     stacked_2d: Dict[str, Any],
     stacked_3d: Dict[str, Any],
     output_base_path: str
-) -> Dict[str, str]:
+) -> Dict[str, MaterializationResult]:
     """
-    Save stacked outputs.
+    Save stacked outputs as Prefect assets.
     
     Parameters
     ----------
@@ -847,8 +943,8 @@ def save_stacked_data_task(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved stacked files
+    Dict[str, MaterializationResult]
+        Dictionary with MaterializationResult assets for stacked files
     """
     logger.info("Saving stacked data")
     
@@ -856,16 +952,28 @@ def save_stacked_data_task(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # TODO: Implement actual saving
-    stacked_paths = {}
+    stacked_assets = {}
     for modality in ["aip", "mip", "orientation", "retardance", "birefringence"]:
         output_path = output_dir / f"all_slices_{modality}.nii"
-        stacked_paths[modality] = str(output_path)
+        asset_key = f"all_slices_{modality}"
+        asset = MaterializationResult(
+            asset_key=asset_key,
+            description=f"Stacked {modality.upper()} enface image across all slices",
+            metadata={"path": str(output_path), "modality": modality, "type": "stacked"}
+        )
+        stacked_assets[modality] = asset
     
     for modality in ["dBI", "O3D", "R3D"]:
         output_path = output_dir / f"all_slices_{modality}.nii"
-        stacked_paths[modality] = str(output_path)
+        asset_key = f"all_slices_{modality.lower()}"
+        asset = MaterializationResult(
+            asset_key=asset_key,
+            description=f"Stacked {modality} volume across all slices",
+            metadata={"path": str(output_path), "modality": modality, "type": "stacked"}
+        )
+        stacked_assets[modality] = asset
     
-    return stacked_paths
+    return stacked_assets
 
 
 # ============================================================================
@@ -878,9 +986,9 @@ def compress_spectral_task(
     compressed_base_path: str,
     mosaic_id: str,
     tile_index: int
-) -> str:
+) -> MaterializationResult:
     """
-    Compress spectral raw file to separate directory (async, fire-and-forget).
+    Compress spectral raw file to separate directory as Prefect asset (async, fire-and-forget).
     
     Parameters
     ----------
@@ -895,8 +1003,8 @@ def compress_spectral_task(
     
     Returns
     -------
-    str
-        Path to compressed file
+    MaterializationResult
+        Asset for the compressed file
     """
     logger.info(f"Compressing spectral raw for {mosaic_id} tile {tile_index}")
     
@@ -913,7 +1021,15 @@ def compress_spectral_task(
             with gzip.open(output_path, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
         logger.info(f"Compressed to {output_path}")
-        return output_path
+        
+        # Create asset
+        asset_key = f"{mosaic_id}_tile_{tile_index}_spectral_compressed"
+        asset = MaterializationResult(
+            asset_key=asset_key,
+            description=f"Compressed spectral raw for {mosaic_id} tile {tile_index}",
+            metadata={"path": output_path, "mosaic_id": mosaic_id, "tile_index": tile_index, "type": "compressed"}
+        )
+        return asset
     except Exception as e:
         logger.error(f"Compression failed: {e}")
         raise

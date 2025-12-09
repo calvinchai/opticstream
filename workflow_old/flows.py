@@ -59,6 +59,9 @@ from .tasks import (
     # Utility tasks
     discover_slices_task,
     notify_slack_task,
+    # Helper functions
+    extract_path_from_asset,
+    extract_paths_from_assets,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,9 +129,13 @@ def process_tile_flow(
     # Generate enface images (synchronous)
     enface_images = volumes_to_enface_task(volumes, surface, depth)
     
-    # Save outputs (synchronous, blocking)
-    volume_paths = save_volumes_task(volumes, output_base_path, mosaic_id, tile_index)
-    enface_paths = save_enface_task(enface_images, output_base_path, mosaic_id, tile_index)
+    # Save outputs (synchronous, blocking) - returns MaterializationResult assets
+    volume_assets = save_volumes_task(volumes, output_base_path, mosaic_id, tile_index)
+    enface_assets = save_enface_task(enface_images, output_base_path, mosaic_id, tile_index)
+    
+    # Extract paths from assets for return value
+    volume_paths = extract_paths_from_assets(volume_assets)
+    enface_paths = extract_paths_from_assets(enface_assets)
     
     # Async tasks (fire-and-forget, non-blocking)
     # Compress to separate directory
@@ -141,8 +148,10 @@ def process_tile_flow(
     
     # Queue for upload (after compression completes)
     if upload_queue:
+        compressed_asset = compressed_future.result()  # Wait for compression
+        compressed_path = extract_path_from_asset(compressed_asset)
         queue_upload_spectral_task.submit(
-            compressed_future.result(),  # Wait for compression
+            compressed_path,
             f"s3://bucket/compressed/{mosaic_id}/",  # TODO: Get from config
             upload_queue
         )
@@ -159,6 +168,8 @@ def process_tile_flow(
         "volumes": volumes,
         "enface": enface_images,
         "surface": surface,
+        "volume_assets": volume_assets,
+        "enface_assets": enface_assets,
         "volume_paths": volume_paths,
         "enface_paths": enface_paths
     }
@@ -204,7 +215,8 @@ def determine_mosaic_coordinates_flow(
     
     # Save coordinates
     output_coord_file = Path(output_base_path) / "coordinates" / f"{mosaic_id}_coordinates.yaml"
-    coordinate_file = save_coordinates_task(coordinates, str(output_coord_file))
+    coordinate_asset = save_coordinates_task(coordinates, str(output_coord_file), mosaic_id)
+    coordinate_file = extract_path_from_asset(coordinate_asset)
     
     return coordinate_file
 
@@ -269,9 +281,13 @@ def stitch_mosaic_flow(
     masked_enface = apply_mask_task(stitched_enface, mask)
     masked_volumes = apply_mask_task(stitched_volumes, mask)
     
-    # Save stitched outputs (synchronous)
-    enface_paths = save_stitched_enface_task(masked_enface, output_base_path, mosaic_id)
-    volume_paths = save_stitched_volumes_task(masked_volumes, output_base_path, mosaic_id)
+    # Save stitched outputs (synchronous) - returns MaterializationResult assets
+    enface_assets = save_stitched_enface_task(masked_enface, output_base_path, mosaic_id)
+    volume_assets = save_stitched_volumes_task(masked_volumes, output_base_path, mosaic_id)
+    
+    # Extract paths from assets
+    enface_paths = extract_paths_from_assets(enface_assets)
+    volume_paths = extract_paths_from_assets(volume_assets)
     
     # Queue uploads (async, non-blocking)
     if upload_queue:
@@ -283,8 +299,9 @@ def stitch_mosaic_flow(
     
     # Send stitched image to Slack (async, non-blocking)
     if slack_config:
-        aip_path = enface_paths.get("aip")
-        if aip_path:
+        aip_asset = enface_assets.get("aip")
+        if aip_asset:
+            aip_path = extract_path_from_asset(aip_asset)
             notify_stitched_complete_task.submit(
                 mosaic_id,
                 aip_path,
@@ -294,6 +311,8 @@ def stitch_mosaic_flow(
     return {
         "enface": masked_enface,
         "volumes": masked_volumes,
+        "enface_assets": enface_assets,
+        "volume_assets": volume_assets,
         "enface_paths": enface_paths,
         "volume_paths": volume_paths
     }
@@ -416,7 +435,7 @@ def register_slice_flow(
     gamma: float,
     mask_file: Optional[str] = None,
     mask_threshold: int = 55
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """
     Register normal and tilted illumination mosaics to combine orientations.
     
@@ -439,8 +458,8 @@ def register_slice_flow(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved registered files
+    Dict[str, Any]
+        Dictionary with MaterializationResult assets for registered files
     """
     logger.info(f"Registering slice {slice_number}")
     
@@ -460,15 +479,15 @@ def register_slice_flow(
     # Compute 3D orientation
     orientation_data = compute_3d_orientation_task(registered_data)
     
-    # Save registered data
-    registered_paths = save_registered_data_task(
+    # Save registered data - returns MaterializationResult assets
+    registered_assets = save_registered_data_task(
         registered_data,
         orientation_data,
         output_base_path,
         slice_number
     )
     
-    return registered_paths
+    return registered_assets
 
 
 # ============================================================================
@@ -590,7 +609,7 @@ def process_slice_flow(
 def stack_all_slices_flow(
     slice_numbers: List[int],
     output_base_path: str
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     """
     Stack all processed slices together.
     
@@ -603,8 +622,8 @@ def stack_all_slices_flow(
     
     Returns
     -------
-    Dict[str, str]
-        Dictionary with paths to saved stacked files
+    Dict[str, Any]
+        Dictionary with MaterializationResult assets for stacked files
     """
     logger.info(f"Stacking {len(slice_numbers)} slices")
     
@@ -617,10 +636,10 @@ def stack_all_slices_flow(
     # Stack 3D volumes
     stacked_3d = stack_3d_volumes_task(slice_data)
     
-    # Save stacked outputs
-    stacked_paths = save_stacked_data_task(stacked_2d, stacked_3d, output_base_path)
+    # Save stacked outputs - returns MaterializationResult assets
+    stacked_assets = save_stacked_data_task(stacked_2d, stacked_3d, output_base_path)
     
-    return stacked_paths
+    return stacked_assets
 
 
 # ============================================================================
