@@ -1,10 +1,11 @@
 import dask.array as da
+from numpy.typing import ArrayLike
+import numpy as np
 
-def complex2volume(complex3d: da.Array, flip_orientation: bool = False, offset: float = 100) -> tuple[da.Array, da.Array, da.Array]:
+def complex2volume(complex3d: ArrayLike, flip_orientation: bool = False, offset: float = 100) -> tuple[da.Array, da.Array, da.Array]:
     if complex3d.shape[0] % 4 != 0:
         raise ValueError("First dimension size must be multiple of 4.")
     raw_tile_width = complex3d.shape[0] // 4
-    complex3d = complex3d.rechunk({0: raw_tile_width})
     comp = complex3d.reshape(
             (4, raw_tile_width, complex3d.shape[1], complex3d.shape[2]))
     j1r, j1i, j2r, j2i = comp[0], comp[1], comp[2], comp[3]

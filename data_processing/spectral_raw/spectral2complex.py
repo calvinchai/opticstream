@@ -1,8 +1,4 @@
 
-
-# load_spetral_file_raw('/autofs/space/zircon_006/users/data/I55_spectralraw_slice5_20251124/mosaic_002_image_330_spectral_0764.nii')
-
-
 import os
 import re
 import time
@@ -16,7 +12,6 @@ from math import sqrt
 # === CONFIG CONSTANTS ===
 # -----------------------
 # Hardcode your calibration .mat path here (must contain 'mu' Nx2 and 'wave_prime')
-CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/Hui/PSCalibration/SpectrometerCal_10xw_20201016/wave-pixel.mat"
 CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/calibration_nov21/calibration/wave-pixel.mat"
 
 # -----------------------
@@ -25,12 +20,12 @@ CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/calibration_nov21/calibration/w
 
 
 def load_spectral_file_raw(file_path,aline_length=200, bline_length=350, nifti_header_size = 352):
-        file = open(file_path,'rb')
-        file.seek(nifti_header_size)
-        data = np.fromfile(file,np.uint16,aline_length*bline_length*4096)
-        data = data.reshape((bline_length,2,2048,aline_length))
-        file.close()
-        return data
+    file = open(file_path,'rb')
+    file.seek(nifti_header_size)
+    data = np.fromfile(file,np.uint16,aline_length*bline_length*4096)
+    data = data.reshape((bline_length,2,2048,aline_length))
+    file.close()
+    return data
 
 
 
