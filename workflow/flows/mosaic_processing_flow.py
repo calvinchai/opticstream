@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import List, Optional, Dict
 
 from prefect import flow
-from prefect.events import emit_event, DeploymentEventTrigger, DeploymentEventTrigger
+from prefect.events import emit_event, DeploymentEventTrigger
 
 from workflow.tasks.mosaic_processing import (
     fiji_stitch_task,
@@ -142,8 +142,8 @@ def process_first_slice_coordinates(
     return template_path, tile_coords_export
 
 
-@flow(name="process_mosaic_event_flow")
-def process_mosaic_event_flow(
+@flow(name="process_mosaic_flow")
+def process_mosaic_flow(
     project_name: str,
     project_base_path: str,
     mosaic_id: int,
@@ -407,6 +407,50 @@ def process_mosaic_event_flow(
     }
 
 
+@flow(name="process_mosaic_event_flow")
+def process_mosaic_event_flow(
+    payload: dict,
+) -> Dict[str, any]:
+    """
+    Wrapper flow for event-driven triggering.
+    Extracts parameters from the event payload and calls process_mosaic_flow.
+    
+    The payload is passed as JSON from the event, so types should be preserved.
+    However, we ensure proper type conversion for safety.
+    """
+    # Extract and convert types explicitly to ensure correctness
+    mosaic_id = int(payload["mosaic_id"])
+    grid_size_x = int(payload.get("total_batches") or payload.get("grid_size_x", 14))
+    grid_size_y = int(payload.get("grid_size_y", 31))
+    tile_overlap = float(payload.get("tile_overlap", 20.0))
+    mask_threshold = float(payload.get("mask_threshold", 50.0))
+    
+    # Handle scan_resolution_3d - could be list or need default
+    scan_resolution_3d = payload.get("scan_resolution_3d")
+    if scan_resolution_3d is None:
+        scan_resolution_3d = DEFAULT_SCAN_RESOLUTION_3D
+    else:
+        # Ensure it's a list of floats
+        scan_resolution_3d = [float(x) for x in scan_resolution_3d]
+    
+    # Handle boolean - could be string "true"/"false" or actual boolean
+    force_refresh_coords = payload.get("force_refresh_coords", False)
+    if isinstance(force_refresh_coords, str):
+        force_refresh_coords = force_refresh_coords.lower() == "true"
+    
+    return process_mosaic_flow(
+        project_name=payload["project_name"],
+        project_base_path=payload["project_base_path"],
+        mosaic_id=mosaic_id,
+        grid_size_x=grid_size_x,
+        grid_size_y=grid_size_y,
+        tile_overlap=tile_overlap,
+        mask_threshold=mask_threshold,
+        scan_resolution_3d=scan_resolution_3d,
+        force_refresh_coords=force_refresh_coords,
+    )
+
+
 # Deployment configuration for event-driven triggering
 if __name__ == "__main__":
     process_mosaic_event_flow_deployment = process_mosaic_event_flow.to_deployment(
@@ -416,47 +460,15 @@ if __name__ == "__main__":
             DeploymentEventTrigger(
                 expect={"mosaic.processed"},
                 parameters={
-                    "project_name": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.project_name }}",
-                    },
-                    "project_base_path": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.project_base_path }}",
-                    },
-                    "mosaic_id": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.mosaic_id | int }}",
-                    },
-                    "grid_size_x": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ (event.payload.total_batches | default(event.payload.grid_size_x) | default(14)) | int }}",
-                    },
-                    "grid_size_y": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ (event.payload.grid_size_y | default(31)) | int }}",
-                    },
-                    "tile_overlap": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ (event.payload.tile_overlap | default(20.0)) | float }}",
-                    },
-                    "mask_threshold": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ (event.payload.mask_threshold | default(50.0)) | float }}",
-                    },
-                    "scan_resolution_3d": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.scan_resolution_3d | default([0.01, 0.01, 0.0025]) }}",
-                    },
-                    "force_refresh_coords": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ (event.payload.force_refresh_coords | default('false') | string | lower) == 'true' }}",
-                    },
+                    "payload": {
+                        "__prefect_kind": "json",
+                        "value": {
+                            "__prefect_kind": "jinja",
+                            "template": "{{ event.payload | tojson }}",
+                        }
+                    }
                 },
             )
         ],
     )
     
-    # Deployment is created but not served here
-    # Use: prefect deploy workflow/flows/mosaic_processing_flow.py:process_mosaic_event_flow_deployment
-

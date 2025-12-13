@@ -18,7 +18,7 @@ from .tile_flow import (
 from .tile_batch_flow import (
     process_tile_batch_flow,
     complex_to_processed_batch_event_flow,
-    upload_to_linc_batch_event_flow,
+    upload_to_linc_batch_flow,
 )
 
 # Mosaic processing flow
@@ -31,7 +31,7 @@ __all__ = [
     "process_tile_flow",
     "process_tile_batch_flow",
     "complex_to_processed_batch_event_flow",
-    "upload_to_linc_batch_event_flow",
+    "upload_to_linc_batch_flow",
     # Mosaic processing
     "process_mosaic_event_flow",
 ]

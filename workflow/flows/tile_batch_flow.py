@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from workflow.tasks.tile_processing import archive_tile_task
-from workflow.tasks.upload import upload_to_linc_batch_task
 
 class Cube(Block):
     edge_length_inches: float
@@ -120,11 +119,13 @@ def archive_tile_batch_task(
         
         # Archive the tile (synchronous, one by one)
         logger.info(f"Archiving tile {tile_index:04d} from batch {batch_id} in mosaic {mosaic_id:03d}")
-        archive_tile_task(file_path, archived_tile_path)
+        
+        # archive_tile_task(file_path, archived_tile_path)
         
         # Store the archived file path
         archived_file_paths.append(archived_tile_path)
         break # TODO: Remove this after testing
+        
     
     logger.info(f"Completed archiving {len(file_list)} tiles for batch {batch_id} in mosaic {mosaic_id}")
     emit_event(
@@ -187,11 +188,22 @@ def process_tile_batch_flow(
     # batch_complex_path = mosaic_path / "state" / f"batch-{batch_id}.complex"
     # batch_complex_path.touch()
     
-    # Emit events to trigger complex2processed and upload_to_linc flows
-    # These flows should be triggered by Prefect events, not called as subflows
-    
-    
-    
+    # Emit archived event to trigger state management flow
+    emit_event(
+        event="tile_batch.archived.ready",
+        resource={
+            "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+            "batch_id": str(batch_id),
+        },
+        payload={
+            "project_name": project_name,
+            "project_base_path": project_base_path,
+            "mosaic_id": mosaic_id,
+            "batch_id": batch_id,
+        }
+    )
     
     logger.info(
         f"Emitted events for batch {batch_id} in mosaic {mosaic_id}. "
@@ -282,85 +294,33 @@ def complex_to_processed_batch_event_flow(
     }
 
 
-@flow(name="upload_to_linc_batch_event_flow")
-def upload_to_linc_batch_event_flow(
-    project_name: str,
-    project_base_path: str,
-    mosaic_id: int,
-    batch_id: int,
-    archived_file_paths: List[str],
-):
-    """
-    Event-driven flow triggered by 'tile_batch.upload_to_linc.ready' event.
-    Runs upload_to_linc_batch_task with the list of archived files from the event payload.
-    """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
-    state_path = mosaic_path / "state"
-    state_path.mkdir(parents=True, exist_ok=True)
-    
-    batch_uploaded_path = state_path / f"batch-{batch_id}.uploaded"
-    if batch_uploaded_path.exists():
-        logger.info(f"Batch {batch_id} already uploaded")
-        return
-    
-    if not archived_file_paths:
-        logger.warning(f"No archived files provided for batch {batch_id} in mosaic {mosaic_id}")
-        return
-    
-    logger.info(f"Uploading {len(archived_file_paths)} archived files for batch {batch_id} in mosaic {mosaic_id}")
-    
-    # Run upload_to_linc_batch_task with the file list from event payload
-    upload_to_linc_batch_task(file_list=archived_file_paths)
-    
-    # Mark batch as uploaded
-    batch_uploaded_path.touch()
-    logger.info(f"Batch {batch_id} uploaded successfully")
-    
-    return {
-        "mosaic_id": mosaic_id,
-        "batch_id": batch_id,
-        "uploaded": True,
-        "files_uploaded": len(archived_file_paths),
-    }
-
 if __name__ == "__main__":
+    from workflow.flows.upload_flow import upload_to_linc_batch_flow, upload_to_linc_batch_event_flow
+    
     process_tile_batch_flow_deployment = process_tile_batch_flow.to_deployment(
         name="process_tile_batch_flow"
         )
+    upload_to_linc_batch_flow_deployment = upload_to_linc_batch_flow.to_deployment(
+        name="upload_to_linc_batch_flow",
+    )
     upload_to_linc_batch_event_flow_deployment = upload_to_linc_batch_event_flow.to_deployment(
-        name="upload_to_linc_batch_event_flow", 
-        # resource={
-        #     "prefect.resource.id": "{{ event.resource.id }}",
-        # },
-        tags=["event-driven", "batch-processing", "upload"],
+        name="upload_to_linc_batch_payload_flow",
         triggers=[
             DeploymentEventTrigger(
                 expect={"tile_batch.upload_to_linc.ready"},
                 parameters={
-                    "project_name": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.project_name }}",
-                    },
-                    "project_base_path": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.project_base_path }}",
-                    },
-                    "mosaic_id": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.mosaic_id }}",
-                    },
-                    "batch_id": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.batch_id }}",
-                    },
-                    "archived_file_paths": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload.archived_file_paths }}",
-                    },
+                    "payload": {
+                        "__prefect_kind": "json",
+                        "value": {
+                            "__prefect_kind": "jinja",
+                            "template": "{{ event.payload | tojson }}",
+                        }
+                    }
                 },
             )
-        ])
-    prefect.serve(process_tile_batch_flow_deployment, upload_to_linc_batch_event_flow_deployment)
+        ],
+    )
+    prefect.serve(process_tile_batch_flow_deployment, upload_to_linc_batch_flow_deployment, upload_to_linc_batch_event_flow_deployment)
 # Note: After complex2processed flow completes (triggered by event), 
 # it checks if all batches in the mosaic are processed.
 # If all batches are processed, it emits the mosaic_processed event,

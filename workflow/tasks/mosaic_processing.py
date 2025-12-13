@@ -13,9 +13,6 @@ import jinja2
 
 from prefect import task
 
-# Add path for imports
-sys.path.append('/homes/5/kc1708/localhome/code/oct-pipe/')
-
 from data_processing.stitch import fit_coord_files, generate_mask, fiji_stitch
 from data_processing.stitch.process_tile_coord import process_tile_coord
 from linc_convert.modalities.psoct.mosaic2d import mosaic2d
