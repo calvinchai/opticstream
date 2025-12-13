@@ -6,11 +6,12 @@ This document describes the design of a Prefect-based workflow orchestration sys
 
 ### Key Design Features
 
-- **Async Task Architecture**: Compression, cloud uploads, and Slack notifications run asynchronously to avoid blocking the main processing pipeline
-- **Upload Queue Management**: Centralized upload queue with maximum 5 concurrent uploads using CLI tools (aws s3 cp, gsutil, azcopy)
+- **Batch Processing**: Tiles are processed in batches (grid_size_y tiles per batch) to optimize resource usage and avoid overwhelming the system
+- **Event-Driven Architecture**: Flows communicate via Prefect events rather than direct subflow calls, enabling decoupled and scalable processing
+- **State Management**: Flag files track batch and mosaic completion state, allowing independent flows to check progress
 - **Separate Storage**: Compressed spectral data saved to separate directory/disk to avoid I/O contention
+- **Artifact Tracking**: Mosaic-level flows update Artifact tables to track batch progress and trigger downstream processing
 - **Slack Integration**: Real-time notifications for processing milestones (25%, 50%, 75%, 100%) and automatic sharing of stitched images
-- **Event-Driven Processing**: Workflow triggered by file availability, enabling real-time processing as data is acquired
 
 ## 1. System Architecture
 
@@ -28,14 +29,26 @@ This document describes the design of a Prefect-based workflow orchestration sys
 Data Structure:
 ├── Slice N
 │   ├── Mosaic 2N-1 (normal illumination)
-│   │   └── Tile files (spectral raw)
+│   │   ├── Tile files (spectral raw)
+│   │   └── state/ (flag files for batch tracking)
+│   │       ├── batch-0.started
+│   │       ├── batch-0.archived
+│   │       ├── batch-0.processed
+│   │       └── ...
 │   └── Mosaic 2N (tilted illumination)
-│       └── Tile files (spectral raw)
+│       ├── Tile files (spectral raw)
+│       └── state/ (flag files for batch tracking)
 ```
 
 **Naming Convention**:
 - Slice `n` has mosaics `mosaic_2n-1` (normal) and `mosaic_2n` (tilted)
 - Example: Slice 1 → `mosaic_001` (normal), `mosaic_002` (tilted)
+
+**Tile Configuration**:
+- Each scan has tile configuration: `grid_size_x` and `grid_size_y`
+- Normal and tilted illuminations share the same `grid_size_y`
+- Tiles are processed in batches of `grid_size_y` tiles per batch
+- Total batches per mosaic = `grid_size_x` batches
 
 ### 1.3 Processing Pipeline Stages
 
@@ -52,59 +65,154 @@ Data Structure:
 Main Flow (per experiment/sample)
 ├── Slice Flow (per slice)
 │   ├── Mosaic Flow (per mosaic, 2 per slice)
-│   │   ├── Tile Processing Flow (per tile)
-│   │   └── Mosaic Stitching Flow (after all tiles complete)
+│   │   ├── Tile Batch Processing Flow (per batch, grid_size_y tiles per batch)
+│   │   │   ├── Archive Batch Task (parallel with spectral_to_complex)
+│   │   │   ├── Spectral to Complex Batch Task (parallel with archive)
+│   │   │   └── Emit Events (complex2processed.ready, upload_to_linc.ready)
+│   │   ├── Complex to Processed Event Flow (triggered by event, not subflow)
+│   │   ├── Upload to LINC Event Flow (triggered by event, not subflow)
+│   │   ├── Mosaic Batch Monitor Flow (checks batch completion via flag files)
+│   │   └── Mosaic Stitching Flow (after all batches complete)
 │   └── Slice Registration Flow (after both mosaics complete)
 └── Final Stacking Flow (after all slices complete)
 ```
 
+**Key Architecture Points**:
+- **Batch Processing**: One flow per batch (not per tile) to reduce resource overhead
+- **Event-Driven**: Downstream flows triggered by Prefect events, not direct subflow calls
+- **State Tracking**: Flag files in `mosaic-{id}/state/` directory track batch completion
+- **Decoupled Processing**: Archive, complex conversion, processing, and upload run independently via events
+
 ### 2.2 Core Flows
 
-#### 2.2.1 Tile Processing Flow
+#### 2.2.1 Tile Batch Processing Flow
 
-**Purpose**: Process a single tile from spectral raw data to 3D volumes and enface images.
+**Purpose**: Process a batch of tiles (grid_size_y tiles) from spectral raw data. Only synchronous operations that involve direct I/O from source files run in this flow. After converting to complex data, events are emitted to trigger downstream processing flows (not subflows).
 
-**Flow Name**: `process_tile_flow`
+**Flow Name**: `process_tile_batch_flow`
 
 **Tasks**:
-1. `load_spectral_raw` - Load spectral raw data file (synchronous)
-2. `spectral_to_complex` - Convert spectral raw to complex data (in-memory, synchronous)
-3. `complex_to_volumes` - Convert complex to 3D volumes (dBI, O3D, R3D, synchronous)
-4. `find_surface` - Surface finding algorithm for enface conversion (synchronous)
-5. `volumes_to_enface` - Generate enface images (AIP, MIP, orientation, retardance, birefringence, synchronous)
-6. `compress_spectral` - Compress spectral raw with gzip to separate directory (async, fire-and-forget)
-7. `queue_upload_spectral` - Queue compressed file for cloud upload (async, non-blocking)
-8. `save_volumes` - Save 3D volumes to disk (synchronous)
-9. `save_enface` - Save enface images to disk (synchronous)
-10. `notify_tile_complete` - Send tile completion notification (async, non-blocking)
+1. `check_batch_started` - Check if batch already started (via flag file, prevents duplicate runs)
+2. `archive_tile_batch_task` - Archive tiles in batch (synchronous, one by one, writes to separate directory)
+3. `spectral_to_complex_batch_task` - Convert spectral raw to complex data for all tiles in batch (synchronous, runs in parallel with archive)
+4. `emit_complex_ready_event` - Emit `tile_batch.complex2processed.ready` event (triggers downstream flow)
+5. `emit_upload_ready_event` - Emit `tile_batch.upload_to_linc.ready` event (triggers upload flow)
+6. `mark_batch_archived` - Create flag file `batch-{batch_id}.archived` to track completion
 
 **Parameters**:
-- `tile_path`: Path to spectral raw tile file
-- `mosaic_id`: Mosaic identifier (e.g., "mosaic_001")
-- `tile_index`: Tile index within mosaic
-- `output_base_path`: Base path for output files
-- `compressed_base_path`: Base path for compressed files (separate directory/disk)
-- `surface_method`: Surface finding method ("find", constant, or file path)
-- `depth`: Depth below surface for enface window
-- `upload_queue`: Upload queue manager instance
-- `slack_config`: Slack notification configuration
+- `project_name`: Project identifier
+- `project_base_path`: Base path for the project
+- `mosaic_id`: Mosaic identifier (integer, e.g., 1, 2, 3)
+- `batch_id`: Batch identifier (integer, 0-indexed)
+- `file_list`: List of spectral raw tile file paths (grid_size_y files)
 
 **Dependencies**:
-- Task 2 depends on Task 1
-- Task 3 depends on Task 2
-- Task 4 depends on Task 3
-- Task 5 depends on Tasks 3 and 4
-- Task 6 runs async (fire-and-forget, no blocking dependencies)
-- Task 7 depends on Task 6 (queues after compression)
-- Tasks 8-9 depend on Task 3 (save after volumes ready)
-- Task 10 runs async (non-blocking notification)
+- Tasks 2 and 3 run in parallel (both are synchronous I/O operations)
+- Task 4 depends on Task 3 (emits event after complex conversion)
+- Task 5 depends on Task 2 (emits event after archiving)
+- Task 6 depends on both Tasks 2 and 3 completing
+- Flow completes when both archive and spectral_to_complex are done
+
+**State Management**:
+- Creates flag file: `{mosaic_path}/state/batch-{batch_id}.started` at flow start
+- Creates flag file: `{mosaic_path}/state/batch-{batch_id}.archived` when both tasks complete
+- Flag files are checked by mosaic-level flows to determine batch completion
+
+**Event Emissions**:
+- `tile_batch.complex2processed.ready`: Emitted after complex conversion, triggers `complex_to_processed_batch_event_flow`
+- `tile_batch.upload_to_linc.ready`: Emitted after archiving, triggers `upload_to_linc_batch_event_flow`
 
 **Outputs**:
-- 3D volumes: `{output_base_path}/processed/{mosaic_id}_tile_{tile_index}_dBI.nii`
-- Enface images: `{output_base_path}/processed/{mosaic_id}_tile_{tile_index}_aip.nii`
-- Compressed spectral: `{compressed_base_path}/{mosaic_id}_tile_{tile_index}_spectral.nii.gz`
+- Complex data: `{project_base_path}/mosaic-{mosaic_id}/complex/mosaic-{mosaic_id:03d}_image_{tile_index:04d}_complex.nii`
+- Archived tiles: `{compressed_base_path}/{project_name}_sample-slice-{slice_id:03d}_chunk-{tile_index:04d}_acq-{acq}_OCT.nii.gz`
+- Flag files: `{project_base_path}/mosaic-{mosaic_id}/state/batch-{batch_id}.{status}`
 
-#### 2.2.2 Mosaic Coordinate Determination Flow
+**Important Notes**:
+- This flow only handles synchronous operations that require direct I/O from source files
+- Downstream processing (complex to processed, uploads) are triggered by events, not called as subflows
+- The flow returns immediately after emitting events and marking batch as archived
+
+#### 2.2.2 Complex to Processed Event Flow
+
+**Purpose**: Event-driven flow triggered by `tile_batch.complex2processed.ready` event. Processes complex data to generate 3D volumes and enface images. Not a subflow of tile batch flow.
+
+**Flow Name**: `complex_to_processed_batch_event_flow`
+
+**Trigger**: Prefect event `tile_batch.complex2processed.ready`
+
+**Tasks**:
+1. `check_batch_processed` - Check if batch already processed (via flag file)
+2. `complex_to_processed_batch_task` - Process complex data to volumes and enface (synchronous)
+3. `mark_batch_processed` - Create flag file `batch-{batch_id}.processed`
+4. `check_all_batches_processed` - Check if all batches in mosaic are processed (via flag files)
+5. `emit_mosaic_processed_event` - If all batches done, emit `mosaic.processed` event
+
+**Parameters** (from event payload):
+- `project_name`: Project identifier
+- `project_base_path`: Base path for the project
+- `mosaic_id`: Mosaic identifier
+- `batch_id`: Batch identifier
+
+**State Management**:
+- Checks flag file: `{mosaic_path}/state/batch-{batch_id}.processed` to avoid reprocessing
+- Creates flag file: `{mosaic_path}/state/batch-{batch_id}.processed` after processing
+- Counts all `batch-*.processed` files to determine if mosaic is complete
+
+**Event Emissions**:
+- `mosaic.processed`: Emitted when all batches in mosaic are processed, triggers mosaic stitching flow
+
+**Outputs**:
+- 3D volumes: `{project_base_path}/mosaic-{mosaic_id}/processed/mosaic-{mosaic_id:03d}_image_{tile_index:04d}_dBI.nii`
+- Enface images: `{project_base_path}/mosaic-{mosaic_id}/processed/mosaic-{mosaic_id:03d}_image_{tile_index:04d}_aip.nii`
+
+#### 2.2.3 Upload to LINC Event Flow
+
+**Purpose**: Event-driven flow triggered by `tile_batch.upload_to_linc.ready` event. Uploads archived tiles to LINC storage. Not a subflow of tile batch flow.
+
+**Flow Name**: `upload_to_linc_batch_event_flow`
+
+**Trigger**: Prefect event `tile_batch.upload_to_linc.ready`
+
+**Tasks**:
+1. `check_batch_uploaded` - Check if batch already uploaded (via flag file)
+2. `upload_to_linc_batch_task` - Upload archived files to LINC (synchronous)
+3. `mark_batch_uploaded` - Create flag file `batch-{batch_id}.uploaded`
+
+**Parameters** (from event payload):
+- `project_name`: Project identifier
+- `project_base_path`: Base path for the project
+- `mosaic_id`: Mosaic identifier
+- `batch_id`: Batch identifier
+- `archived_file_paths`: List of archived file paths to upload
+
+**State Management**:
+- Checks flag file: `{mosaic_path}/state/batch-{batch_id}.uploaded` to avoid re-uploading
+- Creates flag file: `{mosaic_path}/state/batch-{batch_id}.uploaded` after upload
+
+#### 2.2.4 Mosaic Batch Monitor Flow
+
+**Purpose**: Monitors batch completion for a mosaic by checking flag files. Updates Artifact table with batch progress. Triggers mosaic stitching when all batches are complete.
+
+**Flow Name**: `monitor_mosaic_batches_flow`
+
+**Tasks**:
+1. `check_batch_flags` - Scan `{mosaic_path}/state/` directory for batch flag files
+2. `count_batch_states` - Count batches in each state (started, archived, processed, uploaded)
+3. `update_artifact_table` - Update Artifact table with batch progress
+4. `check_all_batches_processed` - Verify all batches have `.processed` flag files
+5. `trigger_mosaic_stitching` - If all batches processed, trigger mosaic stitching flow
+
+**State Management**:
+- Reads flag files: `batch-*.started`, `batch-*.archived`, `batch-*.processed`, `batch-*.uploaded`
+- Determines total batches from `batch-*.started` files
+- Compares processed count to total to determine completion
+
+**Artifact Table Updates**:
+- Updates progress: `{processed_batches}/{total_batches}`
+- Records batch states and timestamps
+- Tracks processing milestones (25%, 50%, 75%, 100%)
+
+#### 2.2.5 Mosaic Coordinate Determination Flow
 
 **Purpose**: Determine stitching coordinates for a mosaic after all tiles are processed.
 
@@ -128,7 +236,7 @@ Main Flow (per experiment/sample)
 **Outputs**:
 - Coordinate file: `{output_base_path}/coordinates/{mosaic_id}_coordinates.yaml`
 
-#### 2.2.3 Mosaic Stitching Flow
+#### 2.2.6 Mosaic Stitching Flow
 
 **Purpose**: Stitch all tiles in a mosaic together using determined coordinates.
 
@@ -161,7 +269,7 @@ Main Flow (per experiment/sample)
 - Stitched enface: `{output_base_path}/stitched/{mosaic_id}_aip.nii`
 - Stitched volumes: `{output_base_path}/stitched/{mosaic_id}_dBI.nii`
 
-#### 2.2.4 Slice Registration Flow
+#### 2.2.7 Slice Registration Flow
 
 **Purpose**: Register normal and tilted illumination mosaics to combine orientations.
 
@@ -189,7 +297,7 @@ Main Flow (per experiment/sample)
 - Registered orientation: `{output_base_path}/registered/slice_{slice_number}_orientation.nii`
 - 3D axis: `{output_base_path}/registered/slice_{slice_number}_3daxis.jpg`
 
-#### 2.2.5 Slice Flow
+#### 2.2.8 Slice Flow
 
 **Purpose**: Orchestrate processing of a single slice (both mosaics).
 
@@ -213,33 +321,52 @@ Main Flow (per experiment/sample)
 **Subflows**:
 - `process_mosaic_flow` (called twice, once per mosaic)
 
-#### 2.2.6 Mosaic Processing Flow
+#### 2.2.9 Mosaic Processing Flow
 
-**Purpose**: Process all tiles in a mosaic and stitch them together.
+**Purpose**: Orchestrate batch processing for a mosaic. Triggers batch flows and monitors completion via flag files and events.
 
 **Flow Name**: `process_mosaic_flow`
 
 **Tasks**:
-1. `process_all_tiles` - Process all tiles in parallel (map task)
-2. `monitor_tile_progress` - Monitor tile completion and send milestone notifications (async, background task)
-3. `determine_coordinates` - Determine coordinates (subflow)
-4. `stitch_mosaic` - Stitch mosaic (subflow)
+1. `discover_batches` - Discover all batches for mosaic (based on grid_size_x and grid_size_y)
+2. `trigger_batch_flows` - Trigger tile batch processing flows for each batch (map task)
+3. `monitor_batch_completion` - Monitor batch completion via flag files and events (background task)
+4. `update_artifact_table` - Update Artifact table with batch progress
+5. `wait_for_all_batches` - Wait for all batches to complete (via flag file checks)
+6. `determine_coordinates` - Determine coordinates (subflow, after all batches processed)
+7. `stitch_mosaic` - Stitch mosaic (subflow, after coordinates determined)
 
 **Parameters**:
+- `project_name`: Project identifier
+- `project_base_path`: Base path for the project
 - `mosaic_id`: Mosaic identifier
-- `tile_paths`: List of spectral raw tile paths
-- All parameters from tile processing and stitching flows
+- `grid_size_x`: Number of batches (columns) in mosaic
+- `grid_size_y`: Number of tiles per batch (rows, shared between normal and tilted)
+- `tile_file_pattern`: Pattern to match tile files for this mosaic
 
 **Dependencies**:
-- Task 2 depends on Task 1
-- Task 3 depends on Task 2
+- Task 2 triggers batch flows (they run independently)
+- Task 3 monitors flag files and events (runs in background)
+- Task 4 updates based on Task 3 monitoring
+- Task 5 waits for all `batch-*.processed` flag files
+- Task 6 depends on Task 5
+- Task 7 depends on Task 6
+
+**Event Listeners**:
+- Listens for `mosaic.processed` event (emitted by complex_to_processed_batch_event_flow)
+- Can also poll flag files as backup mechanism
+
+**State Management**:
+- Monitors flag files in `{project_base_path}/mosaic-{mosaic_id}/state/`
+- Tracks: `batch-*.started`, `batch-*.archived`, `batch-*.processed`, `batch-*.uploaded`
+- Determines completion when all batches have `.processed` flag files
 
 **Subflows**:
-- `process_tile_flow` (mapped over tiles)
+- `process_tile_batch_flow` (mapped over batches, triggered independently)
 - `determine_mosaic_coordinates_flow`
 - `stitch_mosaic_flow`
 
-#### 2.2.7 Final Stacking Flow
+#### 2.2.10 Final Stacking Flow
 
 **Purpose**: Stack all processed slices together.
 
@@ -262,7 +389,7 @@ Main Flow (per experiment/sample)
 - Stacked 2D: `{output_base_path}/stacked/all_slices_aip.nii`
 - Stacked 3D: `{output_base_path}/stacked/all_slices_dBI.nii`
 
-#### 2.2.8 Main Experiment Flow
+#### 2.2.11 Main Experiment Flow
 
 **Purpose**: Orchestrate entire experiment processing.
 
@@ -287,36 +414,83 @@ Main Flow (per experiment/sample)
 - `process_slice_flow` (mapped over slices)
 - `stack_all_slices_flow`
 
-### 2.3 Async Task Design
+### 2.3 Event-Driven Architecture
 
-#### 2.3.1 Async Task Specifications
+#### 2.3.1 Event Flow Design
 
-**Tasks that should be async (non-blocking)**:
+**Key Principle**: Downstream processing flows are triggered by Prefect events, not called as subflows. This decouples processing stages and allows independent scaling.
 
-1. **Compression Tasks**:
-   - `compress_spectral`: Compress spectral raw data to separate directory
-   - Runs as fire-and-forget (doesn't block main processing pipeline)
-   - Uses Prefect's `allow_failure=True` to prevent flow failures if compression fails
+**Event Types**:
 
-2. **Upload Queue Tasks**:
-   - `queue_upload_spectral`: Queue compressed files for upload
-   - `queue_upload_stitched_volumes`: Queue stitched volumes for upload
-   - Non-blocking, adds files to upload queue
-   - Uses background task execution
+1. **`tile_batch.complex2processed.ready`**:
+   - Emitted by: `spectral_to_complex_batch_task` after converting batch to complex data
+   - Triggers: `complex_to_processed_batch_event_flow`
+   - Payload: `{project_name, project_base_path, mosaic_id, batch_id}`
 
-3. **Notification Tasks**:
-   - `notify_tile_complete`: Send tile completion notifications
-   - `notify_stitched_complete`: Send stitched image to Slack
-   - `monitor_tile_progress`: Monitor and send milestone notifications
-   - All use `allow_failure=True` to prevent notification failures from breaking workflow
+2. **`tile_batch.upload_to_linc.ready`**:
+   - Emitted by: `archive_tile_batch_task` after archiving batch
+   - Triggers: `upload_to_linc_batch_event_flow`
+   - Payload: `{project_name, project_base_path, mosaic_id, batch_id, archived_file_paths}`
 
-**Tasks that should be synchronous**:
-- All data processing tasks (spectral_to_complex, complex_to_volumes, etc.)
-- All file I/O for processed data (save_volumes, save_enface)
-- Coordinate determination and stitching tasks
-- Surface finding and enface generation
+3. **`mosaic.processed`**:
+   - Emitted by: `complex_to_processed_batch_event_flow` when all batches in mosaic are processed
+   - Triggers: `stitch_mosaic_flow` or mosaic-level orchestration
+   - Payload: `{project_name, project_base_path, mosaic_id, total_batches}`
 
-#### 2.3.2 Compression and Storage Design
+**Event Flow Benefits**:
+- **Decoupling**: Flows don't need to wait for downstream processing
+- **Scalability**: Event-driven flows can scale independently
+- **Resilience**: Failed downstream flows don't block upstream flows
+- **Flexibility**: Easy to add new event listeners without modifying existing flows
+
+#### 2.3.2 State Management via Flag Files
+
+**Flag File System**:
+- Location: `{project_base_path}/mosaic-{mosaic_id}/state/`
+- Naming: `batch-{batch_id}.{status}`
+- Statuses: `started`, `archived`, `processed`, `uploaded`
+
+**Flag File Usage**:
+1. **Idempotency**: Check if batch already processed before starting
+2. **Progress Tracking**: Count flag files to determine batch completion
+3. **Mosaic Completion**: Check if all batches have `.processed` flag files
+4. **Recovery**: Flag files persist across flow runs, enabling recovery
+
+**Flag File Operations**:
+- Create: `batch-{batch_id}.started` at flow start
+- Update: `batch-{batch_id}.archived` after archiving
+- Update: `batch-{batch_id}.processed` after processing
+- Update: `batch-{batch_id}.uploaded` after upload
+
+**Monitoring**:
+- Mosaic-level flows scan flag files to determine progress
+- Artifact table updated based on flag file counts
+- Event emissions can be verified against flag file state
+
+#### 2.3.3 Artifact Table Updates
+
+**Purpose**: Track batch progress at mosaic level for monitoring and downstream triggering.
+
+**Update Triggers**:
+- After each batch completes processing (via `complex_to_processed_batch_event_flow`)
+- Periodic checks by mosaic monitor flow
+- Before triggering mosaic stitching
+
+**Artifact Table Schema** (conceptual):
+- `mosaic_id`: Mosaic identifier
+- `total_batches`: Total number of batches (from grid_size_x)
+- `processed_batches`: Count of batches with `.processed` flag files
+- `archived_batches`: Count of batches with `.archived` flag files
+- `uploaded_batches`: Count of batches with `.uploaded` flag files
+- `progress_percentage`: `processed_batches / total_batches * 100`
+- `last_updated`: Timestamp of last update
+
+**Update Operations**:
+- Increment counters when batch flag files are created
+- Calculate progress percentage
+- Check if all batches complete (trigger stitching if so)
+
+#### 2.3.4 Compression and Storage Design
 
 **Compression Task**:
 - **Input**: Spectral raw tile file
@@ -331,7 +505,7 @@ Main Flow (per experiment/sample)
 - **Compressed Data**: `{compressed_base_path}/` (separate directory/disk)
 - **Rationale**: Separate I/O paths to avoid disk contention
 
-#### 2.3.3 Upload Queue Management
+#### 2.3.5 Upload Queue Management
 
 **Upload Queue Architecture**:
 - **Queue Manager**: Centralized upload queue manager (singleton pattern)
@@ -392,7 +566,7 @@ class UploadQueueManager:
         subprocess.run(cmd, check=True)
 ```
 
-#### 2.3.4 Slack Notification System
+#### 2.3.6 Slack Notification System
 
 **Notification Milestones**:
 1. **25% Tile Completion**: When 25% of tiles in a mosaic are processed
@@ -463,19 +637,29 @@ async def monitor_tile_progress_task(
 
 ### 2.4 Flow Triggering Strategy
 
-#### 2.4.1 File-Based Triggering
+#### 2.4.1 Batch Flow Triggering
 
-- **Tile Processing**: Triggered when new spectral raw tile file appears
-- **Mosaic Processing**: Triggered when all tiles for a mosaic are available
-- **Slice Processing**: Triggered when both mosaics for a slice are complete
-- **Stacking**: Triggered when all slices are complete
+- **Tile Batch Processing**: Triggered when batch of tiles (grid_size_y tiles) is available
+- **Batch Discovery**: Mosaic flow discovers batches based on grid_size_x and grid_size_y
+- **Batch Execution**: Each batch flow runs independently, processes grid_size_y tiles
 
-#### 2.4.2 Event-Driven Architecture
+#### 2.4.2 Event-Driven Downstream Processing
 
-Use Prefect's file system watchers or custom triggers:
-- Watch for new files in spectral raw directory
-- Monitor completion of flows to trigger downstream flows
-- Use Prefect's `wait_for` or custom state checks
+- **Complex to Processed**: Triggered by `tile_batch.complex2processed.ready` event
+- **Upload to LINC**: Triggered by `tile_batch.upload_to_linc.ready` event
+- **Mosaic Stitching**: Triggered by `mosaic.processed` event (when all batches complete)
+
+#### 2.4.3 Flag File-Based Completion Checking
+
+- **Batch Completion**: Check flag files (`batch-*.processed`) to determine if all batches done
+- **Mosaic Completion**: Mosaic flow polls flag files or listens for `mosaic.processed` event
+- **State Persistence**: Flag files enable recovery and idempotent operations
+
+#### 2.4.4 Artifact Table-Based Monitoring
+
+- **Progress Tracking**: Artifact table updated as batches complete
+- **Mosaic Triggering**: Mosaic stitching triggered when Artifact table shows 100% completion
+- **Monitoring**: External systems can query Artifact table for progress
 
 ## 3. Deployment Design
 
@@ -1009,131 +1193,243 @@ upload_queue = get_upload_queue_manager(
 
 ### 5.3 Flow Definitions
 
-**Example Flow with Async Tasks**:
+**Example Batch Processing Flow with Event-Driven Architecture**:
 
 ```python
 from prefect import flow, task
-from prefect.tasks import task_input_hash
+from prefect.events import emit_event
 from typing import List, Dict, Optional
-from workflow.upload_queue import get_upload_queue_manager
+from pathlib import Path
+import logging
 
-@flow(name="process_tile_flow")
-def process_tile_flow(
-    tile_path: str,
-    mosaic_id: str,
-    tile_index: int,
-    output_base_path: str,
-    compressed_base_path: str,  # Separate directory/disk
-    surface_method: str = "find",
-    depth: int = 80,
-    upload_queue=None,
-    slack_config: Optional[Dict] = None
+logger = logging.getLogger(__name__)
+
+@flow(name="process_tile_batch_flow")
+def process_tile_batch_flow(
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+    batch_id: int,
+    file_list: List[str]
 ):
     """
-    Process a single tile with async compression and upload.
+    Process a batch of tiles (grid_size_y tiles).
+    Only runs synchronous operations that involve direct I/O from source files.
+    Emits events to trigger downstream processing (not subflows).
     """
-    # Load spectral raw
-    spectral_data = load_spectral_raw_task(tile_path)
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    mosaic_path.mkdir(parents=True, exist_ok=True)
+    state_path = mosaic_path / "state"
+    state_path.mkdir(parents=True, exist_ok=True)
     
-    # Convert to complex (in-memory)
-    complex_data = spectral_to_complex_task(spectral_data)
+    # Check if batch already started (idempotency)
+    batch_started_path = state_path / f"batch-{batch_id}.started"
+    if batch_started_path.exists():
+        logger.info(f"Batch {batch_id} already started, skipping")
+        return
     
-    # Convert to volumes
-    volumes = complex_to_volumes_task(complex_data)
+    # Mark batch as started
+    batch_started_path.touch()
     
-    # Find surface
-    surface = find_surface_task(volumes["dBI"], method=surface_method)
-    
-    # Generate enface images
-    enface_images = volumes_to_enface_task(volumes, surface, depth)
-    
-    # Save outputs (synchronous, blocking)
-    save_volumes_task(volumes, output_base_path, mosaic_id, tile_index)
-    save_enface_task(enface_images, output_base_path, mosaic_id, tile_index)
-    
-    # Async tasks (fire-and-forget, non-blocking)
-    # Compress to separate directory
-    compressed_path = compress_spectral_task.submit(
-        tile_path,
-        compressed_base_path,
-        mosaic_id,
-        tile_index
+    # Run archive and spectral_to_complex in parallel (both are synchronous I/O)
+    archive_future = archive_tile_batch_task.submit(
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
+        batch_id=batch_id,
+        file_list=file_list
     )
     
-    # Queue for upload (after compression completes)
-    if upload_queue:
-        queue_upload_spectral_task.submit(
-            compressed_path.result(),  # Wait for compression
-            f"s3://bucket/compressed/{mosaic_id}/",
-            upload_queue
-        )
+    spectral_to_complex_future = spectral_to_complex_batch_task.submit(
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
+        batch_id=batch_id,
+        file_list=file_list
+    )
     
-    # Send notification (async, non-blocking)
-    if slack_config:
-        notify_slack_task.submit(
-            f"✅ Tile {tile_index} in {mosaic_id} completed",
-            slack_config=slack_config
+    # Wait for both to complete
+    archive_result = archive_future.wait()
+    spectral_to_complex_result = spectral_to_complex_future.wait()
+    
+    # Mark batch as archived
+    batch_archived_path = state_path / f"batch-{batch_id}.archived"
+    batch_archived_path.touch()
+    
+    # Events are emitted by the tasks themselves
+    # This flow completes here - downstream flows triggered by events
+    
+    logger.info(
+        f"Batch {batch_id} in mosaic {mosaic_id} completed. "
+        f"Events emitted for downstream processing."
+    )
+    
+    return {
+        "archive_result": archive_result,
+        "spectral_to_complex_result": spectral_to_complex_result,
+    }
+
+@flow(name="complex_to_processed_batch_event_flow")
+def complex_to_processed_batch_event_flow(
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+    batch_id: int,
+):
+    """
+    Event-driven flow triggered by 'tile_batch.complex2processed.ready' event.
+    Not a subflow of tile_batch_flow - triggered independently by Prefect events.
+    """
+    from prefect.events import Event
+    
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    state_path = mosaic_path / "state"
+    state_path.mkdir(parents=True, exist_ok=True)
+    
+    # Check if already processed (idempotency)
+    batch_processed_path = state_path / f"batch-{batch_id}.processed"
+    if batch_processed_path.exists():
+        logger.info(f"Batch {batch_id} already processed")
+    else:
+        # Process complex data to volumes and enface
+        complex_to_processed_batch_task(
+            project_name=project_name,
+            project_base_path=project_base_path,
+            mosaic_id=mosaic_id,
+            batch_id=batch_id
+        )
+        
+        # Mark batch as processed
+        batch_processed_path.touch()
+        logger.info(f"Batch {batch_id} processed successfully")
+    
+    # Check if all batches in mosaic are processed
+    batch_started_files = list(state_path.glob("batch-*.started"))
+    total_batches = len(batch_started_files)
+    
+    if total_batches == 0:
+        logger.warning(f"No batch files found for mosaic {mosaic_id}")
+        return
+    
+    batch_processed_files = list(state_path.glob("batch-*.processed"))
+    processed_count = len(batch_processed_files)
+    
+    logger.info(
+        f"Mosaic {mosaic_id}: {processed_count}/{total_batches} batches processed"
+    )
+    
+    # If all batches processed, emit mosaic_processed event
+    if processed_count >= total_batches:
+        logger.info(
+            f"All batches processed for mosaic {mosaic_id}. "
+            f"Emitting mosaic.processed event."
+        )
+        emit_event(
+            event="mosaic.processed",
+            resource={
+                "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
+                "project_name": project_name,
+                "mosaic_id": str(mosaic_id),
+            },
+            payload={
+                "project_name": project_name,
+                "project_base_path": project_base_path,
+                "mosaic_id": mosaic_id,
+                "total_batches": total_batches,
+            }
         )
     
     return {
-        "volumes": volumes,
-        "enface": enface_images,
-        "surface": surface
+        "mosaic_id": mosaic_id,
+        "batch_id": batch_id,
+        "processed_count": processed_count,
+        "total_batches": total_batches,
+        "all_processed": processed_count >= total_batches,
     }
 
 @flow(name="process_mosaic_flow")
 def process_mosaic_flow(
-    mosaic_id: str,
-    tile_paths: List[str],
-    output_base_path: str,
-    compressed_base_path: str,
-    upload_queue=None,
-    slack_config: Optional[Dict] = None
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+    grid_size_x: int,
+    grid_size_y: int,
+    tile_file_pattern: str
 ):
     """
-    Process all tiles in a mosaic with progress monitoring.
+    Orchestrate batch processing for a mosaic.
+    Triggers batch flows and monitors completion via flag files.
     """
-    total_tiles = len(tile_paths)
-    completed_tiles = []
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    state_path = mosaic_path / "state"
+    state_path.mkdir(parents=True, exist_ok=True)
     
-    # Process all tiles in parallel
-    tile_results = []
-    for tile_index, tile_path in enumerate(tile_paths):
-        result = process_tile_flow(
-            tile_path=tile_path,
-            mosaic_id=mosaic_id,
-            tile_index=tile_index,
-            output_base_path=output_base_path,
-            compressed_base_path=compressed_base_path,
-            upload_queue=upload_queue,
-            slack_config=slack_config
-        )
-        tile_results.append(result)
-        completed_tiles.append(tile_index)
+    # Discover all batches
+    # For each column (grid_size_x), create a batch with grid_size_y tiles
+    batches = []
+    for batch_id in range(grid_size_x):
+        # Collect tiles for this batch (grid_size_y tiles)
+        batch_tiles = []
+        for row in range(grid_size_y):
+            tile_index = batch_id * grid_size_y + row
+            # Find tile file matching pattern and tile_index
+            # (implementation depends on file naming convention)
+            tile_file = find_tile_file(tile_file_pattern, tile_index)
+            if tile_file:
+                batch_tiles.append(tile_file)
         
-        # Monitor progress and send milestone notifications
-        monitor_tile_progress_task(
-            mosaic_id=mosaic_id,
-            total_tiles=total_tiles,
-            completed_tiles=completed_tiles,
-            slack_config=slack_config
-        )
+        if batch_tiles:
+            batches.append((batch_id, batch_tiles))
     
-    # Determine coordinates
+    logger.info(f"Discovered {len(batches)} batches for mosaic {mosaic_id}")
+    
+    # Trigger batch flows (they run independently)
+    batch_futures = []
+    for batch_id, file_list in batches:
+        future = process_tile_batch_flow.submit(
+            project_name=project_name,
+            project_base_path=project_base_path,
+            mosaic_id=mosaic_id,
+            batch_id=batch_id,
+            file_list=file_list
+        )
+        batch_futures.append((batch_id, future))
+    
+    # Monitor batch completion via flag files
+    # Wait for all batches to be processed
+    while True:
+        batch_processed_files = list(state_path.glob("batch-*.processed"))
+        processed_count = len(batch_processed_files)
+        
+        if processed_count >= len(batches):
+            logger.info(f"All {processed_count} batches processed for mosaic {mosaic_id}")
+            break
+        
+        # Update Artifact table with progress
+        update_artifact_table(
+            project_name=project_name,
+            mosaic_id=mosaic_id,
+            processed_batches=processed_count,
+            total_batches=len(batches)
+        )
+        
+        # Wait a bit before checking again
+        import time
+        time.sleep(10)  # Poll every 10 seconds
+    
+    # All batches processed, now determine coordinates and stitch
     coordinates = determine_mosaic_coordinates_flow(
-        mosaic_id=mosaic_id,
-        tile_paths=tile_paths,
-        output_base_path=output_base_path
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id
     )
     
     # Stitch mosaic
     stitched = stitch_mosaic_flow(
+        project_name=project_name,
+        project_base_path=project_base_path,
         mosaic_id=mosaic_id,
-        tile_paths=tile_paths,
-        coordinates=coordinates,
-        output_base_path=output_base_path,
-        upload_queue=upload_queue,
-        slack_config=slack_config
+        coordinates=coordinates
     )
     
     return stitched
@@ -1200,6 +1496,11 @@ processing:
   overlap: 50
   mask_threshold: 55
   
+batch_processing:
+  grid_size_x: 14  # Number of batches (columns) per mosaic
+  grid_size_y: 31  # Number of tiles per batch (rows, shared between normal and tilted)
+  # Total tiles per mosaic = grid_size_x * grid_size_y
+  
 paths:
   data_root: "/path/to/data"
   output_base: "/path/to/output"
@@ -1207,7 +1508,7 @@ paths:
   cloud_upload_path: "s3://bucket/path"
   
 resources:
-  tile_processing_workers: 16
+  batch_processing_workers: 16  # Workers for batch flows
   stitching_workers: 4
   registration_workers: 2
   
@@ -1237,10 +1538,17 @@ slack:
 
 ### 6.1 Parallelization Strategy
 
-- **Tile Processing**: Maximum parallelism (all tiles in mosaic processed simultaneously)
-- **Mosaic Processing**: Sequential (coordinates → stitching)
+- **Batch Processing**: All batches in a mosaic processed in parallel (grid_size_x batches)
+- **Within Batch**: Archive and spectral_to_complex run in parallel (both synchronous I/O)
+- **Event-Driven Processing**: Complex-to-processed and upload flows run independently via events
+- **Mosaic Processing**: Sequential (wait for all batches → coordinates → stitching)
 - **Slice Processing**: Parallel mosaics, then sequential registration
 - **Multi-Slice**: Parallel slices, then sequential stacking
+
+**Resource Optimization**:
+- Batch processing reduces flow overhead (one flow per batch instead of per tile)
+- Event-driven architecture allows independent scaling of processing stages
+- Flag file-based state management enables efficient progress tracking without polling overhead
 
 ### 6.2 Resource Optimization
 
@@ -1267,7 +1575,10 @@ slack:
 
 ### 7.2 Integration Tests
 
-- Test complete tile processing flow
+- Test complete tile batch processing flow
+- Test event-driven flows (complex_to_processed, upload_to_linc)
+- Test flag file state management
+- Test mosaic batch monitoring and completion detection
 - Test mosaic stitching flow
 - Test slice registration flow
 - Test with sample data
@@ -1303,12 +1614,19 @@ slack:
 
 ## 9. Conclusion
 
-This design provides a comprehensive Prefect-based workflow orchestration system for OCT data processing. The modular flow structure allows for flexible execution, error handling, and monitoring. The event-driven architecture ensures efficient processing as data becomes available, while the hierarchical flow design enables parallel processing at appropriate levels.
+This design provides a comprehensive Prefect-based workflow orchestration system for OCT data processing. The system uses **batch processing** to optimize resource usage (processing grid_size_y tiles per batch instead of individual tiles) and an **event-driven architecture** to decouple processing stages. Flows communicate via Prefect events rather than direct subflow calls, enabling independent scaling and resilience.
+
+**Key Architectural Decisions**:
+- **Batch Processing**: Reduces resource overhead by processing tiles in batches rather than individually
+- **Event-Driven**: Downstream flows triggered by events, not subflows, enabling decoupling and independent scaling
+- **State Management**: Flag files track batch completion, enabling idempotent operations and recovery
+- **Artifact Tracking**: Mosaic-level progress tracked in Artifact tables for monitoring and triggering
 
 The system is designed to be:
-- **Scalable**: Handle large datasets with many tiles and slices
-- **Reliable**: Robust error handling and retry mechanisms
-- **Maintainable**: Clear flow structure and documentation
-- **Observable**: Comprehensive logging and monitoring
-- **Flexible**: Easy to modify and extend
+- **Scalable**: Handle large datasets with many tiles and slices through batch processing
+- **Resource-Efficient**: Batch processing reduces flow overhead and resource consumption
+- **Resilient**: Event-driven architecture allows failed downstream flows to retry without blocking upstream flows
+- **Observable**: Flag files and Artifact tables provide clear state tracking and progress monitoring
+- **Maintainable**: Clear separation between batch processing, event-driven flows, and state management
+- **Flexible**: Easy to add new event listeners and processing stages without modifying existing flows
 

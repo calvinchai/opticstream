@@ -7,9 +7,10 @@ import gzip
 import shutil
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from prefect import task
-# from prefect.results import MaterializationResult
+from prefect.blocks.system import Secret
+from prefect.deployments import run_deployment
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,10 @@ def upload_to_linc_task(file_path: str) -> None:
     Upload the file to LINC.
     """
     with ShellOperation(
-        commands=[f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc '{file_path}' -J 10:10 --allow-any-path"],
+        commands=[f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc '{file_path}' -J 10:10 --allow-any-path --existing overwrite --validation skip"],
         env={
-            "LINC_API_KEY": "6703dac4c9afc50c9c7c4ca5544546fa5193bbaa",
+            "LINC_API_KEY": Secret.load("linc-api-key", validate=False).get(),
+            "DANDI_API_KEY": Secret.load("linc-api-key", validate=False).get(),
             "DANDI_DEVEL": "1"
         },
         working_dir=os.path.dirname(file_path)
@@ -39,9 +41,41 @@ def upload_to_linc_task(file_path: str) -> None:
         upload_process.wait_for_completion()
         output = upload_process.fetch_result()
         logger.info(f"Upload output: {output}")
+
+@task(name="upload_to_linc_batch", tags=["dandi-upload"], retries=1)
+def upload_to_linc_batch_task(file_list: List[str]) -> None:
+    """
+    Upload the file to LINC.
+    """
+    # Join file paths with spaces, each enclosed in single quotes
+    file_paths_str = " ".join(f"'{file_path}'" for file_path in file_list)
+    with ShellOperation(
+        commands=[f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc -J 15:15 --allow-any-path --existing overwrite --validation skip {file_paths_str}"],
+        env={
+            "LINC_API_KEY": Secret.load("linc-api-key", validate=False).get(),
+            "DANDI_API_KEY": Secret.load("linc-api-key", validate=False).get(),
+            "DANDI_DEVEL": "1"
+        },
+        working_dir=os.path.dirname(file_list[0]) if file_list else os.getcwd()
+    ) as upload_operation:
+        upload_process = upload_operation.trigger()
+        upload_process.wait_for_completion()
+        output = upload_process.fetch_result()
+        logger.info(f"Upload output: {output}")
     # shell_run_command(f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc {file_path} -J 10:10")
 
-
+@task
+def submit_upload_to_linc_task(file_path: str) -> None:
+#     flow_run = run_deployment(
+#     name="upload_flow/upload",
+#     parameters={
+#         "file_paths": [file_path],
+#         "instance": "linc"
+#     },
+#     timeout=0
+# )   
+    os.system(f"prefect deployment run 'upload_flow/upload' --param file_path='{file_path}' --param instance=linc")
+    # return flow_run
 #
 # @task(name="compress_spectral", allow_failure=True)
 # def compress_spectral_task(

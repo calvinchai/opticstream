@@ -5,6 +5,7 @@ Tasks for processing individual tiles.
 import gzip
 import logging
 import os
+import shutil
 from typing import Any
 
 import nibabel as nib
@@ -65,6 +66,16 @@ def complex_to_processed_task(
         logger.info(f"Complex to processed output: {output}")
     return output
 
+@task(tags=["psoct-data-archive"])
+def archive_tile_task(input_path: str, output_path: str):
+    """gzip the file""" 
+    if not output_path.endswith('.gz'):
+        output_path += '.gz'
+    with gzip.open(output_path, 'wb', compresslevel=3) as f:
+        with open(input_path, 'rb') as f_in:
+            shutil.copyfileobj(f_in, f)
+    logger.info(f"Archived tile {input_path} to {output_path}")
+    
 
 # @task(name="load_spectral_file_raw", cache_key_fn=task_input_hash)
 # def load_spectral_file_raw_task(
@@ -353,7 +364,6 @@ def complex_to_processed_task(
 #     task_logger = get_run_logger()
 #     task_logger.info(f"Uploading {file_path} to DANDI")
 
-
 # @task
 # def save_nifti_task(data: Any, output_path: str):
 #     """
@@ -371,3 +381,4 @@ def complex_to_processed_task(
 #     nib.save(nib.Nifti1Image(data, np.eye(4)), output_path)
 #     task_logger.info(f"Successfully saved {output_path}")
 #     return output_path
+

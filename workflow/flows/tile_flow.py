@@ -4,60 +4,31 @@ Flow for processing a single tile.
 
 import logging
 import os.path as op
-from typing import Dict, List, Optional, Any, Union
+from typing import Any, Dict, Union
+
 from prefect import flow
-import asyncio
 
-from data_processing.enface.vol2enface import EnfaceVolume
 
-from ..tasks.tile_processing import (
-    load_spectral_file_raw_task,
-    load_spectral_data_raw_task,
-    save_file_with_gz_task,
-    save_nifti_task,
-    spectral_to_complex_task,
-    complex_to_volumes_task,
-    find_surface_task,
-    volumes_to_enface_task,
-    # save_volumes_task,
-    # save_enface_task,
+from workflow.tasks.tile_processing import (
+    archive_tile_task,
+    complex_to_processed_task,
+    spectral_to_complex_task
 )
-from ..tasks.upload import (
-    upload_to_dandi_task,
+from workflow.tasks.upload import (
+    submit_upload_to_linc_task,
     upload_to_linc_task,
-    # compress_spectral_task,
-    # queue_upload_spectral_task,
 )
-# from ..tasks.notifications import (
-#     notify_tile_complete_task,
-# )
-# from ..tasks.utils import (
-#     extract_path_from_asset,
-#     extract_paths_from_assets,
-# )
+
 
 logger = logging.getLogger(__name__)
 
-@flow(name="archive_tile_flow", flow_run_name="archive_mosaic_{mosaic_id}_tile_{tile_index}")
-async def archive_tile_flow(
-    tile_data: Any,
-    mosaic_id: int,
-    tile_index: int,
-    output_base_path: str,
-    compressed_base_path: str,
-) -> Dict[str, Any]:
-    """
-    Archive a single tile.
-    """
-    slice_id = (mosaic_id+1) // 2
-    await save_file_with_gz_task(tile_data, output_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}.nii.gz")
-    await upload_to_linc_task(f"{output_base_path}/mosaic_{mosaic_id}_tile_{tile_index}.nii.gz")
-
+"sub-I80_voi-slab1_sample-slice{slice_num:03d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii"
 @flow(name="process_tile_flow")
 def process_tile_flow(
     project_name: str,
+    project_base_path: str,
     tile_path: str,
-    mosaic_id: str,
+    mosaic_id: int,
     tile_index: int,
     output_base_path: str,
     intermediate_base_path: str,
@@ -94,29 +65,47 @@ def process_tile_flow(
     Dict[str, Any]
         Dictionary with processed volumes and enface images
     """
-    logger.info(f"Processing tile {tile_index} in {mosaic_id}")
-    
-    # Load spectral raw (synchronous)
-    spectral_data = load_spectral_file_raw_task(tile_path)
-    archive_future=save_file_with_gz_task.submit(spectral_data, output_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}.nii")
-    upload_to_linc_task.submit(f"{output_base_path}/mosaic_{mosaic_id}_tile_{tile_index}.nii.gz", wait_for=[archive_future])
-    # archive_future = archive_tile_flow(spectral_data, mosaic_id, tile_index, output_base_path, compressed_base_path)
-    spectral_data = load_spectral_data_raw_task(spectral_data, 350, 350, 352)
-    # Convert to complex (in-memory, synchronous)
-    complex_data = spectral_to_complex_task(spectral_data)
+    titled_illumination = mosaic_id %2 == 0
+    acq = "tilted" if titled_illumination else "normal"
+    slice_id = (mosaic_id + 1) // 2
+    archived_tile_name = f"{project_name}_sample-slice-{slice_id:03d}_chunk-{tile_index:04d}_acq-{acq}_OCT.nii.gz"
+    archived_tile_path = op.join(compressed_base_path, archived_tile_name)
+    aline = 200 if titled_illumination else 350
 
-    # Convert to volumes (synchronous)
-    volumes = complex_to_volumes_task(complex_data)
-    save_nifti_task.submit(volumes["dBI"], op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_dBI.nii"))
-    save_nifti_task.submit(volumes["O3D"], op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_O3D.nii"))
-    save_nifti_task.submit(volumes["R3D"], op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_R3D.nii"))
-    volume = EnfaceVolume(dBI3D=volumes["dBI"], O3D=volumes["O3D"], R3D=volumes["R3D"], surface=surface_method, depth=depth)
-    save_nifti_task.submit(volume.aip, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_aip.nii"))
-    save_nifti_task.submit(volume.mip, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_mip.nii"))
-    save_nifti_task.submit(volume.ret, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_ret.nii"))
-    save_nifti_task.submit(volume.ori, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_ori.nii"))
-    save_nifti_task.submit(volume.biref, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_biref.nii"))
-    save_nifti_task.submit(volume.surface, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_surface.nii"))
+    logger.info(f"Processing tile {tile_index:04d} in mosaic {mosaic_id:03d}")
+    archive_tile_future = archive_tile_task.submit(tile_path, archived_tile_path)
+    upload_to_linc_future = submit_upload_to_linc_task.submit(archived_tile_path, wait_for=[archive_tile_future])
+
+    
+    # intermediate_tile_path_prefix = op.join(intermediate_base_path, f"mosaic_{mosaic_id:03d}_tile_{tile_index:04d}")
+    # intermediate_complex_tile_path = f"{intermediate_tile_path_prefix}_complex.nii"
+
+    # spectral_to_complex_task(tile_path, intermediate_complex_tile_path, aline, 350)
+    # complex_to_processed_task(intermediate_complex_tile_path, intermediate_tile_path_prefix, surface_method=surface_method, depth=depth)
+    upload_to_linc_future.wait()
+
+
+    # # Load spectral raw (synchronous)
+    # spectral_data = load_spectral_file_raw_task(tile_path)
+    # archive_future=save_file_with_gz_task.submit(spectral_data, output_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}.nii")
+    # upload_to_linc_task.submit(f"{output_base_path}/mosaic_{mosaic_id}_tile_{tile_index}.nii.gz", wait_for=[archive_future])
+    # # archive_future = archive_tile_flow(spectral_data, mosaic_id, tile_index, output_base_path, compressed_base_path)
+    # spectral_data = load_spectral_data_raw_task(spectral_data, 350, 350, 352)
+    # # Convert to complex (in-memory, synchronous)
+    # complex_data = spectral_to_complex_task(spectral_data)
+
+    # # Convert to volumes (synchronous)
+    # volumes = complex_to_volumes_task(complex_data)
+    # save_nifti_task.submit(volumes["dBI"], op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_dBI.nii"))
+    # save_nifti_task.submit(volumes["O3D"], op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_O3D.nii"))
+    # save_nifti_task.submit(volumes["R3D"], op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_R3D.nii"))
+    # volume = EnfaceVolume(dBI3D=volumes["dBI"], O3D=volumes["O3D"], R3D=volumes["R3D"], surface=surface_method, depth=depth)
+    # save_nifti_task.submit(volume.aip, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_aip.nii"))
+    # save_nifti_task.submit(volume.mip, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_mip.nii"))
+    # save_nifti_task.submit(volume.ret, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_ret.nii"))
+    # save_nifti_task.submit(volume.ori, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_ori.nii"))
+    # save_nifti_task.submit(volume.biref, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_biref.nii"))
+    # save_nifti_task.submit(volume.surface, op.join(intermediate_base_path, f"mosaic_{mosaic_id}_tile_{tile_index}_surface.nii"))
     # wait for all tasks to complete
     # asyncio.gather(archive_future)
     # # Save outputs (synchronous, blocking) - returns MaterializationResult assets
@@ -147,6 +136,17 @@ def process_tile_flow(
     #     "volume_paths": volume_paths,
     #     "enface_paths": enface_paths
     # }
-from prefect.artifacts import Artifact
 
+
+# def start_project():
+    # project_name
+    # project_base_path 
+    # tile_configuration_normal
+    # tile_configuration_tilted
+    # scan_resolution = [10,10,2.5]
+    # wavelength_um = 0.013 
+    # intermediate_path
+    # archive_path
+    # dandiset_id
+    # dandiset_path
 
