@@ -26,6 +26,18 @@ from .mosaic_processing import (
     generate_mask_task,
 )
 
+# Slack notification tasks
+from .slack_notifications import (
+    upload_image_to_slack_task,
+    send_slack_message_task,
+)
+
+# Slice registration tasks
+from .slice_registration import (
+    thruplane_registration_task,
+    rgb_3daxis_task,
+)
+
 # # Upload tasks
 # from .upload import (
 #     compress_spectral_task,
@@ -53,6 +65,12 @@ __all__ = [
     "generate_tile_info_file_task",
     "stitch_mosaic2d_task",
     "generate_mask_task",
+    # Slack notifications
+    "upload_image_to_slack_task",
+    "send_slack_message_task",
+    # Slice registration
+    "thruplane_registration_task",
+    "rgb_3daxis_task",
     # "complex_to_volumes_task",
     # "find_surface_task",
     # "volumes_to_enface_task",

@@ -36,7 +36,7 @@ def spectral_to_complex_batch_task(
     bline_length = 350
     for file in file_list:
         tile_index = int(os.path.basename(file).split("_")[3])
-        output_path = Path(project_base_path) / f"mosaic-{mosaic_id}" / "complex" / f"mosaic-{mosaic_id:3d}_image_{tile_index:04d}_complex.nii"
+        output_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}" / "complex" / f"mosaic-{mosaic_id:03d}_image_{tile_index:04d}_complex.nii"
         args.append(f"{file} {output_path} {mosaic_id} {disp_comp_file} {aline_length} {bline_length}")
     result = subprocess.run(["matlab", "-batch", "addpath(genpath('/homes/5/kc1708/localhome/code/psoct-renew/'));s2c_batch_stdin"], 
     input="\n".join(args), capture_output=True, text=True)
@@ -153,7 +153,7 @@ def process_tile_batch_flow(
     batch_id: int,
     file_list: List[str]):
     
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}" 
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}" 
     mosaic_path.mkdir(parents=True, exist_ok=True)
     batch_started_path = mosaic_path / "state" / f"batch-{batch_id}.started"
     (mosaic_path / "state").mkdir(parents=True, exist_ok=True)
@@ -227,7 +227,7 @@ def complex_to_processed_batch_event_flow(
     Event-driven flow triggered by 'tile_batch.complex2processed.ready' event.
     Runs complex_to_processed_batch_task and checks if all batches are processed.
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
     state_path = mosaic_path / "state"
     state_path.mkdir(parents=True, exist_ok=True)
     

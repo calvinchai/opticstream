@@ -77,7 +77,7 @@ def process_first_slice_coordinates(
     tuple[Path, Path]
         Tuple of (template_path, tile_coords_export_path)
     """
-    base_mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    base_mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
     base_processed_path = base_mosaic_path / "processed"
     base_stitched_path = base_mosaic_path / "stitched"
     
@@ -142,6 +142,92 @@ def process_first_slice_coordinates(
     return template_path, tile_coords_export
 
 
+@flow(name="stitch_enface_modalities_flow")
+def stitch_enface_modalities_flow(
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+    template_path: Path,
+    tiles_data_path: Path,
+    processed_path: Path,
+    stitched_path: Path,
+    mask_path: Path,
+    scan_resolution_2d: List[float],
+) -> Dict[str, Dict[str, str]]:
+    """
+    Subflow to stitch all 2D enface modalities.
+    
+    This subflow handles the stitching of all enface modalities (ret, ori, biref, mip, surf)
+    asynchronously and returns the outputs.
+    
+    Parameters
+    ----------
+    project_name : str
+        Project identifier
+    project_base_path : str
+        Base path for the project
+    mosaic_id : int
+        Mosaic identifier
+    template_path : Path
+        Path to Jinja2 template for tile info files
+    tiles_data_path : Path
+        Path to tile coordinates export YAML
+    processed_path : Path
+        Path to processed tiles directory
+    stitched_path : Path
+        Path to stitched output directory
+    mask_path : Path
+        Path to mask file
+    scan_resolution_2d : List[float]
+        Scan resolution for 2D [x, y]
+        
+    Returns
+    -------
+    Dict[str, Dict[str, str]]
+        Dictionary mapping modality to output file paths
+    """
+    logger.info(f"Stitching enface modalities for mosaic {mosaic_id}")
+    
+    # Stitch all enface modalities asynchronously (using template)
+    enface_futures = {}
+    for modality in ENFACE_MODALITIES:
+        modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
+        modality_nifti = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii"
+        modality_jpeg = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.jpeg"
+        modality_tiff = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.tif"
+        
+        # Generate tile_info_file using template
+        generate_tile_info_file_task(
+            template_path=str(template_path),
+            output_path=str(modality_tile_info),
+            base_dir=str(processed_path),
+            modality=modality,
+            mosaic_id=mosaic_id,
+            mask=str(mask_path),
+            scan_resolution=scan_resolution_2d,
+        )
+        
+        # Submit stitch task asynchronously
+        future = stitch_mosaic2d_task.submit(
+            tile_info_file=str(modality_tile_info),
+            nifti_output=str(modality_nifti),
+            jpeg_output=str(modality_jpeg),
+            tiff_output=str(modality_tiff),
+            circular_mean=(modality == "ori"),
+        )
+        enface_futures[modality] = future
+    
+    # Wait for all enface stitching to complete
+    enface_outputs = {}
+    for modality, future in enface_futures.items():
+        outputs = future.wait()
+        enface_outputs[modality] = outputs
+    
+    logger.info(f"All enface modalities stitched for mosaic {mosaic_id}")
+    
+    return enface_outputs
+
+
 @flow(name="process_mosaic_flow")
 def process_mosaic_flow(
     project_name: str,
@@ -194,7 +280,7 @@ def process_mosaic_flow(
     Dict[str, any]
         Dictionary with output paths and status
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
     processed_path = mosaic_path / "processed"
     stitched_path = mosaic_path / "stitched"
     processed_path.mkdir(parents=True, exist_ok=True)
@@ -218,7 +304,7 @@ def process_mosaic_flow(
     # Determine base mosaic ID for this illumination type
     # Normal: mosaic_001, Tilted: mosaic_002
     base_mosaic_id = 2 if is_tilted else 1
-    base_mosaic_path = Path(project_base_path) / f"mosaic-{base_mosaic_id}"
+    base_mosaic_path = Path(project_base_path) / f"mosaic-{base_mosaic_id:03d}"
     base_processed_path = base_mosaic_path / "processed"
     base_stitched_path = base_mosaic_path / "stitched"
     
@@ -235,7 +321,7 @@ def process_mosaic_flow(
         template_path, tile_coords_export = process_first_slice_coordinates(
             project_name=project_name,
             project_base_path=project_base_path,
-            mosaic_id=base_mosaic_id,
+            mosaic_id=mosaic_id,
             grid_size_x=grid_size_x,
             grid_size_y=grid_size_y,
             tile_overlap=tile_overlap,
@@ -265,7 +351,6 @@ def process_mosaic_flow(
     
     generate_tile_info_file_task(
         template_path=str(template_path),
-        tile_coords_export_path=str(tiles_data_path),
         output_path=str(aip_tile_info),
         base_dir=str(processed_path),
         modality="aip",
@@ -289,35 +374,18 @@ def process_mosaic_flow(
         threshold=mask_threshold,
     )
     
-    # Step 6: Stitch all enface modalities asynchronously (using template)
-    enface_futures = {}
-    for modality in ENFACE_MODALITIES:
-        modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
-        modality_nifti = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii"
-        modality_jpeg = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.jpeg"
-        modality_tiff = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.tif"
-        
-        # Generate tile_info_file using template
-        generate_tile_info_file_task(
-            template_path=str(template_path),
-            tile_coords_export_path=str(tiles_data_path),
-            output_path=str(modality_tile_info),
-            base_dir=str(processed_path),
-            modality=modality,
-            mosaic_id=mosaic_id,
-            mask=str(mask_path),
-            scan_resolution=scan_resolution_2d,
-        )
-        
-        # Submit stitch task asynchronously
-        future = stitch_mosaic2d_task.submit(
-            tile_info_file=str(modality_tile_info),
-            nifti_output=str(modality_nifti),
-            jpeg_output=str(modality_jpeg),
-            tiff_output=str(modality_tiff),
-            circular_mean=(modality == "ori"),
-        )
-        enface_futures[modality] = future
+    # Step 6: Stitch all enface modalities using subflow
+    enface_outputs = stitch_enface_modalities_flow(
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
+        template_path=template_path,
+        tiles_data_path=tiles_data_path,
+        processed_path=processed_path,
+        stitched_path=stitched_path,
+        mask_path=mask_path,
+        scan_resolution_2d=scan_resolution_2d,
+    )
     
     # Step 7: Stitch all volume modalities asynchronously (using template, no mask)
     volume_futures = {}
@@ -328,7 +396,6 @@ def process_mosaic_flow(
         # Generate tile_info_file using template
         generate_tile_info_file_task(
             template_path=str(template_path),
-            tile_coords_export_path=str(tiles_data_path),
             output_path=str(modality_tile_info),
             base_dir=str(processed_path),
             modality=modality,
@@ -337,18 +404,12 @@ def process_mosaic_flow(
         )
         
         # Submit stitch task asynchronously (volumes don't need JPEG/TIFF)
-        future = stitch_mosaic2d_task.submit(
-            tile_info_file=str(modality_tile_info),
-            nifti_output=str(modality_nifti),
-            circular_mean=False,
-        )
-        volume_futures[modality] = future
-    
-    # Wait for all enface stitching to complete
-    enface_outputs = {}
-    for modality, future in enface_futures.items():
-        outputs = future.wait()
-        enface_outputs[modality] = outputs
+        # future = stitch_mosaic2d_task.submit(
+        #     tile_info_file=str(modality_tile_info),
+        #     out = 
+        #     circular_mean=False,
+        # )
+        # volume_futures[modality] = future
     
     # Emit event when 2D enface images are finished stitching
     emit_event(

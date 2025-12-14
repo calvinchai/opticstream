@@ -41,7 +41,7 @@ def check_batch_state_task(
         - processed_batches: Number of batches processed
         - uploaded_batches: Number of batches uploaded
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
     state_path = mosaic_path / "state"
     
     if not state_path.exists():
@@ -366,7 +366,7 @@ def check_mosaic_stitched_task(
     bool
         True if mosaic is stitched, False otherwise
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
     stitched_path = mosaic_path / "stitched"
     
     # Check for AIP file as indicator of stitching completion

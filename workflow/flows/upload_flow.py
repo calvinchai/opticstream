@@ -38,7 +38,7 @@ def upload_to_linc_batch_flow(
     Event-driven flow triggered by 'tile_batch.upload_to_linc.ready' event.
     Runs upload_to_linc_batch_task with the list of archived files from the event payload.
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id}"
+    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
     state_path = mosaic_path / "state"
     state_path.mkdir(parents=True, exist_ok=True)
     

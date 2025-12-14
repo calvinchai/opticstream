@@ -221,7 +221,6 @@ def generate_coord_template_task(
 @task(name="generate_tile_info_file_task")
 def generate_tile_info_file_task(
     template_path: str,
-    tile_coords_export_path: str,
     output_path: str,
     base_dir: str,
     modality: str,
@@ -271,16 +270,6 @@ def generate_tile_info_file_task(
     
     template = jinja2.Template(template_content)
     
-    # Load tiles data from tile_coords_export.yaml
-    with open(tile_coords_export_path, 'r') as f:
-        coord_data = yaml.safe_load(f)
-    
-    if isinstance(coord_data, list):
-        tiles = coord_data
-    elif isinstance(coord_data, dict) and 'tiles' in coord_data:
-        tiles = coord_data['tiles']
-    else:
-        tiles = []
     
     # Prepare template variables for Jinja2 rendering
     mosaic_id_str = f"mosaic_{mosaic_id:03d}"
@@ -289,7 +278,6 @@ def generate_tile_info_file_task(
         'modality': modality,
         'mosaic_id_str': mosaic_id_str,
         'base_dir': base_dir,
-        'tiles': tiles,
     }
     
     if scan_resolution is not None:
