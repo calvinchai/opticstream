@@ -1,8 +1,9 @@
-import os
-import time
 import glob
+import os
 import shutil
-from prefect import flow, task, get_run_logger
+import time
+
+from prefect import flow, get_run_logger, task
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -11,6 +12,7 @@ WATCH_DIRECTORIES = "/space/zircon/5/users/kchai/I55_slice*/analysis/"
 FILE_PATTERN = "*.jpg"
 SLACK_BOT_TOKEN = 'xoxb-5890633520343-9932310181297-biQaPdHnAP3jlE0uxhkB2RSF'
 SLACK_CHANNEL_ID = "C09SA78A8QJ"  # Slack channel ID
+
 
 @task(name="Upload to Slack", retries=2, retry_delay_seconds=5)
 def upload_image_to_slack(filepath):
@@ -29,10 +31,11 @@ def upload_image_to_slack(filepath):
         )
         logger.info(f"Uploaded {filename}")
         return True
-        
+
     except SlackApiError as e:
         logger.error(f"Slack upload error: {e.response['error']}")
         raise
+
 
 @task(name="Archive File")
 def move_to_processed(filepath):
@@ -53,6 +56,7 @@ def move_to_processed(filepath):
     except Exception as e:
         logger.error(f"Move failed: {str(e)}")
         raise
+
 
 @flow(name="3D Axis Watcher", log_prints=True)
 def folder_watch_flow():
@@ -78,9 +82,11 @@ def folder_watch_flow():
 
         time.sleep(10)
 
+
 if __name__ == "__main__":
     folder_watch_flow.serve(
         name="slack-watcher-deployment",
         tags=["file-watcher"],
-        description="Watches multiple slice analysis folders and uploads images to Slack"
+        description="Watches multiple slice analysis folders and uploads images to "
+        "Slack"
     )

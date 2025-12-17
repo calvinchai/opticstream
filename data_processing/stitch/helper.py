@@ -1,18 +1,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Tuple, Union
 
 import dask.array as da
 import numpy as np
 from numpy.typing import ArrayLike
+
 
 def _to_dask(arr: ArrayLike, chunks="auto") -> da.Array:
     """Convert array-like to dask array."""
     if isinstance(arr, da.Array):
         return arr
     return da.from_array(np.asarray(arr), chunks=chunks)
+
 
 def _normalize_overlap(
     overlap: Union[int, Tuple[int, int]],
@@ -45,9 +46,12 @@ def _blending_ramp(
     if overlap[1] > 0:
         wy[:overlap[1]] = np.linspace(0, 1, overlap[1], dtype=np.float32)
         wy[-overlap[1]:] = np.linspace(1, 0, overlap[1], dtype=np.float32)
-    return np.outer(wx,wy)
+    return np.outer(wx, wy)
 
-def _combine_block(_, block_tiles, block_weights, circular_mean, *args, block_info=None, **kwargs):
+
+def _combine_block(
+    _, block_tiles, block_weights, circular_mean, *args, block_info=None, **kwargs
+    ):
     chunk_id = tuple(block_info[None]['chunk-location'][:2])
     paints = block_tiles[chunk_id]
     weights = block_weights[chunk_id]
@@ -61,14 +65,17 @@ def _combine_block(_, block_tiles, block_weights, circular_mean, *args, block_in
     normalized = total_paint / np.broadcast_to(total_weight, total_paint.shape)
     if not circular_mean:
         return normalized
-    return da.rad2deg(da.arctan2(normalized[...,1],normalized[...,0]))/2
+    return da.rad2deg(da.arctan2(normalized[..., 1], normalized[..., 0])) / 2
 
-def stitch_tiles(tile_infos,
-                 full_shape,
-                 blend_ramp, 
-                 chunk_size = None,
-                 circular_mean= False,
-                 **_):
+
+def stitch_tiles(
+    tile_infos,
+    full_shape,
+    blend_ramp,
+    chunk_size=None,
+    circular_mean=False,
+    **_
+    ):
     """
     Chunk‐aligned padding + per‐block summation (build_slice_chunked_padding).
     """
@@ -88,7 +95,7 @@ def stitch_tiles(tile_infos,
     block_weights = defaultdict(list)
 
     for tile_info in tile_infos:
-        x0,y0,t = tile_info.x, tile_info.y, tile_info.image
+        x0, y0, t = tile_info.x, tile_info.y, tile_info.image
         x0c = x0 // pw
         y0c = y0 // ph
         x1c = (x0 + pw - 1) // pw
@@ -100,15 +107,15 @@ def stitch_tiles(tile_infos,
         x_end = (x1c + 1) * pw
         y_end = (y1c + 1) * ph
 
-        
         if not circular_mean:
             block_canvas = da.zeros((x_end - x_start, y_end - y_start, *no_chunk_dim),
-                                chunks=(pw, ph, *no_chunk_dim),
-                                dtype=np.float32)
+                                    chunks=(pw, ph, *no_chunk_dim),
+                                    dtype=np.float32)
         else:
-            block_canvas = da.zeros((x_end - x_start, y_end - y_start, *no_chunk_dim,2),
-                                chunks=(pw, ph, *no_chunk_dim,2),
-                                dtype=np.float32)
+            block_canvas = da.zeros(
+                (x_end - x_start, y_end - y_start, *no_chunk_dim, 2),
+                chunks=(pw, ph, *no_chunk_dim, 2),
+                dtype=np.float32)
 
         block_weight = da.zeros((x_end - x_start, y_end - y_start),
                                 chunks=(pw, ph),
@@ -121,8 +128,8 @@ def stitch_tiles(tile_infos,
             block_canvas[xs, ys, ...] = t * blend_ramp
         else:
             rad = da.deg2rad(t) * 2
-            block_canvas[xs,ys,...,0] = da.cos(rad)
-            block_canvas[xs,ys,...,1] = da.sin(rad)
+            block_canvas[xs, ys, ..., 0] = da.cos(rad)
+            block_canvas[xs, ys, ..., 1] = da.sin(rad)
 
         block_weight[xs, ys] = blend_ramp
 
@@ -135,9 +142,10 @@ def stitch_tiles(tile_infos,
                 block_tiles[bid].append(block_canvas[sub_x, sub_y, ...])
                 block_weights[bid].append(block_weight[sub_x, sub_y])
 
-    canvas = da.map_blocks(_combine_block, canvas, block_tiles, block_weights, circular_mean,
+    canvas = da.map_blocks(_combine_block, canvas, block_tiles, block_weights,
+                           circular_mean,
                            dtype=canvas.dtype,
-                           chunks=(pw, ph,*no_chunk_dim))
+                           chunks=(pw, ph, *no_chunk_dim))
     # crop canvas to get rid of excessive padded pixels
-    canvas = canvas[:full_shape[0],:full_shape[1],...]
+    canvas = canvas[:full_shape[0], :full_shape[1], ...]
     return canvas

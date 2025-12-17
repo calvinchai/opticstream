@@ -6,12 +6,12 @@ Manages upload queue with concurrency control using CLI tools
 Maximum 5 concurrent uploads at a time.
 """
 
-import queue
-import threading
-import subprocess
 import logging
-from typing import Optional, Dict
+import queue
+import subprocess
+import threading
 from pathlib import Path
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class UploadQueueManager:
     Uses CLI tool for actual uploads (e.g., aws s3 cp, gsutil cp).
     Maximum 5 concurrent uploads at a time.
     """
-    
+
     def __init__(
         self,
         max_concurrent: int = 5,
@@ -51,13 +51,13 @@ class UploadQueueManager:
         self.upload_workers = []
         self.running = False
         self.num_workers = num_workers
-        
+
     def start(self):
         """Start background upload workers."""
         if self.running:
             logger.warning("Upload queue manager already running")
             return
-        
+
         self.running = True
         for i in range(self.num_workers):
             worker = threading.Thread(
@@ -68,14 +68,16 @@ class UploadQueueManager:
             worker.start()
             self.upload_workers.append(worker)
         logger.info(f"Started {self.num_workers} upload worker(s)")
-    
+
     def stop(self):
         """Stop upload workers (waits for queue to empty)."""
         self.running = False
         self.queue.join()  # Wait for all tasks to complete
         logger.info("Upload queue manager stopped")
-    
-    def enqueue(self, file_path: str, destination: str, metadata: Optional[Dict] = None):
+
+    def enqueue(
+        self, file_path: str, destination: str, metadata: Optional[Dict] = None
+        ):
         """
         Add file to upload queue (non-blocking).
         
@@ -91,14 +93,14 @@ class UploadQueueManager:
         if not Path(file_path).exists():
             logger.error(f"File not found: {file_path}")
             return
-        
+
         self.queue.put({
             "file_path": file_path,
             "destination": destination,
             "metadata": metadata or {}
         })
         logger.debug(f"Enqueued upload: {file_path} -> {destination}")
-    
+
     def _upload_worker(self):
         """Background worker that processes upload queue."""
         while self.running:
@@ -116,7 +118,7 @@ class UploadQueueManager:
             except Exception as e:
                 logger.error(f"Upload worker error: {e}")
                 self.queue.task_done()
-    
+
     def _execute_upload(self, file_path: str, destination: str, metadata: Dict):
         """
         Execute CLI tool for upload.
@@ -133,9 +135,9 @@ class UploadQueueManager:
         try:
             # Build command
             cmd = [self.cli_tool] + self.cli_base_args + [file_path, destination]
-            
+
             logger.info(f"Uploading {file_path} to {destination}")
-            
+
             # Execute CLI tool
             result = subprocess.run(
                 cmd,
@@ -144,9 +146,9 @@ class UploadQueueManager:
                 text=True,
                 timeout=3600  # 1 hour timeout
             )
-            
+
             logger.info(f"Successfully uploaded {file_path}")
-            
+
         except subprocess.CalledProcessError as e:
             logger.error(
                 f"Upload failed for {file_path}: {e.stderr}"
@@ -169,7 +171,7 @@ def get_upload_queue_manager(
 ) -> UploadQueueManager:
     """Get or create global upload queue manager (singleton pattern)."""
     global _upload_queue_manager
-    
+
     if _upload_queue_manager is None:
         _upload_queue_manager = UploadQueueManager(
             max_concurrent=max_concurrent,
@@ -177,6 +179,5 @@ def get_upload_queue_manager(
             cli_base_args=cli_base_args
         )
         _upload_queue_manager.start()
-    
-    return _upload_queue_manager
 
+    return _upload_queue_manager

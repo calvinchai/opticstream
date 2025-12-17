@@ -1,32 +1,34 @@
-
 import os
 import re
 import time
+
+import nibabel as nib
 import numpy as np
 from scipy import interpolate
 from scipy.io import loadmat
-import nibabel as nib
-from math import sqrt
 
 # -----------------------
 # === CONFIG CONSTANTS ===
 # -----------------------
 # Hardcode your calibration .mat path here (must contain 'mu' Nx2 and 'wave_prime')
-CALIB_MAT_PATH = "/autofs/cluster/octdata2/users/calibration_nov21/calibration/wave-pixel.mat"
+CALIB_MAT_PATH = ("/autofs/cluster/octdata2/users/calibration_nov21/calibration/wave"
+"-pixel.mat")
+
 
 # -----------------------
 # === Utility I/O funcs ===
 # -----------------------
 
 
-def load_spectral_file_raw(file_path,aline_length=200, bline_length=350, nifti_header_size = 352):
-    file = open(file_path,'rb')
+def load_spectral_file_raw(
+    file_path, aline_length=200, bline_length=350, nifti_header_size=352
+    ):
+    file = open(file_path, 'rb')
     file.seek(nifti_header_size)
-    data = np.fromfile(file,np.uint16,aline_length*bline_length*4096)
-    data = data.reshape((bline_length,2,2048,aline_length))
+    data = np.fromfile(file, np.uint16, aline_length * bline_length * 4096)
+    data = data.reshape((bline_length, 2, 2048, aline_length))
     file.close()
     return data
-
 
 
 def read_spectral_file_raw(filename, header_bytes=352):
@@ -118,8 +120,12 @@ def interpolationwave(Parameters, calib_mat_path=CALIB_MAT_PATH):
     xx1 = np.linspace(Start1, Start1 + OriginalLineLength1 - 1, PaddingLength)
     xx2 = np.linspace(Start2, Start2 + OriginalLineLength2 - 1, PaddingLength)
 
-    Wavelengths_l = 1e-9 * np.interp(xx1, np.arange(Start1, Start1 + OriginalLineLength1), W_l)
-    Wavelengths_r = 1e-9 * np.interp(xx2, np.arange(Start2, Start2 + OriginalLineLength2), W_r)
+    Wavelengths_l = 1e-9 * np.interp(xx1,
+                                     np.arange(Start1, Start1 + OriginalLineLength1),
+                                     W_l)
+    Wavelengths_r = 1e-9 * np.interp(xx2,
+                                     np.arange(Start2, Start2 + OriginalLineLength2),
+                                     W_r)
 
     minK = 2.0 * np.pi / min(Wavelengths_l[-1], Wavelengths_r[-1])
     maxK = 2.0 * np.pi / max(Wavelengths_l[0], Wavelengths_r[0])
@@ -135,7 +141,10 @@ def interpolationwave(Parameters, calib_mat_path=CALIB_MAT_PATH):
 # -----------------------
 # === Core processing ===
 # -----------------------
-def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, AutoCorrPeakCut=24, PaddingFactor=1):
+def spectral2complex(
+    spectral_array, disp_comp_file=None, AlineLength=2048, AutoCorrPeakCut=24,
+    PaddingFactor=1
+    ):
     """
     Process pre-reshaped spectral_array into Jstack_all and return it.
 
@@ -151,7 +160,8 @@ def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, Auto
 
     arr = np.asarray(spectral_array)
     if arr.ndim != 4:
-        raise ValueError("spectral_array must be 4-D shaped (AlineLength, Aline, 2, Bline).")
+        raise ValueError(
+            "spectral_array must be 4-D shaped (AlineLength, Aline, 2, Bline).")
     if arr.shape[0] != AlineLength:
         raise ValueError(f"First dimension must equal AlineLength={AlineLength}.")
 
@@ -170,10 +180,12 @@ def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, Auto
     PaddingLength = AlineLength * PaddingFactor
     OriginalLineLength1 = AlineLength
     OriginalLineLength2 = AlineLength
-    InterpolationParameters = [PaddingFactor, PaddingLength, OriginalLineLength1, 1, OriginalLineLength2, 1]  # Start1/Start2 always 1
+    InterpolationParameters = [PaddingFactor, PaddingLength, OriginalLineLength1, 1,
+                               OriginalLineLength2, 1]  # Start1/Start2 always 1
 
     # Get wavelengths from hardcoded calibration .mat
-    Wavelengths_l, Wavelengths_r, InterpolatedWavelengths2, Ks, Ko1, Ko2 = interpolationwave(InterpolationParameters, calib_mat_path=CALIB_MAT_PATH)
+    Wavelengths_l, Wavelengths_r, InterpolatedWavelengths2, Ks, Ko1, Ko2 = interpolationwave(
+        InterpolationParameters, calib_mat_path=CALIB_MAT_PATH)
     newLen = InterpolatedWavelengths2.shape[0]
 
     # Load dispersion correction if provided (same for both channels)
@@ -211,8 +223,10 @@ def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, Auto
     ZeroPaddedBuffer1_all = np.zeros((PaddingLength, Aline, Bline), dtype=np.float64)
     ZeroPaddedBuffer2_all = np.zeros((PaddingLength, Aline, Bline), dtype=np.float64)
     for k in range(Bline):
-        ZeroPaddedBuffer1_all[:, :, k] = ZeroPadBuffer_simple(OriginalBuffer1_all[:, :, k], PaddingFactor)
-        ZeroPaddedBuffer2_all[:, :, k] = ZeroPadBuffer_simple(OriginalBuffer2_all[:, :, k], PaddingFactor)
+        ZeroPaddedBuffer1_all[:, :, k] = ZeroPadBuffer_simple(
+            OriginalBuffer1_all[:, :, k], PaddingFactor)
+        ZeroPaddedBuffer2_all[:, :, k] = ZeroPadBuffer_simple(
+            OriginalBuffer2_all[:, :, k], PaddingFactor)
 
     # Interpolation: reshape to 2D (L_in x (Aline*Bline))
     L_in = ZeroPaddedBuffer1_all.shape[0]
@@ -223,19 +237,20 @@ def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, Auto
     x2 = Wavelengths_r
     x_new = InterpolatedWavelengths2
 
-    f1 = interpolate.interp1d(x1, Z1_2D, kind='linear', axis=0, fill_value='extrapolate', assume_sorted=True)
-    f2 = interpolate.interp1d(x2, Z2_2D, kind='linear', axis=0, fill_value='extrapolate', assume_sorted=True)
+    f1 = interpolate.interp1d(x1, Z1_2D, kind='linear', axis=0,
+                              fill_value='extrapolate', assume_sorted=True)
+    f2 = interpolate.interp1d(x2, Z2_2D, kind='linear', axis=0,
+                              fill_value='extrapolate', assume_sorted=True)
     Interp1_2D = f1(x_new)
     Interp2_2D = f2(x_new)
 
     InterpolatedBuffer1_all = np.reshape(Interp1_2D, (newLen, Aline, Bline), order='F')
     InterpolatedBuffer2_all = np.reshape(Interp2_2D, (newLen, Aline, Bline), order='F')
 
-
     med1 = np.median(InterpolatedBuffer1_all, axis=1, keepdims=True)
     med2 = np.median(InterpolatedBuffer2_all, axis=1, keepdims=True)
-    InterpolatedBuffer1_all-= med1
-    InterpolatedBuffer2_all-= med2
+    InterpolatedBuffer1_all -= med1
+    InterpolatedBuffer2_all -= med2
 
     # phase correction (interpolate dispersion to newLen if needed)
     def make_phase_correction(phaseDispersion, target_len, Aline):
@@ -251,8 +266,10 @@ def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, Auto
     phaseCorrection1 = make_phase_correction(phaseDispersion1, newLen, Aline)
     phaseCorrection2 = make_phase_correction(phaseDispersion2, newLen, Aline)
 
-    InterpolatedBuffer1_all=  np.multiply(InterpolatedBuffer1_all, phaseCorrection1[...,None],casting='unsafe')
-    InterpolatedBuffer2_all= np.multiply(InterpolatedBuffer2_all,phaseCorrection2[...,None],casting='unsafe')
+    InterpolatedBuffer1_all = np.multiply(InterpolatedBuffer1_all,
+                                          phaseCorrection1[..., None], casting='unsafe')
+    InterpolatedBuffer2_all = np.multiply(InterpolatedBuffer2_all,
+                                          phaseCorrection2[..., None], casting='unsafe')
 
     InterpBuf1_big = InterpolatedBuffer1_all.reshape((newLen, Aline * Bline), order='F')
     InterpBuf2_big = InterpolatedBuffer2_all.reshape((newLen, Aline * Bline), order='F')
@@ -303,12 +320,18 @@ def spectral2complex(spectral_array, disp_comp_file=None, AlineLength=2048, Auto
 # -----------------------
 def parse_args():
     import argparse
-    p = argparse.ArgumentParser(description="s2c_v CLI (expects pre-reshaped spectral array).")
-    p.add_argument("input_file", help="Input binary spectral filename (352-byte header expected). Use read_spectral_file_raw then reshape externally.")
-    p.add_argument("--reshape", nargs=4, type=int, metavar=('AlineLength','Aline','channels','Bline'),
+
+    p = argparse.ArgumentParser(
+        description="s2c_v CLI (expects pre-reshaped spectral array).")
+    p.add_argument("input_file",
+                   help="Input binary spectral filename (352-byte header expected). Use read_spectral_file_raw then reshape externally.")
+    p.add_argument("--reshape", nargs=4, type=int,
+                   metavar=('AlineLength', 'Aline', 'channels', 'Bline'),
                    help="If provided, the CLI will reshape the raw uint16 to this shape (must match file layout). Example: --reshape 2048 64 2 128")
-    p.add_argument("--disp_comp", default=None, help="Optional dispersion correction binary float64 file (applied to both channels).")
-    p.add_argument("--save", action='store_true', help="If set, save output NIfTI to --output")
+    p.add_argument("--disp_comp", default=None,
+                   help="Optional dispersion correction binary float64 file (applied to both channels).")
+    p.add_argument("--save", action='store_true',
+                   help="If set, save output NIfTI to --output")
     p.add_argument("--output", default=".", help="Output path or filename (if --save).")
     return p.parse_args()
 
@@ -323,13 +346,16 @@ if __name__ == "__main__":
         # reshape using MATLAB column-major mapping
         arr = np.reshape(raw, (AlineLength_r, Aline_r, channels_r, Bline_r), order='F')
     else:
-        raise SystemExit("CLI requires --reshape to be provided (this tool expects pre-reshaped input).")
+        raise SystemExit(
+            "CLI requires --reshape to be provided (this tool expects pre-reshaped input).")
 
-    Jstack = spectral2complex(arr, disp_comp_file=args.disp_comp, AlineLength=AlineLength_r)
+    Jstack = spectral2complex(arr, disp_comp_file=args.disp_comp,
+                              AlineLength=AlineLength_r)
     print("Jstack_all shape:", Jstack.shape)
     if args.save:
         base_name = os.path.splitext(os.path.basename(args.input_file))[0]
         new_base = re.sub(r'spectral.*$', 'processed_cropped', base_name)
-        out_file = args.output if os.path.splitext(args.output)[1] else os.path.join(args.output, new_base + '.nii')
+        out_file = args.output if os.path.splitext(args.output)[1] else os.path.join(
+            args.output, new_base + '.nii')
         save_jstack_nifti(Jstack, out_file)
         print("Saved:", out_file)

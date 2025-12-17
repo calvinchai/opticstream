@@ -4,14 +4,9 @@ Tasks for processing individual tiles.
 
 import gzip
 import logging
-import os
 import shutil
-from typing import Any
 
-import nibabel as nib
-import numpy as np
-from prefect import get_run_logger, task
-from prefect.tasks import task_input_hash
+from prefect import task
 from prefect_shell import ShellOperation
 
 logger = logging.getLogger(__name__)
@@ -21,7 +16,7 @@ logger = logging.getLogger(__name__)
 def spectral_to_complex_task(
     spectral_data_path: str, output_path: str, align_length: int = 200,
     bline_length: int = 350
-    ):
+):
     # /space/megaera/1/users/kchai/code/psoct-renew/spectral2complex
     # /for_redistribution_files_only/run_spectral2complex.sh
     # /autofs/cluster/matlab/R2024b /mnt/sas/I55_spectralraw_slice1zircon[
@@ -52,7 +47,7 @@ def spectral_to_complex_task(
 def complex_to_processed_task(
     complex_data_path: str, output_path: str, surface_method: str = "find",
     depth: int = 80, wavelength_um: float = 0.013, voxel_size_z_um: float = 2.5
-    ):
+):
     with ShellOperation(
         commands=[
             f"/space/megaera/1/users/kchai/code/psoct-renew/complex2processed"
@@ -66,16 +61,16 @@ def complex_to_processed_task(
         logger.info(f"Complex to processed output: {output}")
     return output
 
+
 @task(tags=["psoct-data-archive"])
 def archive_tile_task(input_path: str, output_path: str):
-    """gzip the file""" 
+    """gzip the file"""
     if not output_path.endswith('.gz'):
         output_path += '.gz'
     with gzip.open(output_path, 'wb', compresslevel=3) as f:
         with open(input_path, 'rb') as f_in:
             shutil.copyfileobj(f_in, f)
     logger.info(f"Archived tile {input_path} to {output_path}")
-    
 
 # @task(name="load_spectral_file_raw", cache_key_fn=task_input_hash)
 # def load_spectral_file_raw_task(
@@ -323,10 +318,11 @@ def archive_tile_task(input_path: str, output_path: str):
 
 
 # @task(name="save_file_with_gz")
-# def save_file_with_gz_task(file_content: bytes, output_dir: str, output_file_name: str):
+# def save_file_with_gz_task(file_content: bytes, output_dir: str, output_file_name:
+# str):
 #     """
 #     Save the file to another directory with .gz postfix using gzip directly.
-    
+
 #     Parameters
 #     ----------
 #     file_content : bytes
@@ -355,7 +351,7 @@ def archive_tile_task(input_path: str, output_path: str):
 # def dandi_upload_task(file_path: str):
 #     """
 #     Upload the file to DANDI.
-    
+
 #     Parameters
 #     ----------
 #     file_path : str
@@ -368,7 +364,7 @@ def archive_tile_task(input_path: str, output_path: str):
 # def save_nifti_task(data: Any, output_path: str):
 #     """
 #     Save the data to a NIfTI file.
-    
+
 #     Parameters
 #     ----------
 #     data : Any
@@ -381,4 +377,3 @@ def archive_tile_task(input_path: str, output_path: str):
 #     nib.save(nib.Nifti1Image(data, np.eye(4)), output_path)
 #     task_logger.info(f"Successfully saved {output_path}")
 #     return output_path
-

@@ -1,10 +1,7 @@
 # %%
 import nibabel as nib
-import linc_convert
-from linc_convert.utils.zarr_config import GeneralConfig
-
-from tifffile import imread
 import numpy as np
+from tifffile import imread
 
 # List of paths for mosaic ret TIFFs across slices
 tif_paths = [
@@ -32,31 +29,34 @@ tif_paths = [
 # Read and stack TIFFs (assume 2D images, shape=(y,x))
 images = [imread(p) for p in tif_paths]
 
-ref_image = nib.load('/autofs/space/nyx_002/users/tgong/Microstructure/data/I55_slab4/dmri.te1/dwi_biascorr_las.nii.gz')
+ref_image = nib.load(
+    '/autofs/space/nyx_002/users/tgong/Microstructure/data/I55_slab4/dmri.te1'
+    '/dwi_biascorr_las.nii.gz')
 
 # %%
 images = np.stack(images, axis=2)
 
 # %%
-images=images.transpose(1,2,0)
+images = images.transpose(1, 2, 0)
 
 voxel_sizes = (0.01, 0.5, 0.01)  # in mm, which is 10, 10, 500 micron
 
+# %%
+images = images[::-1, :, ::-1]
 
 # %%
-images= images[::-1,:,::-1]
-
-# %%
-header= np.eye(4)
-header[0,0] = voxel_sizes[0]
-header[1,1] = voxel_sizes[1]
-header[2,2] = voxel_sizes[2]
+header = np.eye(4)
+header[0, 0] = voxel_sizes[0]
+header[1, 1] = voxel_sizes[1]
+header[2, 2] = voxel_sizes[2]
 image = nib.Nifti1Image(images, header)
 
 # %%
 import numpy as np
 import nibabel as nib
 from nibabel.affines import apply_affine
+
+
 def align_centers_affine(moving_nii, fixed_nii):
     """
     Aligns the center of the moving_nii to the center of the fixed_nii 
@@ -77,22 +77,22 @@ def align_centers_affine(moving_nii, fixed_nii):
     nibabel.nifti1.Nifti1Image
         A new NIfTI image with the same data as moving_nii but a modified affine.
     """
-    
+
     # 1. Calculate the geometric center in Voxel Space for both images
     # The center of a volume with N voxels is typically at (N - 1) / 2
     moving_shape = moving_nii.shape[:3]
     fixed_shape = fixed_nii.shape[:3]
-    
+
     moving_center_vox = np.array([(n - 1) / 2.0 for n in moving_shape])
     fixed_center_vox = np.array([(n - 1) / 2.0 for n in fixed_shape])
 
     # 2. Convert Voxel Centers to World Coordinates using existing affines
     # We append 1 to the voxel coordinates to perform matrix multiplication
     # Affine dot [x, y, z, 1] -> [x_world, y_world, z_world, 1]
-    
+
     moving_affine = moving_nii.affine
     fixed_affine = fixed_nii.affine
-    
+
     # nib.affines.apply_affine is a helper to do (Affine * coord)[:3]
     moving_center_world = nib.affines.apply_affine(moving_affine, moving_center_vox)
     fixed_center_world = nib.affines.apply_affine(fixed_affine, fixed_center_vox)
@@ -110,6 +110,7 @@ def align_centers_affine(moving_nii, fixed_nii):
     shifted_img = nib.Nifti1Image(moving_nii.dataobj, new_affine)
     # shifted_img.header.set_zooms(moving_nii.header.get_zooms())
     return shifted_img
+
 
 # %%
 shifted_img = align_centers_affine(image, ref_image)

@@ -4,18 +4,17 @@ template generation, and stitching.
 """
 
 import logging
-import sys
 import re
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-import yaml
-import jinja2
+from typing import Dict, List, Optional
 
+import jinja2
+import yaml
+from linc_convert.modalities.psoct.mosaic import mosaic
 from prefect import task
 
-from data_processing.stitch import fit_coord_files, generate_mask, fiji_stitch
+from data_processing.stitch import fiji_stitch, fit_coord_files, generate_mask
 from data_processing.stitch.process_tile_coord import process_tile_coord
-from linc_convert.modalities.psoct.mosaic import mosaic
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +56,12 @@ def fiji_stitch_task(
     """
     directory_path = Path(directory)
     output_file = directory_path / output_textfile_name
-    
+
     logger.info(
         f"Running Fiji stitch for {file_template} "
         f"with grid {grid_size_x}x{grid_size_y}"
     )
-    
+
     fiji_stitch.main(
         directory=directory_path,
         file_template=file_template,
@@ -72,7 +71,7 @@ def fiji_stitch_task(
         first_file_index=first_file_index,
         output_textfile_name=output_textfile_name,
     )
-    
+
     logger.info(f"Generated TileConfiguration file: {output_file}")
     return str(output_file)
 
@@ -107,7 +106,7 @@ def process_tile_coord_task(
         Path to exported YAML file
     """
     logger.info(f"Processing tile coordinates from {ideal_coord_file}")
-    
+
     grid, tiles = process_tile_coord(
         ideal_coord_file=ideal_coord_file,
         stitched_coord_file=stitched_coord_file,
@@ -116,7 +115,7 @@ def process_tile_coord_task(
         threshold=threshold,
         verbose=True,
     )
-    
+
     logger.info(f"Exported tile coordinates to {export}")
     return export
 
@@ -131,7 +130,8 @@ def generate_coord_template_task(
 ) -> str:
     """
     Generate a Jinja2 template from tile coordinates using fit_coord_files.
-    This template can be reused for all modalities and mosaics of the same illumination type.
+    This template can be reused for all modalities and mosaics of the same
+    illumination type.
     
     Parameters
     ----------
@@ -152,11 +152,11 @@ def generate_coord_template_task(
         Path to generated template file
     """
     logger.info(f"Generating coordinate template from {tile_coords_export_path}")
-    
+
     # Create a temporary output file first
     temp_output = Path(template_output_path).with_suffix('.temp.yaml')
     temp_output.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Use fit_coord_files to generate the initial structure
     # We'll use placeholder values that we'll replace with Jinja2 template variables
     fit_coord_files.main(
@@ -166,35 +166,37 @@ def generate_coord_template_task(
         scan_resolution=scan_resolution,
         replace=[
             f"aip:{{{{ modality }}}}",  # Replace aip with Jinja2 template variable
-            f"mosaic_{mosaic_id:03d}:{{{{ mosaic_id_str }}}}",  # Replace mosaic ID with template variable
+            f"mosaic_{mosaic_id:03d}:{{{{ mosaic_id_str }}}}",
+            # Replace mosaic ID with template variable
         ],
     )
-    
+
     # Load the generated YAML
     with open(temp_output, 'r') as f:
         template_yaml = f.read()
-    
+
     # Convert to Jinja2 template by replacing hardcoded values with template variables
     # 1. Replace base_dir with Jinja2 variable
     template_yaml = template_yaml.replace(
         f"base_dir: {base_dir}",
         "base_dir: {{ base_dir }}"
     )
-    
+
     # 2. Replace scan_resolution with Jinja2 variable
     scan_res_str = str(scan_resolution)
     template_yaml = template_yaml.replace(
         f"scan_resolution: {scan_res_str}",
-        "{% if scan_resolution %}\n  scan_resolution: {{ scan_resolution }}\n{% endif %}"
+        "{% if scan_resolution %}\n  scan_resolution: {{ scan_resolution }}\n{% endif "
+        "%}"
     )
-    
+
     # 3. Add mask as optional Jinja2 variable (insert after base_dir)
     if "mask:" not in template_yaml:
         template_yaml = template_yaml.replace(
             "base_dir: {{ base_dir }}",
             "base_dir: {{ base_dir }}\n{% if mask %}\n  mask: {{ mask }}\n{% endif %}"
         )
-    
+
     # 4. The filepath replacements from fit_coord_files should already have the template variables
     # But ensure mosaic ID pattern is correct (handle any remaining instances)
     mosaic_pattern = f"mosaic_{mosaic_id:03d}"
@@ -204,17 +206,17 @@ def generate_coord_template_task(
             r"{{{{ mosaic_id_str }}}}",
             template_yaml
         )
-    
+
     # Save as Jinja2 template
     template_path = Path(template_output_path)
     with open(template_path, 'w') as f:
         f.write(template_yaml)
-    
+
     # Clean up temp file
     temp_output.unlink()
-    
+
     logger.info(f"Generated template at {template_output_path}")
-    
+
     return str(template_path)
 
 
@@ -262,43 +264,43 @@ def generate_tile_info_file_task(
     str
         Path to generated tile_info_file
     """
-    logger.info(f"Generating tile_info_file for mosaic {mosaic_id}, modality {modality}")
-    
+    logger.info(
+        f"Generating tile_info_file for mosaic {mosaic_id}, modality {modality}")
+
     # Load template
     with open(template_path, 'r') as f:
         template_content = f.read()
-    
+
     template = jinja2.Template(template_content)
-    
-    
+
     # Prepare template variables for Jinja2 rendering
     mosaic_id_str = f"mosaic_{mosaic_id:03d}"
-    
+
     template_vars = {
         'modality': modality,
         'mosaic_id_str': mosaic_id_str,
         'base_dir': base_dir,
     }
-    
+
     if scan_resolution is not None:
         template_vars['scan_resolution'] = scan_resolution
-    
+
     if mask is not None:
         template_vars['mask'] = mask
-    
+
     # Render template - Jinja2 will replace all {{ variable }} with actual values
     rendered = template.render(**template_vars)
-    
+
     # Parse rendered YAML to validate and format properly
     rendered_data = yaml.safe_load(rendered)
-    
+
     # Write output
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(output_path_obj, 'w') as f:
         yaml.dump(rendered_data, f, default_flow_style=False, sort_keys=False)
-    
+
     logger.info(f"Generated tile_info_file: {output_path}")
     return str(output_path)
 
@@ -333,7 +335,7 @@ def stitch_mosaic2d_task(
         Dictionary with output file paths
     """
     logger.info(f"Stitching mosaic from {tile_info_file}")
-    
+
     mosaic(
         tile_info_file=tile_info_file,
         nifti_output=nifti_output,
@@ -341,13 +343,13 @@ def stitch_mosaic2d_task(
         tiff_output=tiff_output,
         circular_mean=circular_mean,
     )
-    
+
     outputs = {'nifti': nifti_output}
     if jpeg_output:
         outputs['jpeg'] = jpeg_output
     if tiff_output:
         outputs['tiff'] = tiff_output
-    
+
     logger.info(f"Stitched mosaic saved to {nifti_output}")
     return outputs
 
@@ -376,13 +378,13 @@ def generate_mask_task(
         Path to generated mask file
     """
     logger.info(f"Generating mask from {input_image} with threshold {threshold}")
-    
+
     generate_mask.main(
         input=input_image,
         output=output_mask,
         threshold=threshold,
     )
-    
+
     logger.info(f"Generated mask: {output_mask}")
     return output_mask
 

@@ -4,11 +4,12 @@ Configuration management for OCT pipeline workflow.
 Loads configuration from YAML file and provides typed access to settings.
 """
 
-import yaml
 import logging
-from pathlib import Path
-from typing import Dict, Optional, List, Any
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import yaml
 
 logger = logging.getLogger(__name__)
 
@@ -88,14 +89,14 @@ def load_config(config_path: str) -> WorkflowConfig:
         Loaded configuration object
     """
     config_file = Path(config_path)
-    
+
     if not config_file.exists():
         logger.warning(f"Config file not found: {config_path}, using defaults")
         return WorkflowConfig()
-    
+
     with open(config_file, 'r') as f:
         config_dict = yaml.safe_load(f) or {}
-    
+
     # Parse processing config
     processing_dict = config_dict.get("processing", {})
     processing = ProcessingConfig(
@@ -104,7 +105,7 @@ def load_config(config_path: str) -> WorkflowConfig:
         overlap=processing_dict.get("overlap", 50),
         mask_threshold=processing_dict.get("mask_threshold", 55)
     )
-    
+
     # Parse paths config
     paths_dict = config_dict.get("paths", {})
     paths = PathsConfig(
@@ -113,7 +114,7 @@ def load_config(config_path: str) -> WorkflowConfig:
         compressed_base=paths_dict.get("compressed_base", ""),
         cloud_upload_path=paths_dict.get("cloud_upload_path", "")
     )
-    
+
     # Parse resources config
     resources_dict = config_dict.get("resources", {})
     resources = ResourcesConfig(
@@ -121,7 +122,7 @@ def load_config(config_path: str) -> WorkflowConfig:
         stitching_workers=resources_dict.get("stitching_workers", 4),
         registration_workers=resources_dict.get("registration_workers", 2)
     )
-    
+
     # Parse cloud config
     cloud_dict = config_dict.get("cloud", {})
     upload_dict = cloud_dict.get("upload", {})
@@ -135,7 +136,7 @@ def load_config(config_path: str) -> WorkflowConfig:
             "cli_base_args": upload_dict.get("cli_base_args", ["s3", "cp"])
         }
     )
-    
+
     # Parse slack config
     slack_dict = config_dict.get("slack", {})
     slack = SlackConfig(
@@ -146,7 +147,7 @@ def load_config(config_path: str) -> WorkflowConfig:
         milestones=slack_dict.get("milestones", [0.25, 0.50, 0.75, 1.0]),
         send_stitched_images=slack_dict.get("send_stitched_images", True)
     )
-    
+
     return WorkflowConfig(
         processing=processing,
         paths=paths,
@@ -172,7 +173,7 @@ def get_slack_config_dict(config: WorkflowConfig) -> Optional[Dict[str, Any]]:
     """
     if not config.slack.enabled:
         return None
-    
+
     return {
         "enabled": config.slack.enabled,
         "webhook_url": config.slack.webhook_url,
@@ -181,4 +182,3 @@ def get_slack_config_dict(config: WorkflowConfig) -> Optional[Dict[str, Any]]:
         "milestones": config.slack.milestones,
         "send_stitched_images": config.slack.send_stitched_images
     }
-

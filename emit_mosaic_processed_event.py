@@ -46,7 +46,8 @@ def emit_mosaic_processed_event(
     force_refresh_coords : bool, optional
         Force coordinate determination even if not first slice. Default: False
     triggered_by : str, optional
-        Optional identifier for what triggered this event (e.g., "state_management_flow")
+        Optional identifier for what triggered this event (e.g.,
+        "state_management_flow")
     """
     payload = {
         "project_name": project_name,
@@ -59,7 +60,7 @@ def emit_mosaic_processed_event(
         "scan_resolution_3d": scan_resolution_3d,
         "force_refresh_coords": force_refresh_coords
     }
-    
+
     # Add optional fields if provided
     if grid_size_y is not None:
         payload["grid_size_y"] = grid_size_y
@@ -73,7 +74,7 @@ def emit_mosaic_processed_event(
         payload["force_refresh_coords"] = force_refresh_coords
     if triggered_by:
         payload["triggered_by"] = triggered_by
-    
+
     emit_event(
         event="mosaic.processed",
         resource={
@@ -83,8 +84,9 @@ def emit_mosaic_processed_event(
         },
         payload=payload,
     )
-    
-    print(f"Emitted mosaic.processed event for mosaic {mosaic_id} in project {project_name}")
+
+    print(
+        f"Emitted mosaic.processed event for mosaic {mosaic_id} in project {project_name}")
 
 
 # Example usage:

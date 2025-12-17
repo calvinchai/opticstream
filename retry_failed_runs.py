@@ -51,13 +51,13 @@ async def get_failed_runs(
                 type={"any_": [StateType.FAILED, StateType.CRASHED]}
             )
         )
-        
+
         if flow_name:
             filters.flow = {"name": {"any_": [flow_name]}}
-        
+
         if since:
             filters.start_time = {"after_": since}
-        
+
         runs = await client.read_flow_runs(
             flow_run_filter=filters,
             sort=FlowRunSort.START_TIME_DESC,
@@ -87,38 +87,41 @@ async def retry_flow_run(
         try:
             # Get the flow run to check its state
             run = await client.read_flow_run(run_id)
-            
+
             if run.state_type not in [StateType.FAILED, StateType.CRASHED]:
                 logger.warning(
                     f"Flow run {run_id} is not in a failed state "
                     f"(current state: {run.state_type}). Skipping."
                 )
                 return None
-            
+
             if dry_run:
                 logger.info(
                     f"[DRY RUN] Would retry flow run: {run_id} "
-                    f"(flow: {run.name}, method: {'requeue' if requeue_same_run else 'new run'})"
+                    f"(flow: {run.name}, method: "
+                    f"{'requeue' if requeue_same_run else 'new run'})"
                 )
                 return None
-            
+
             if requeue_same_run:
                 # Option 1: Requeue the same flow run
                 from datetime import datetime, timezone
                 from prefect.states import Scheduled
-                
+
                 state = Scheduled(scheduled_time=datetime.now(timezone.utc))
                 result = await client.set_flow_run_state(
                     flow_run_id=run_id,
                     state=state,
                     force=True  # Required to move from terminal state to SCHEDULED
                 )
-                
+
                 if result.status == "ACCEPT":
-                    logger.info(f"Successfully requeued flow run: {run_id} (flow: {run.name})")
+                    logger.info(
+                        f"Successfully requeued flow run: {run_id} (flow: {run.name})")
                     return run_id
                 else:
-                    logger.warning(f"State change not accepted for run {run_id}: {result.status}")
+                    logger.warning(
+                        f"State change not accepted for run {run_id}: {result.status}")
                     return None
             else:
                 # Option 2: Create a new flow run from the same deployment (recommended)
@@ -128,24 +131,24 @@ async def retry_flow_run(
                         f"Cannot create new run. Try using --requeue-same-run option."
                     )
                     return None
-                
+
                 from datetime import datetime, timezone
                 from prefect.states import Scheduled
-                
+
                 params = getattr(run, "parameters", {}) or {}
-                
+
                 new_run = await client.create_flow_run_from_deployment(
                     run.deployment_id,
                     parameters=params,
                     state=Scheduled(scheduled_time=datetime.now(timezone.utc)),
                 )
-                
+
                 logger.info(
                     f"Created new flow run: {new_run.id} from deployment "
                     f"(original run: {run_id}, flow: {run.name})"
                 )
                 return new_run.id
-                
+
         except Exception as e:
             logger.error(f"Error retrying flow run {run_id}: {e}")
             return None
@@ -177,7 +180,7 @@ async def retry_all_failed_runs(
     since = None
     if since_days:
         since = datetime.now() - timedelta(days=since_days)
-    
+
     logger.info("Querying for failed flow runs...")
     if flow_name:
         logger.info(f"Filtering by flow name: {flow_name}")
@@ -185,22 +188,22 @@ async def retry_all_failed_runs(
         logger.info(f"Only considering runs since: {since}")
     if limit:
         logger.info(f"Limit: {limit} runs")
-    
+
     failed_runs = await get_failed_runs(
         flow_name=flow_name,
         limit=limit,
         since=since
     )
-    
+
     if not failed_runs:
         logger.info("No failed flow runs found.")
         return
-    
+
     logger.info(f"Found {len(failed_runs)} failed flow run(s)")
-    
+
     if dry_run:
         logger.info("\n=== DRY RUN MODE - No runs will be retried ===\n")
-    
+
     # Group by flow name for summary
     by_flow = {}
     for run in failed_runs:
@@ -208,26 +211,27 @@ async def retry_all_failed_runs(
         if flow_name_key not in by_flow:
             by_flow[flow_name_key] = []
         by_flow[flow_name_key].append(run)
-    
+
     # Print summary
     logger.info("\nFailed runs summary:")
     for flow_name_key, runs in by_flow.items():
         logger.info(f"  {flow_name_key}: {len(runs)} run(s)")
-    
+
     logger.info("\nRetrying failed runs...\n")
-    
+
     # Retry each run
     success_count = 0
     error_count = 0
-    
+
     for i, run in enumerate(failed_runs, 1):
         logger.info(
             f"[{i}/{len(failed_runs)}] Processing run {run.id} "
             f"(flow: {run.name}, state: {run.state_type})"
         )
-        
+
         try:
-            result = await retry_flow_run(run.id, dry_run=dry_run, requeue_same_run=requeue_same_run)
+            result = await retry_flow_run(run.id, dry_run=dry_run,
+                                          requeue_same_run=requeue_same_run)
             if not dry_run and result:
                 success_count += 1
             elif not dry_run:
@@ -235,13 +239,13 @@ async def retry_all_failed_runs(
         except Exception as e:
             logger.error(f"Failed to retry run {run.id}: {e}")
             error_count += 1
-    
-    logger.info("\n" + "="*50)
+
+    logger.info("\n" + "=" * 50)
     if dry_run:
         logger.info(f"DRY RUN complete: {len(failed_runs)} run(s) would be retried")
     else:
         logger.info(f"Retry complete: {success_count} successful, {error_count} errors")
-    logger.info("="*50)
+    logger.info("=" * 50)
 
 
 def main():
@@ -269,41 +273,42 @@ Examples:
   python retry_failed_runs.py --requeue-same-run
         """
     )
-    
+
     parser.add_argument(
         "--flow-name",
         type=str,
         help="Filter by specific flow name (e.g., 'process_tile_flow', 'upload_flow')"
     )
-    
+
     parser.add_argument(
         "--limit",
         type=int,
         help="Maximum number of runs to retry"
     )
-    
+
     parser.add_argument(
         "--since-days",
         type=int,
         help="Only retry runs from the last N days"
     )
-    
+
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Show what would be retried without actually retrying"
     )
-    
+
     parser.add_argument(
         "--requeue-same-run",
         action="store_true",
         help="Requeue the same flow run instead of creating a new one. "
              "By default, creates a new run from the deployment (recommended)."
     )
-    
+
     args = parser.parse_args()
-    
+
     import asyncio
+
     asyncio.run(retry_all_failed_runs(
         flow_name=args.flow_name,
         limit=args.limit,

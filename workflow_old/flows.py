@@ -14,55 +14,27 @@ This module contains all flow definitions following the hierarchy:
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple, Union
-from prefect import flow, task
-from prefect.tasks import task_input_hash
+from typing import Any, Dict, List, Optional, Union
 
-from .tasks import (
-    # Tile processing tasks
-    load_spectral_raw_task,
-    spectral_to_complex_task,
-    complex_to_volumes_task,
-    find_surface_task,
-    volumes_to_enface_task,
-    save_volumes_task,
-    save_enface_task,
-    compress_spectral_task,
-    queue_upload_spectral_task,
-    notify_tile_complete_task,
-    # Mosaic coordinate tasks
-    collect_tile_aip_images_task,
-    determine_tile_coordinates_task,
-    save_coordinates_task,
-    load_coordinates_task,
-    # Mosaic stitching tasks
-    create_mask_from_aip_task,
-    stitch_enface_images_task,
-    stitch_3d_volumes_task,
-    apply_mask_task,
-    save_stitched_enface_task,
-    save_stitched_volumes_task,
-    queue_upload_stitched_volumes_task,
-    notify_stitched_complete_task,
-    monitor_tile_progress_task,
-    # Slice registration tasks
-    load_normal_mosaic_task,
-    load_tilted_mosaic_task,
-    register_orientations_task,
-    compute_3d_orientation_task,
-    save_registered_data_task,
-    # Stacking tasks
-    collect_slice_data_task,
-    stack_2d_images_task,
-    stack_3d_volumes_task,
-    save_stacked_data_task,
-    # Utility tasks
-    discover_slices_task,
-    notify_slack_task,
-    # Helper functions
-    extract_path_from_asset,
-    extract_paths_from_assets,
-)
+from prefect import flow
+
+from .tasks import (apply_mask_task, collect_slice_data_task,
+                    collect_tile_aip_images_task, complex_to_volumes_task,
+                    compress_spectral_task, compute_3d_orientation_task,
+                    create_mask_from_aip_task, determine_tile_coordinates_task,
+                    discover_slices_task, extract_path_from_asset,
+                    extract_paths_from_assets, find_surface_task, load_coordinates_task,
+                    load_normal_mosaic_task, load_spectral_raw_task,
+                    load_tilted_mosaic_task, monitor_tile_progress_task,
+                    notify_stitched_complete_task, notify_tile_complete_task,
+                    queue_upload_spectral_task, queue_upload_stitched_volumes_task,
+                    register_orientations_task, save_coordinates_task, save_enface_task,
+                    save_registered_data_task, save_stacked_data_task,
+                    save_stitched_enface_task, save_stitched_volumes_task,
+                    save_volumes_task, spectral_to_complex_task, stack_2d_images_task,
+                    stack_3d_volumes_task, stitch_3d_volumes_task,
+                    stitch_enface_images_task,
+                    volumes_to_enface_task)  # Tile processing tasks; Mosaic coordinate tasks; Mosaic stitching tasks; Slice registration tasks; Stacking tasks; Utility tasks; Helper functions
 
 logger = logging.getLogger(__name__)
 
@@ -113,30 +85,31 @@ def process_tile_flow(
         Dictionary with processed volumes and enface images
     """
     logger.info(f"Processing tile {tile_index} in {mosaic_id}")
-    
+
     # Load spectral raw (synchronous)
     spectral_data = load_spectral_raw_task(tile_path)
-    
+
     # Convert to complex (in-memory, synchronous)
     complex_data = spectral_to_complex_task(spectral_data)
-    
+
     # Convert to volumes (synchronous)
     volumes = complex_to_volumes_task(complex_data)
-    
+
     # Find surface (synchronous)
     surface = find_surface_task(volumes, method=surface_method)
-    
+
     # Generate enface images (synchronous)
     enface_images = volumes_to_enface_task(volumes, surface, depth)
-    
+
     # Save outputs (synchronous, blocking) - returns MaterializationResult assets
     volume_assets = save_volumes_task(volumes, output_base_path, mosaic_id, tile_index)
-    enface_assets = save_enface_task(enface_images, output_base_path, mosaic_id, tile_index)
-    
+    enface_assets = save_enface_task(enface_images, output_base_path, mosaic_id,
+                                     tile_index)
+
     # Extract paths from assets for return value
     volume_paths = extract_paths_from_assets(volume_assets)
     enface_paths = extract_paths_from_assets(enface_assets)
-    
+
     # Async tasks (fire-and-forget, non-blocking)
     # Compress to separate directory
     compressed_future = compress_spectral_task.submit(
@@ -145,7 +118,7 @@ def process_tile_flow(
         mosaic_id,
         tile_index
     )
-    
+
     # Queue for upload (after compression completes)
     if upload_queue:
         compressed_asset = compressed_future.result()  # Wait for compression
@@ -155,7 +128,7 @@ def process_tile_flow(
             f"s3://bucket/compressed/{mosaic_id}/",  # TODO: Get from config
             upload_queue
         )
-    
+
     # Send notification (async, non-blocking)
     if slack_config:
         notify_tile_complete_task.submit(
@@ -163,7 +136,7 @@ def process_tile_flow(
             tile_index,
             slack_config
         )
-    
+
     return {
         "volumes": volumes,
         "enface": enface_images,
@@ -206,18 +179,21 @@ def determine_mosaic_coordinates_flow(
         Path to saved coordinate file
     """
     logger.info(f"Determining coordinates for {mosaic_id}")
-    
+
     # Collect all AIP enface images for the mosaic
     aip_paths = collect_tile_aip_images_task(mosaic_id, tile_paths, output_base_path)
-    
+
     # Determine tile coordinates
-    coordinates = determine_tile_coordinates_task(mosaic_id, aip_paths, ideal_coord_file)
-    
+    coordinates = determine_tile_coordinates_task(mosaic_id, aip_paths,
+                                                  ideal_coord_file)
+
     # Save coordinates
-    output_coord_file = Path(output_base_path) / "coordinates" / f"{mosaic_id}_coordinates.yaml"
-    coordinate_asset = save_coordinates_task(coordinates, str(output_coord_file), mosaic_id)
+    output_coord_file = Path(
+        output_base_path) / "coordinates" / f"{mosaic_id}_coordinates.yaml"
+    coordinate_asset = save_coordinates_task(coordinates, str(output_coord_file),
+                                             mosaic_id)
     coordinate_file = extract_path_from_asset(coordinate_asset)
-    
+
     return coordinate_file
 
 
@@ -264,31 +240,33 @@ def stitch_mosaic_flow(
         Dictionary with stitched enface images and volumes
     """
     logger.info(f"Stitching mosaic {mosaic_id}")
-    
+
     # Load coordinates (synchronous)
     coordinates = load_coordinates_task(coordinate_file)
-    
+
     # Stitch enface images (synchronous)
     stitched_enface = stitch_enface_images_task(tile_paths, coordinates, overlap)
-    
+
     # Stitch 3D volumes (synchronous)
     stitched_volumes = stitch_3d_volumes_task(tile_paths, coordinates, overlap)
-    
+
     # Create mask from stitched AIP (synchronous)
     mask = create_mask_from_aip_task(stitched_enface.get("aip"), mask_threshold)
-    
+
     # Apply mask to all stitched outputs (synchronous)
     masked_enface = apply_mask_task(stitched_enface, mask)
     masked_volumes = apply_mask_task(stitched_volumes, mask)
-    
+
     # Save stitched outputs (synchronous) - returns MaterializationResult assets
-    enface_assets = save_stitched_enface_task(masked_enface, output_base_path, mosaic_id)
-    volume_assets = save_stitched_volumes_task(masked_volumes, output_base_path, mosaic_id)
-    
+    enface_assets = save_stitched_enface_task(masked_enface, output_base_path,
+                                              mosaic_id)
+    volume_assets = save_stitched_volumes_task(masked_volumes, output_base_path,
+                                               mosaic_id)
+
     # Extract paths from assets
     enface_paths = extract_paths_from_assets(enface_assets)
     volume_paths = extract_paths_from_assets(volume_assets)
-    
+
     # Queue uploads (async, non-blocking)
     if upload_queue:
         queue_upload_stitched_volumes_task.submit(
@@ -296,7 +274,7 @@ def stitch_mosaic_flow(
             f"s3://bucket/stitched/{mosaic_id}/",  # TODO: Get from config
             upload_queue
         )
-    
+
     # Send stitched image to Slack (async, non-blocking)
     if slack_config:
         aip_asset = enface_assets.get("aip")
@@ -307,7 +285,7 @@ def stitch_mosaic_flow(
                 aip_path,
                 slack_config
             )
-    
+
     return {
         "enface": masked_enface,
         "volumes": masked_volumes,
@@ -370,10 +348,10 @@ def process_mosaic_flow(
         Dictionary with stitched mosaic data
     """
     logger.info(f"Processing mosaic {mosaic_id} with {len(tile_paths)} tiles")
-    
+
     total_tiles = len(tile_paths)
     completed_tiles = []
-    
+
     # Process all tiles in parallel
     tile_results = []
     for tile_index, tile_path in enumerate(tile_paths):
@@ -390,7 +368,7 @@ def process_mosaic_flow(
         )
         tile_results.append(result)
         completed_tiles.append(str(tile_index))
-        
+
         # Monitor progress and send milestone notifications
         monitor_tile_progress_task(
             mosaic_id=mosaic_id,
@@ -398,7 +376,7 @@ def process_mosaic_flow(
             completed_tiles=completed_tiles,
             slack_config=slack_config
         )
-    
+
     # Determine coordinates
     coordinate_file = determine_mosaic_coordinates_flow(
         mosaic_id=mosaic_id,
@@ -406,7 +384,7 @@ def process_mosaic_flow(
         output_base_path=output_base_path,
         ideal_coord_file=ideal_coord_file
     )
-    
+
     # Stitch mosaic
     stitched = stitch_mosaic_flow(
         mosaic_id=mosaic_id,
@@ -418,7 +396,7 @@ def process_mosaic_flow(
         upload_queue=upload_queue,
         slack_config=slack_config
     )
-    
+
     return stitched
 
 
@@ -462,11 +440,11 @@ def register_slice_flow(
         Dictionary with MaterializationResult assets for registered files
     """
     logger.info(f"Registering slice {slice_number}")
-    
+
     # Load mosaics
     normal_mosaic = load_normal_mosaic_task(normal_mosaic_id, output_base_path)
     tilted_mosaic = load_tilted_mosaic_task(tilted_mosaic_id, output_base_path)
-    
+
     # Register orientations
     registered_data = register_orientations_task(
         normal_mosaic,
@@ -475,10 +453,10 @@ def register_slice_flow(
         mask_file,
         mask_threshold
     )
-    
+
     # Compute 3D orientation
     orientation_data = compute_3d_orientation_task(registered_data)
-    
+
     # Save registered data - returns MaterializationResult assets
     registered_assets = save_registered_data_task(
         registered_data,
@@ -486,7 +464,7 @@ def register_slice_flow(
         output_base_path,
         slice_number
     )
-    
+
     return registered_assets
 
 
@@ -554,7 +532,7 @@ def process_slice_flow(
         Dictionary with processed slice data
     """
     logger.info(f"Processing slice {slice_number}")
-    
+
     # Process normal and tilted mosaics in parallel
     normal_result = process_mosaic_flow(
         mosaic_id=normal_mosaic_id,
@@ -569,7 +547,7 @@ def process_slice_flow(
         upload_queue=upload_queue,
         slack_config=slack_config
     )
-    
+
     tilted_result = process_mosaic_flow(
         mosaic_id=tilted_mosaic_id,
         tile_paths=tilted_tile_paths,
@@ -583,7 +561,7 @@ def process_slice_flow(
         upload_queue=upload_queue,
         slack_config=slack_config
     )
-    
+
     # Register slice (after both mosaics complete)
     registered_paths = register_slice_flow(
         slice_number=slice_number,
@@ -593,7 +571,7 @@ def process_slice_flow(
         gamma=gamma,
         mask_threshold=mask_threshold
     )
-    
+
     return {
         "normal_mosaic": normal_result,
         "tilted_mosaic": tilted_result,
@@ -626,19 +604,19 @@ def stack_all_slices_flow(
         Dictionary with MaterializationResult assets for stacked files
     """
     logger.info(f"Stacking {len(slice_numbers)} slices")
-    
+
     # Collect all slice data paths
     slice_data = collect_slice_data_task(slice_numbers, output_base_path)
-    
+
     # Stack 2D images
     stacked_2d = stack_2d_images_task(slice_data)
-    
+
     # Stack 3D volumes
     stacked_3d = stack_3d_volumes_task(slice_data)
-    
+
     # Save stacked outputs - returns MaterializationResult assets
     stacked_assets = save_stacked_data_task(stacked_2d, stacked_3d, output_base_path)
-    
+
     return stacked_assets
 
 
@@ -697,28 +675,28 @@ def process_experiment_flow(
         Dictionary with processing results
     """
     logger.info(f"Processing experiment from {data_root_path}")
-    
+
     # Discover available slices
     slices = discover_slices_task(data_root_path, slice_numbers)
-    
+
     if not slices:
         logger.warning("No slices found to process")
         return {"slices": [], "stacked": {}}
-    
+
     logger.info(f"Found {len(slices)} slices to process")
-    
+
     # Process all slices in parallel
     slice_results = []
     for slice_num in slices:
         # Calculate mosaic IDs
-        normal_mosaic_id = f"mosaic_{2*slice_num - 1:03d}"
-        tilted_mosaic_id = f"mosaic_{2*slice_num:03d}"
-        
+        normal_mosaic_id = f"mosaic_{2 * slice_num - 1:03d}"
+        tilted_mosaic_id = f"mosaic_{2 * slice_num:03d}"
+
         # TODO: Discover tile paths for each mosaic
         # For now, using placeholder paths
         normal_tile_paths = []  # TODO: Discover from data_root_path
         tilted_tile_paths = []  # TODO: Discover from data_root_path
-        
+
         result = process_slice_flow(
             slice_number=slice_num,
             normal_mosaic_id=normal_mosaic_id,
@@ -737,12 +715,11 @@ def process_experiment_flow(
             slack_config=slack_config
         )
         slice_results.append(result)
-    
+
     # Stack all slices (after all slices complete)
     stacked_paths = stack_all_slices_flow(slices, output_base_path)
-    
+
     return {
         "slices": slice_results,
         "stacked": stacked_paths
     }
-

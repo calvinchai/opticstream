@@ -2,12 +2,11 @@
 Slack notification tasks for workflow events.
 """
 
-import os
 import logging
-from typing import Optional, Dict
-from pathlib import Path
+import os
+from typing import Optional
 
-from prefect import task, get_run_logger
+from prefect import get_run_logger, task
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
@@ -46,20 +45,20 @@ def upload_image_to_slack_task(
     logger_instance = get_run_logger()
     client = WebClient(token=slack_bot_token)
     filename = os.path.basename(filepath)
-    
+
     if not os.path.exists(filepath):
         logger_instance.error(f"File not found: {filepath}")
         return False
-    
+
     if title is None:
         title = f"New Image: {filename}"
-    
+
     if initial_comment is None:
         initial_comment = f"Detected new file: {filename}"
-    
+
     try:
         logger_instance.info(f"Uploading to Slack: {filename}")
-        
+
         response = client.files_upload_v2(
             channel=slack_channel_id,
             file=filepath,
@@ -68,7 +67,7 @@ def upload_image_to_slack_task(
         )
         logger_instance.info(f"Successfully uploaded {filename} to Slack")
         return True
-        
+
     except SlackApiError as e:
         logger_instance.error(f"Slack upload error: {e.response['error']}")
         raise
@@ -99,27 +98,23 @@ def send_slack_message_task(
     """
     logger_instance = get_run_logger()
     client = WebClient(token=slack_bot_token)
-    
+
     try:
         logger_instance.info(f"Sending Slack message: {message[:100]}...")
-        
+
         response = client.chat_postMessage(
             channel=slack_channel_id,
             text=message,
         )
-        
+
         if response["ok"]:
             logger_instance.info("Successfully sent message to Slack")
             return True
         else:
-            logger_instance.error(f"Slack API returned error: {response.get('error', 'Unknown error')}")
+            logger_instance.error(
+                f"Slack API returned error: {response.get('error', 'Unknown error')}")
             return False
-        
+
     except SlackApiError as e:
         logger_instance.error(f"Slack API error: {e.response['error']}")
         raise
-
-
-
-
-

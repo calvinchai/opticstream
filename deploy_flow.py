@@ -9,11 +9,9 @@ from workflow.flows.tile_batch_flow import (
     process_tile_batch_flow,
 )
 from workflow.flows.upload_flow import (
-    upload_flow,
     upload_to_linc_batch_deployment,
     upload_to_linc_batch_event_flow,
 )
-
 
 process_tile_batch_deployment = process_tile_batch_flow.to_deployment(
     name="process_tile_batch_flow",
@@ -68,7 +66,6 @@ upload_to_linc_batch_event_deployment = upload_to_linc_batch_event_flow.to_deplo
         )
     ],
 )
-
 
 if __name__ == "__main__":
     serve(

@@ -5,15 +5,16 @@ All data processing tasks are placeholders that should be implemented
 with actual processing functions.
 """
 
-import os
 import gzip
-import shutil
 import logging
+import os
+import shutil
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 from prefect import task
-from prefect.tasks import task_input_hash
 from prefect.results import MaterializationResult
+from prefect.tasks import task_input_hash
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,8 @@ def extract_path_from_asset(asset: MaterializationResult) -> str:
     return asset.metadata.get("path", "")
 
 
-def extract_paths_from_assets(assets: Dict[str, MaterializationResult]) -> Dict[str, str]:
+def extract_paths_from_assets(assets: Dict[str, MaterializationResult]) -> Dict[
+    str, str]:
     """
     Extract file paths from dictionary of MaterializationResult assets.
     
@@ -230,27 +232,28 @@ def save_volumes_task(
         Dictionary with MaterializationResult assets for each volume file
     """
     logger.info(f"Saving volumes for {mosaic_id} tile {tile_index}")
-    
+
     output_dir = Path(output_base_path) / "processed"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     volume_assets = {}
     for modality in ["dBI", "O3D", "R3D"]:
         output_path = output_dir / f"{mosaic_id}_tile_{tile_index}_{modality}.nii"
         # TODO: Implement actual saving
         # import nibabel as nib
         # nib.save(nib.Nifti1Image(volumes[modality], affine), output_path)
-        
+
         # Create asset with unique key
         asset_key = f"{mosaic_id}_tile_{tile_index}_{modality.lower()}"
         asset = MaterializationResult(
             asset_key=asset_key,
             description=f"{modality} volume for {mosaic_id} tile {tile_index}",
-            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "tile_index": tile_index}
+            metadata={"path": str(output_path), "modality": modality,
+                      "mosaic_id": mosaic_id, "tile_index": tile_index}
         )
         volume_assets[modality] = asset
         logger.debug(f"Created asset {asset_key} for {output_path}")
-    
+
     return volume_assets
 
 
@@ -281,27 +284,29 @@ def save_enface_task(
         Dictionary with MaterializationResult assets for each enface file
     """
     logger.info(f"Saving enface images for {mosaic_id} tile {tile_index}")
-    
+
     output_dir = Path(output_base_path) / "processed"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     enface_assets = {}
     for modality in ["aip", "mip", "orientation", "retardance", "birefringence"]:
         output_path = output_dir / f"{mosaic_id}_tile_{tile_index}_{modality}.nii"
         # TODO: Implement actual saving
         # import nibabel as nib
         # nib.save(nib.Nifti1Image(enface_images[modality], affine), output_path)
-        
+
         # Create asset with unique key
         asset_key = f"{mosaic_id}_tile_{tile_index}_{modality}"
         asset = MaterializationResult(
             asset_key=asset_key,
-            description=f"{modality.upper()} enface image for {mosaic_id} tile {tile_index}",
-            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "tile_index": tile_index}
+            description=f"{modality.upper()} enface image for {mosaic_id} tile "
+            f"{tile_index}",
+            metadata={"path": str(output_path), "modality": modality,
+                      "mosaic_id": mosaic_id, "tile_index": tile_index}
         )
         enface_assets[modality] = asset
         logger.debug(f"Created asset {asset_key} for {output_path}")
-    
+
     return enface_assets
 
 
@@ -333,17 +338,17 @@ def collect_tile_aip_images_task(
         List of paths to AIP images
     """
     logger.info(f"Collecting AIP images for {mosaic_id}")
-    
+
     output_dir = Path(output_base_path) / "processed"
     aip_paths = []
-    
+
     for i, tile_path in enumerate(tile_paths):
         aip_path = output_dir / f"{mosaic_id}_tile_{i}_aip.nii"
         if aip_path.exists():
             aip_paths.append(str(aip_path))
         else:
             logger.warning(f"AIP image not found: {aip_path}")
-    
+
     return aip_paths
 
 
@@ -401,24 +406,25 @@ def save_coordinates_task(
         Asset for the coordinates file
     """
     logger.info(f"Saving coordinates to {output_coord_file}")
-    
+
     output_path = Path(output_coord_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # TODO: Implement actual saving
     # import yaml
     # with open(output_path, 'w') as f:
     #     yaml.dump(coordinates, f)
-    
+
     # Create asset
     asset_key = f"{mosaic_id}_coordinates"
     asset = MaterializationResult(
         asset_key=asset_key,
         description=f"Stitching coordinates for {mosaic_id}",
-        metadata={"path": str(output_path), "mosaic_id": mosaic_id, "num_tiles": len(coordinates)}
+        metadata={"path": str(output_path), "mosaic_id": mosaic_id,
+                  "num_tiles": len(coordinates)}
     )
     logger.debug(f"Created asset {asset_key} for {output_path}")
-    
+
     return asset
 
 
@@ -595,25 +601,26 @@ def save_stitched_enface_task(
         Dictionary with MaterializationResult assets for each stitched enface file
     """
     logger.info(f"Saving stitched enface images for {mosaic_id}")
-    
+
     output_dir = Path(output_base_path) / "stitched"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     enface_assets = {}
     for modality in ["aip", "mip", "orientation", "retardance", "birefringence"]:
         output_path = output_dir / f"{mosaic_id}_{modality}.nii"
         # TODO: Implement actual saving
-        
+
         # Create asset
         asset_key = f"{mosaic_id}_stitched_{modality}"
         asset = MaterializationResult(
             asset_key=asset_key,
             description=f"Stitched {modality.upper()} enface image for {mosaic_id}",
-            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "type": "stitched"}
+            metadata={"path": str(output_path), "modality": modality,
+                      "mosaic_id": mosaic_id, "type": "stitched"}
         )
         enface_assets[modality] = asset
         logger.debug(f"Created asset {asset_key} for {output_path}")
-    
+
     return enface_assets
 
 
@@ -641,25 +648,26 @@ def save_stitched_volumes_task(
         Dictionary with MaterializationResult assets for each stitched volume file
     """
     logger.info(f"Saving stitched volumes for {mosaic_id}")
-    
+
     output_dir = Path(output_base_path) / "stitched"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     volume_assets = {}
     for modality in ["dBI", "O3D", "R3D"]:
         output_path = output_dir / f"{mosaic_id}_{modality}.nii"
         # TODO: Implement actual saving
-        
+
         # Create asset
         asset_key = f"{mosaic_id}_stitched_{modality.lower()}"
         asset = MaterializationResult(
             asset_key=asset_key,
             description=f"Stitched {modality} volume for {mosaic_id}",
-            metadata={"path": str(output_path), "modality": modality, "mosaic_id": mosaic_id, "type": "stitched"}
+            metadata={"path": str(output_path), "modality": modality,
+                      "mosaic_id": mosaic_id, "type": "stitched"}
         )
         volume_assets[modality] = asset
         logger.debug(f"Created asset {asset_key} for {output_path}")
-    
+
     return volume_assets
 
 
@@ -804,27 +812,29 @@ def save_registered_data_task(
         Dictionary with MaterializationResult assets for registered files
     """
     logger.info(f"Saving registered data for slice {slice_number}")
-    
+
     output_dir = Path(output_base_path) / "registered"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # TODO: Implement actual saving
     orientation_path = output_dir / f"slice_{slice_number}_orientation.nii"
     axis_path = output_dir / f"slice_{slice_number}_3daxis.jpg"
-    
+
     # Create assets
     orientation_asset = MaterializationResult(
         asset_key=f"slice_{slice_number}_orientation",
         description=f"Registered orientation for slice {slice_number}",
-        metadata={"path": str(orientation_path), "slice_number": slice_number, "type": "registered"}
+        metadata={"path": str(orientation_path), "slice_number": slice_number,
+                  "type": "registered"}
     )
-    
+
     axis_asset = MaterializationResult(
         asset_key=f"slice_{slice_number}_3daxis",
         description=f"3D axis visualization for slice {slice_number}",
-        metadata={"path": str(axis_path), "slice_number": slice_number, "type": "visualization"}
+        metadata={"path": str(axis_path), "slice_number": slice_number,
+                  "type": "visualization"}
     )
-    
+
     return {
         "orientation": orientation_asset,
         "3daxis": axis_asset
@@ -856,22 +866,22 @@ def collect_slice_data_task(
         Dictionary with lists of paths for each modality
     """
     logger.info(f"Collecting slice data for {len(slice_numbers)} slices")
-    
+
     output_dir = Path(output_base_path) / "registered"
     slice_data = {
         "orientation": [],
         "3daxis": []
     }
-    
+
     for slice_num in slice_numbers:
         orientation_path = output_dir / f"slice_{slice_num}_orientation.nii"
         axis_path = output_dir / f"slice_{slice_num}_3daxis.jpg"
-        
+
         if orientation_path.exists():
             slice_data["orientation"].append(str(orientation_path))
         if axis_path.exists():
             slice_data["3daxis"].append(str(axis_path))
-    
+
     return slice_data
 
 
@@ -947,10 +957,10 @@ def save_stacked_data_task(
         Dictionary with MaterializationResult assets for stacked files
     """
     logger.info("Saving stacked data")
-    
+
     output_dir = Path(output_base_path) / "stacked"
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # TODO: Implement actual saving
     stacked_assets = {}
     for modality in ["aip", "mip", "orientation", "retardance", "birefringence"]:
@@ -962,7 +972,7 @@ def save_stacked_data_task(
             metadata={"path": str(output_path), "modality": modality, "type": "stacked"}
         )
         stacked_assets[modality] = asset
-    
+
     for modality in ["dBI", "O3D", "R3D"]:
         output_path = output_dir / f"all_slices_{modality}.nii"
         asset_key = f"all_slices_{modality.lower()}"
@@ -972,7 +982,7 @@ def save_stacked_data_task(
             metadata={"path": str(output_path), "modality": modality, "type": "stacked"}
         )
         stacked_assets[modality] = asset
-    
+
     return stacked_assets
 
 
@@ -1007,27 +1017,28 @@ def compress_spectral_task(
         Asset for the compressed file
     """
     logger.info(f"Compressing spectral raw for {mosaic_id} tile {tile_index}")
-    
+
     # Create output directory if it doesn't exist
     os.makedirs(compressed_base_path, exist_ok=True)
-    
+
     # Output path
     output_filename = f"{mosaic_id}_tile_{tile_index}_spectral.nii.gz"
     output_path = os.path.join(compressed_base_path, output_filename)
-    
+
     # Compress file
     try:
         with open(tile_path, 'rb') as f_in:
             with gzip.open(output_path, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
         logger.info(f"Compressed to {output_path}")
-        
+
         # Create asset
         asset_key = f"{mosaic_id}_tile_{tile_index}_spectral_compressed"
         asset = MaterializationResult(
             asset_key=asset_key,
             description=f"Compressed spectral raw for {mosaic_id} tile {tile_index}",
-            metadata={"path": output_path, "mosaic_id": mosaic_id, "tile_index": tile_index, "type": "compressed"}
+            metadata={"path": output_path, "mosaic_id": mosaic_id,
+                      "tile_index": tile_index, "type": "compressed"}
         )
         return asset
     except Exception as e:
@@ -1106,9 +1117,9 @@ def notify_slack_task(
     """
     if not slack_config or not slack_config.get("enabled", False):
         return False
-    
+
     logger.info(f"Sending Slack notification: {message}")
-    
+
     try:
         # TODO: Implement actual Slack integration
         # Option 1: Webhook
@@ -1121,7 +1132,7 @@ def notify_slack_task(
         #     else:
         #         response = webhook.send(text=message)
         #     return response.status_code == 200
-        
+
         # Option 2: Bot API
         # if slack_config.get("bot_token"):
         #     from slack_sdk import WebClient
@@ -1139,7 +1150,7 @@ def notify_slack_task(
         #             text=message
         #         )
         #     return response["ok"]
-        
+
         logger.debug(f"Slack notification (placeholder): {message}")
         return True
     except Exception as e:
@@ -1224,16 +1235,16 @@ def monitor_tile_progress_task(
     """
     completed_count = len(completed_tiles)
     progress = completed_count / total_tiles if total_tiles > 0 else 0.0
-    
+
     milestones = [0.25, 0.50, 0.75, 1.0]
     # TODO: Track milestones per mosaic (could use Redis for distributed)
     # For now, this is a simple implementation that sends all milestones
     # In production, you'd want to track which milestones have been sent
-    
+
     for milestone in milestones:
         if progress >= milestone:
             message = (
-                f"🎯 Mosaic {mosaic_id}: {milestone*100:.0f}% complete "
+                f"🎯 Mosaic {mosaic_id}: {milestone * 100:.0f}% complete "
                 f"({completed_count}/{total_tiles} tiles)"
             )
             notify_slack_task.submit(message, slack_config=slack_config)
@@ -1267,15 +1278,15 @@ def discover_slices_task(
     """
     if slice_numbers is not None:
         return slice_numbers
-    
+
     logger.info(f"Discovering slices in {data_root_path}")
-    
+
     data_path = Path(data_root_path)
     slices = []
-    
+
     # TODO: Implement actual discovery logic
     # This would scan the directory structure to find available slices
     # For now, return empty list as placeholder
-    
+
     return slices
 

@@ -45,7 +45,8 @@ def emit_slice_ready_event(
     mask_threshold : float, optional
         Threshold for mask generation. Default: 55.0
     triggered_by : str, optional
-        Optional identifier for what triggered this event (e.g., "mosaic_stitching_complete")
+        Optional identifier for what triggered this event (e.g.,
+        "mosaic_stitching_complete")
     """
     payload = {
         "project_name": project_name,
@@ -57,10 +58,10 @@ def emit_slice_ready_event(
         "mask_file": mask_file,
         "mask_threshold": mask_threshold,
     }
-    
+
     if triggered_by:
         payload["triggered_by"] = triggered_by
-    
+
     emit_event(
         event="slice.ready",
         resource={
@@ -70,7 +71,7 @@ def emit_slice_ready_event(
         },
         payload=payload,
     )
-    
+
     print(
         f"Emitted slice.ready event for slice {slice_number} "
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id}) "
@@ -83,12 +84,12 @@ if __name__ == "__main__":
     # Configuration - update these values for your project
     project_name = "sub-I80_voi-slab2"
     project_base_path = "/space/zircon/5/users/data/sub-I80_voi-slab2/"
-    
+
     # Default parameters
     gamma = -15.0
     mask_file = ""
     mask_threshold = 50.0
-    
+
     # Emit events for slices 1-5
     # Slice 1: mosaics 1 (normal) and 2 (tilted)
     # emit_slice_ready_event(
@@ -102,7 +103,7 @@ if __name__ == "__main__":
     #     mask_threshold=mask_threshold,
     #     triggered_by="manual_trigger",
     # )
-    
+
     # # Slice 2: mosaics 3 (normal) and 4 (tilted)
     # emit_slice_ready_event(
     #     project_name=project_name,
@@ -115,7 +116,7 @@ if __name__ == "__main__":
     #     mask_threshold=mask_threshold,
     #     triggered_by="manual_trigger",
     # )
-    
+
     # # Slice 3: mosaics 5 (normal) and 6 (tilted)
     # emit_slice_ready_event(
     #     project_name=project_name,
@@ -128,7 +129,7 @@ if __name__ == "__main__":
     #     mask_threshold=mask_threshold,
     #     triggered_by="manual_trigger",
     # )
-    
+
     # # Slice 4: mosaics 7 (normal) and 8 (tilted)
     # emit_slice_ready_event(
     #     project_name=project_name,
@@ -141,7 +142,7 @@ if __name__ == "__main__":
     #     mask_threshold=mask_threshold,
     #     triggered_by="manual_trigger",
     # )
-    
+
     # # Slice 5: mosaics 9 (normal) and 10 (tilted)
     # emit_slice_ready_event(
     #     project_name=project_name,
@@ -187,5 +188,5 @@ if __name__ == "__main__":
         mask_threshold=mask_threshold,
         triggered_by="manual_trigger",
     )
-    
+
     print("\nAll slice.ready events emitted successfully!")

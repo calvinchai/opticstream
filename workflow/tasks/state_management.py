@@ -6,9 +6,8 @@ at different levels: batch, mosaic, and slice.
 """
 
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 from datetime import datetime
+from typing import Any, Dict
 
 from prefect import task
 from prefect.artifacts import create_markdown_artifact
@@ -43,8 +42,9 @@ def check_batch_state_task(
     """
     # Use slice-based structure
     from workflow.tasks.utils import get_mosaic_paths
+
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
-    
+
     if not state_path.exists():
         logger.warning(f"State path does not exist: {state_path}")
         return {
@@ -54,15 +54,15 @@ def check_batch_state_task(
             "processed_batches": 0,
             "uploaded_batches": 0,
         }
-    
+
     # Count flag files
     started_files = list(state_path.glob("batch-*.started"))
     archived_files = list(state_path.glob("batch-*.archived"))
     processed_files = list(state_path.glob("batch-*.processed"))
     uploaded_files = list(state_path.glob("batch-*.uploaded"))
-    
+
     total_batches = len(started_files)
-    
+
     return {
         "total_batches": total_batches,
         "started_batches": len(started_files),
@@ -102,15 +102,15 @@ def update_mosaic_artifact_task(
     processed_batches = batch_state["processed_batches"]
     archived_batches = batch_state["archived_batches"]
     uploaded_batches = batch_state["uploaded_batches"]
-    
+
     if total_batches == 0:
         progress_percentage = 0.0
     else:
         progress_percentage = (processed_batches / total_batches) * 100
-    
+
     # Create markdown artifact with progress information
     artifact_key = f"{project_name}_mosaic_{mosaic_id}_progress"
-    
+
     markdown_content = f"""# Mosaic {mosaic_id} Processing Progress
 
 **Project**: {project_name}  
@@ -122,10 +122,12 @@ def update_mosaic_artifact_task(
 | State | Count | Percentage |
 |-------|-------|------------|
 | **Total Batches** | {total_batches} | 100% |
-| Started | {batch_state['started_batches']} | {(batch_state['started_batches']/total_batches*100) if total_batches > 0 else 0:.1f}% |
-| Archived | {archived_batches} | {(archived_batches/total_batches*100) if total_batches > 0 else 0:.1f}% |
+| Started | {batch_state['started_batches']} | 
+{(batch_state['started_batches'] / total_batches * 100) if total_batches > 0 else 0:.1f}% |
+| Archived | {archived_batches} | 
+{(archived_batches / total_batches * 100) if total_batches > 0 else 0:.1f}% |
 | **Processed** | **{processed_batches}** | **{progress_percentage:.1f}%** |
-| Uploaded | {uploaded_batches} | {(uploaded_batches/total_batches*100) if total_batches > 0 else 0:.1f}% |
+| Uploaded | {uploaded_batches} | {(uploaded_batches / total_batches * 100) if total_batches > 0 else 0:.1f}% |
 
 ## Status
 
@@ -138,17 +140,17 @@ def update_mosaic_artifact_task(
 - {"✅" if progress_percentage >= 75 else "⏳"} 75% Complete
 - {"✅" if progress_percentage >= 100 else "⏳"} 100% Complete
 """
-    
+
     create_markdown_artifact(
         key=artifact_key,
         markdown=markdown_content,
         description=f"Processing progress for mosaic {mosaic_id}",
     )
-    
+
     logger.info(
         f"Updated artifact {artifact_key}: {processed_batches}/{total_batches} batches processed ({progress_percentage:.1f}%)"
     )
-    
+
     return artifact_key
 
 
@@ -177,17 +179,19 @@ def check_mosaic_completion_task(
     """
     total_batches = batch_state["total_batches"]
     processed_batches = batch_state["processed_batches"]
-    
+
     if total_batches == 0:
         return False
-    
+
     is_complete = processed_batches >= total_batches
-    
+
     if is_complete:
-        logger.info(f"Mosaic {mosaic_id}: All {processed_batches}/{total_batches} batches processed")
+        logger.info(
+            f"Mosaic {mosaic_id}: All {processed_batches}/{total_batches} batches processed")
     else:
-        logger.debug(f"Mosaic {mosaic_id}: {processed_batches}/{total_batches} batches processed")
-    
+        logger.debug(
+            f"Mosaic {mosaic_id}: {processed_batches}/{total_batches} batches processed")
+
     return is_complete
 
 
@@ -222,31 +226,31 @@ def check_slice_state_task(
     """
     normal_mosaic_id = 2 * slice_number - 1
     tilted_mosaic_id = 2 * slice_number
-    
+
     # Call tasks directly (Prefect handles execution)
     normal_state = check_batch_state_task(
         project_base_path=project_base_path,
         mosaic_id=normal_mosaic_id,
     )
-    
+
     tilted_state = check_batch_state_task(
         project_base_path=project_base_path,
         mosaic_id=tilted_mosaic_id,
     )
-    
+
     # Check completion status
     normal_complete = check_mosaic_completion_task(
         project_base_path=project_base_path,
         mosaic_id=normal_mosaic_id,
         batch_state=normal_state,
     )
-    
+
     tilted_complete = check_mosaic_completion_task(
         project_base_path=project_base_path,
         mosaic_id=tilted_mosaic_id,
         batch_state=tilted_state,
     )
-    
+
     return {
         "slice_number": slice_number,
         "normal_mosaic_id": normal_mosaic_id,
@@ -289,7 +293,7 @@ def update_slice_artifact_task(
     tilted_mosaic_id = slice_state["tilted_mosaic_id"]
     normal_state = slice_state["normal_mosaic_state"]
     tilted_state = slice_state["tilted_mosaic_state"]
-    
+
     normal_progress = (
         (normal_state["processed_batches"] / normal_state["total_batches"] * 100)
         if normal_state["total_batches"] > 0
@@ -300,9 +304,9 @@ def update_slice_artifact_task(
         if tilted_state["total_batches"] > 0
         else 0.0
     )
-    
+
     artifact_key = f"{project_name}_slice_{slice_number}_progress"
-    
+
     markdown_content = f"""# Slice {slice_number} Processing Progress
 
 **Project**: {project_name}  
@@ -333,17 +337,17 @@ def update_slice_artifact_task(
 
 {"✅ **READY FOR REGISTRATION** - Both mosaics complete" if slice_state['both_complete'] else "⏳ **WAITING** - Processing mosaics..."}
 """
-    
+
     create_markdown_artifact(
         key=artifact_key,
         markdown=markdown_content,
         description=f"Processing progress for slice {slice_number}",
     )
-    
+
     logger.info(
         f"Updated artifact {artifact_key}: Normal={normal_progress:.1f}%, Tilted={tilted_progress:.1f}%"
     )
-    
+
     return artifact_key
 
 
@@ -369,17 +373,18 @@ def check_mosaic_stitched_task(
     """
     # Use slice-based structure
     from workflow.tasks.utils import get_mosaic_paths
+
     _, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
-    
+
     # Check for AIP file as indicator of stitching completion
     aip_file = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"
-    
+
     is_stitched = aip_file.exists()
-    
+
     if is_stitched:
         logger.info(f"Mosaic {mosaic_id} is stitched (found {aip_file})")
     else:
         logger.debug(f"Mosaic {mosaic_id} not yet stitched (missing {aip_file})")
-    
+
     return is_stitched
 

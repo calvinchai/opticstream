@@ -6,9 +6,10 @@ This script transforms a simple list-based YAML format (like Normal.yaml) into
 a structured format with metadata and tiles sections (like normal_stitching.yaml).
 """
 
-import yaml
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
+
+import yaml
 from cyclopts import App
 
 app = App(name="fit_coord_files")
@@ -60,24 +61,26 @@ def convert_yaml_format(
     # Load input YAML
     with open(input_path, 'r') as f:
         input_data = yaml.safe_load(f)
-    
+
     # Handle both list format and dict format
     if isinstance(input_data, list):
         tiles = input_data
     elif isinstance(input_data, dict) and 'tiles' in input_data:
         tiles = input_data['tiles']
     else:
-        raise ValueError(f"Unexpected input format. Expected list or dict with 'tiles' key.")
-    
+        raise ValueError(
+            f"Unexpected input format. Expected list or dict with 'tiles' key.")
+
     # Apply filepath replacements
     if filepath_replacements:
         for tile in tiles:
             if 'filepath' in tile:
-                tile['filepath'] = replace_in_filepath(tile['filepath'], filepath_replacements)
-    
+                tile['filepath'] = replace_in_filepath(tile['filepath'],
+                                                       filepath_replacements)
+
     # Build output structure
     output_data = {}
-    
+
     # Add metadata section if any metadata fields are provided
     metadata = {}
     if base_dir is not None:
@@ -90,20 +93,20 @@ def convert_yaml_format(
         metadata['cropy'] = cropy
     if scan_resolution is not None:
         metadata['scan_resolution'] = scan_resolution
-    
+
     if metadata:
         output_data['metadata'] = metadata
-    
+
     # Add tiles
     output_data['tiles'] = tiles
-    
+
     # Write output YAML
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-    
+
     with open(output_path, 'w') as f:
         yaml.dump(output_data, f, default_flow_style=False, sort_keys=False)
-    
+
     print(f"Successfully converted {input_path} to {output_path}")
     print(f"  - Processed {len(tiles)} tiles")
     if filepath_replacements:
@@ -134,7 +137,8 @@ def main(
         Path to output YAML file (e.g., normal_stitching.yaml)
     replace : List[str], optional
         String replacements for filepaths in format "old:new"
-        Multiple replacements can be specified (e.g., --replace "aip:processed" --replace "mosaic_001:mosaic_002")
+        Multiple replacements can be specified (e.g., --replace "aip:processed"
+        --replace "mosaic_001:mosaic_002")
     base_dir : str, optional
         Base directory path to add to metadata
     mask : str, optional
@@ -151,10 +155,11 @@ def main(
     if replace:
         for replacement in replace:
             if ':' not in replacement:
-                raise ValueError(f"Replacement must be in format 'old:new', got: {replacement}")
+                raise ValueError(
+                    f"Replacement must be in format 'old:new', got: {replacement}")
             old_str, new_str = replacement.split(':', 1)
             filepath_replacements[old_str] = new_str
-    
+
     # Convert
     convert_yaml_format(
         input_path=input,

@@ -11,13 +11,12 @@ MATLAB functions that expect the old slice-based structure.
 
 import logging
 import subprocess
-import sys
 from pathlib import Path
 from typing import Dict, Optional
 
 from prefect import task
 
-from workflow.tasks.utils import get_slice_paths, mosaic_id_to_slice_number
+from workflow.tasks.utils import get_slice_paths
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +44,7 @@ def _get_matlab_engine():
             "MATLAB Engine for Python is not installed. "
             "Install it using: pip install matlabengine"
         )
-    
+
     try:
         # Start MATLAB engine
         eng = matlab.engine.start_matlab()
@@ -88,37 +87,37 @@ def _setup_processed_directory(
     processed_path, stitched_path, _, _ = get_slice_paths(
         project_base_path, slice_number
     )
-    
+
     # Create processed directory if it doesn't exist
     processed_path.mkdir(parents=True, exist_ok=True)
-    
+
     # Check if stitched files exist for both mosaics
     # The MATLAB functions expect files in the processed directory
     # We may need to copy or symlink stitched files to processed directory
     # or adapt the MATLAB functions to read from stitched directory
-    
+
     # For now, verify that stitched directory has the expected files
     if not stitched_path.exists():
         raise FileNotFoundError(
             f"Stitched directory not found: {stitched_path}. "
             f"Mosaics must be stitched before registration."
         )
-    
+
     # Check for key stitched files (AIP is typically used for registration)
     normal_aip = stitched_path / f"mosaic_{normal_mosaic_id:03d}_aip.nii"
     tilted_aip = stitched_path / f"mosaic_{tilted_mosaic_id:03d}_aip.nii"
-    
+
     if not normal_aip.exists():
         logger.warning(f"Normal mosaic AIP not found: {normal_aip}")
-    
+
     if not tilted_aip.exists():
         logger.warning(f"Tilted mosaic AIP not found: {tilted_aip}")
-    
+
     logger.info(
         f"Processed directory ready: {processed_path} "
         f"(stitched files in: {stitched_path})"
     )
-    
+
     return stitched_path
 
 
@@ -178,7 +177,7 @@ def thruplane_registration_task(
         f"Starting thruplane registration for slice {slice_number} "
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"
     )
-    
+
     # Set up processed directory
     processed_path = _setup_processed_directory(
         project_base_path,
@@ -186,14 +185,14 @@ def thruplane_registration_task(
         normal_mosaic_id,
         tilted_mosaic_id,
     )
-    
+
     # Convert paths to absolute paths for MATLAB
     processed_dir = str(processed_path.absolute())
-    
+
     try:
         # Get MATLAB engine
         eng = _get_matlab_engine()
-        
+
         # Add MATLAB script path if provided
         if matlab_script_path:
             eng.addpath(matlab_script_path, nargout=0)
@@ -209,24 +208,24 @@ def thruplane_registration_task(
                     eng.addpath(str(path), nargout=0)
                     logger.info(f"Added MATLAB path: {path}")
                     break
-        
+
         # Call MATLAB function: thruplane(processed_dir, gamma, slice_number)
         logger.info(
             f"Calling MATLAB thruplane({processed_dir}, {gamma}, {slice_number})"
         )
-        
+
         eng.thruplane(
             processed_dir,
             float(gamma),
             float(slice_number),
             nargout=0
         )
-        
+
         logger.info("thruplane registration completed successfully")
-        
+
         # Close MATLAB engine
         eng.quit()
-        
+
     except ImportError:
         # Fallback: Try calling MATLAB via command line
         logger.warning(
@@ -234,7 +233,7 @@ def thruplane_registration_task(
         )
         _call_matlab_via_cli(
             "thruplane",
-            str(processed_dir)+"/",
+            str(processed_dir) + "/",
             gamma,
             slice_number,
             matlab_script_path=matlab_script_path,
@@ -242,7 +241,7 @@ def thruplane_registration_task(
     except Exception as e:
         logger.error(f"Error in thruplane registration: {e}")
         raise
-    
+
     return processed_path
 
 
@@ -287,20 +286,20 @@ def rgb_3daxis_task(
         f"Starting RGB_3Daxis visualization for slice {slice_number} "
         f"in {processed_dir}"
     )
-    
+
     if not processed_dir.exists():
         raise FileNotFoundError(
             f"Processed directory not found: {processed_dir}. "
             f"Run thruplane registration first."
         )
-    
+
     # Convert path to absolute path for MATLAB
     processed_dir_str = str(processed_dir.absolute()) + "/"
-    
+
     try:
         # Get MATLAB engine
         eng = _get_matlab_engine()
-        
+
         # Add MATLAB script path if provided
         if matlab_script_path:
             eng.addpath(matlab_script_path, nargout=0)
@@ -317,23 +316,23 @@ def rgb_3daxis_task(
                     eng.addpath(str(path), nargout=0)
                     logger.info(f"Added MATLAB path: {path}")
                     break
-        
+
         # Call MATLAB function: RGB_3Daxis(processed_dir, slice_number)
         logger.info(
             f"Calling MATLAB RGB_3Daxis({processed_dir_str}, {slice_number})"
         )
-        
+
         eng.RGB_3Daxis(
             processed_dir_str,
             float(slice_number),
             nargout=0
         )
-        
+
         logger.info("RGB_3Daxis visualization completed successfully")
-        
+
         # Close MATLAB engine
         eng.quit()
-        
+
         # Find output files (MATLAB typically saves to processed_dir)
         # The exact output filename depends on the MATLAB function implementation
         # Common patterns: slice-XX_3daxis.jpg, RGB_3Daxis_slice-XX.jpg, etc.
@@ -343,13 +342,13 @@ def rgb_3daxis_task(
             processed_dir / f"slice-{slice_number:02d}_3daxis.png",
             processed_dir / f"RGB_3Daxis_slice-{slice_number:02d}.png",
         ]
-        
+
         axis_image = None
         for pattern in output_patterns:
             if pattern.exists():
                 axis_image = pattern
                 break
-        
+
         if axis_image is None:
             logger.warning(
                 f"Could not find RGB_3Daxis output file in {processed_dir}. "
@@ -357,7 +356,7 @@ def rgb_3daxis_task(
             )
             # Return a placeholder path
             axis_image = processed_dir / f"slice-{slice_number:02d}_3daxis.jpg"
-        
+
     except ImportError:
         # Fallback: Try calling MATLAB via command line
         logger.warning(
@@ -369,7 +368,7 @@ def rgb_3daxis_task(
             slice_number,
             matlab_script_path=matlab_script_path,
         )
-        
+
         # Try to find output file
         output_patterns = [
             processed_dir / f"slice-{slice_number:02d}_3daxis.jpg",
@@ -382,11 +381,11 @@ def rgb_3daxis_task(
                 break
         if axis_image is None:
             axis_image = processed_dir / f"slice-{slice_number:02d}_3daxis.jpg"
-            
+
     except Exception as e:
         logger.error(f"Error in RGB_3Daxis visualization: {e}")
         raise
-    
+
     return {
         "axis_image": axis_image,
     }
@@ -411,7 +410,7 @@ def _call_matlab_via_cli(
     """
     # Build MATLAB command
     # Format: matlab -batch "function_name(arg1, arg2, ...)"
-    
+
     # Convert arguments to MATLAB format
     matlab_args = []
     for arg in args:
@@ -423,19 +422,19 @@ def _call_matlab_via_cli(
             matlab_args.append(f"'{escaped}'")
         else:
             matlab_args.append(str(arg))
-    
+
     # Add path if provided
     path_cmd = ""
     if matlab_script_path:
         path_cmd = f"addpath(genpath('{matlab_script_path}')); "
-    
+
     # Build MATLAB command
     args_str = ", ".join(matlab_args)
     matlab_cmd = f"{path_cmd}{function_name}({args_str})"
-    
+
     # Execute MATLAB
     cmd = ["matlab", "-batch", matlab_cmd]
-    
+
     logger.info(f"Executing MATLAB command: {' '.join(cmd)}")
     print(cmd)
     try:

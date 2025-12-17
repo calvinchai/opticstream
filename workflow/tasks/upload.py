@@ -2,19 +2,17 @@
 Tasks for uploading files to cloud storage.
 """
 
-import os
-import gzip
-import shutil
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional, List
+import os
+from typing import List
+
 from prefect import task
 from prefect.blocks.system import Secret
-from prefect.deployments import run_deployment
 
 logger = logging.getLogger(__name__)
 
 from prefect_shell import ShellOperation, shell_run_command
+
 
 @task(name="upload_to_dandi", tags=["dandi-upload"], retries=1)
 def upload_to_dandi_task(file_path: str) -> None:
@@ -23,13 +21,17 @@ def upload_to_dandi_task(file_path: str) -> None:
     """
     shell_run_command(f"conda run -n dandi dandi upload {file_path} -J 10:10")
 
+
 @task(name="upload_to_linc", tags=["dandi-upload"], retries=1)
 def upload_to_linc_task(file_path: str) -> None:
     """
     Upload the file to LINC.
     """
     with ShellOperation(
-        commands=[f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc '{file_path}' -J 10:10 --allow-any-path --existing overwrite --validation skip"],
+        commands=[
+            f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin"
+            f"/dandi upload -i linc '{file_path}' -J 10:10 --allow-any-path "
+            f"--existing overwrite --validation skip"],
         env={
             "LINC_API_KEY": Secret.load("linc-api-key", validate=False).get(),
             "DANDI_API_KEY": Secret.load("linc-api-key", validate=False).get(),
@@ -42,6 +44,7 @@ def upload_to_linc_task(file_path: str) -> None:
         output = upload_process.fetch_result()
         logger.info(f"Upload output: {output}")
 
+
 @task(name="upload_to_linc_batch", tags=["dandi-upload"], retries=1)
 def upload_to_linc_batch_task(file_list: List[str]) -> None:
     """
@@ -49,9 +52,13 @@ def upload_to_linc_batch_task(file_list: List[str]) -> None:
     """
     # TODO: use realpath only for debugging; remove this once paths are confirmed
     # Join file paths with spaces, each enclosed in single quotes
-    file_paths_str = " ".join(f"'{os.path.realpath(file_path)}'" for file_path in file_list)
+    file_paths_str = " ".join(
+        f"'{os.path.realpath(file_path)}'" for file_path in file_list)
     with ShellOperation(
-        commands=[f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc -J 15:15 --allow-any-path --existing overwrite --validation skip {file_paths_str}"],
+        commands=[
+            f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin"
+            f"/dandi upload -i linc -J 15:15 --allow-any-path --existing overwrite "
+            f"--validation skip {file_paths_str}"],
         env={
             "LINC_API_KEY": Secret.load("linc-api-key", validate=False).get(),
             "DANDI_API_KEY": Secret.load("linc-api-key", validate=False).get(),
@@ -63,19 +70,23 @@ def upload_to_linc_batch_task(file_list: List[str]) -> None:
         upload_process.wait_for_completion()
         output = upload_process.fetch_result()
         logger.info(f"Upload output: {output}")
-    # shell_run_command(f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc {file_path} -J 10:10")
+    # shell_run_command(f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi
+    # -linc/bin/dandi upload -i linc {file_path} -J 10:10")
+
 
 @task
 def submit_upload_to_linc_task(file_path: str) -> None:
-#     flow_run = run_deployment(
-#     name="upload_flow/upload",
-#     parameters={
-#         "file_paths": [file_path],
-#         "instance": "linc"
-#     },
-#     timeout=0
-# )   
-    os.system(f"prefect deployment run 'upload_flow/upload' --param file_path='{file_path}' --param instance=linc")
+    #     flow_run = run_deployment(
+    #     name="upload_flow/upload",
+    #     parameters={
+    #         "file_paths": [file_path],
+    #         "instance": "linc"
+    #     },
+    #     timeout=0
+    # )
+    os.system(
+        f"prefect deployment run 'upload_flow/upload' --param file_path='{file_path}' "
+        f"--param instance=linc")
     # return flow_run
 #
 # @task(name="compress_spectral", allow_failure=True)
@@ -86,7 +97,8 @@ def submit_upload_to_linc_task(file_path: str) -> None:
 #     tile_index: int
 # ) -> MaterializationResult:
 #     """
-#     Compress spectral raw file to separate directory as Prefect asset (async, fire-and-forget).
+#     Compress spectral raw file to separate directory as Prefect asset (async,
+#     fire-and-forget).
 #
 #     Parameters
 #     ----------
@@ -125,7 +137,8 @@ def submit_upload_to_linc_task(file_path: str) -> None:
 #         asset = MaterializationResult(
 #             asset_key=asset_key,
 #             description=f"Compressed spectral raw for {mosaic_id} tile {tile_index}",
-#             metadata={"path": output_path, "mosaic_id": mosaic_id, "tile_index": tile_index, "type": "compressed"}
+#             metadata={"path": output_path, "mosaic_id": mosaic_id, "tile_index":
+#             tile_index, "type": "compressed"}
 #         )
 #         return asset
 #     except Exception as e:
@@ -177,4 +190,3 @@ def submit_upload_to_linc_task(file_path: str) -> None:
 #     for modality, path in volume_paths.items():
 #         destination = f"{destination_base}/{os.path.basename(path)}"
 #         upload_queue.enqueue(path, destination)
-

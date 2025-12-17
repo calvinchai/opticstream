@@ -4,39 +4,18 @@ Tasks module for OCT pipeline workflow.
 This module contains all task definitions organized by functionality.
 """
 
-# Tile processing tasks
-from .tile_processing import (
-    spectral_to_complex_task,
-    complex_to_processed_task,
-    archive_tile_task,
-    # complex_to_volumes_task,
-    # find_surface_task,
-    # volumes_to_enface_task,
-    # save_volumes_task,
-    # save_enface_task,
-)
-
 # Mosaic processing tasks
-from .mosaic_processing import (
-    fiji_stitch_task,
-    process_tile_coord_task,
-    generate_coord_template_task,
-    generate_tile_info_file_task,
-    stitch_mosaic2d_task,
-    generate_mask_task,
-)
-
+from .mosaic_processing import (fiji_stitch_task, generate_coord_template_task,
+                                generate_mask_task, generate_tile_info_file_task,
+                                process_tile_coord_task, stitch_mosaic2d_task)
 # Slack notification tasks
-from .slack_notifications import (
-    upload_image_to_slack_task,
-    send_slack_message_task,
-)
-
+from .slack_notifications import (send_slack_message_task, upload_image_to_slack_task)
 # Slice registration tasks
-from .slice_registration import (
-    thruplane_registration_task,
-    rgb_3daxis_task,
-)
+from .slice_registration import (rgb_3daxis_task, thruplane_registration_task)
+# Tile processing tasks
+from .tile_processing import (archive_tile_task, complex_to_processed_task,
+                              spectral_to_complex_task)  # complex_to_volumes_task,
+# ; find_surface_task,; volumes_to_enface_task,; save_volumes_task,; save_enface_task,
 
 # # Upload tasks
 # from .upload import (
@@ -81,4 +60,3 @@ __all__ = [
     # "extract_paths_from_assets",
     # "discover_slices_task",
 ]
-

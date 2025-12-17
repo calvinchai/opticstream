@@ -4,7 +4,8 @@ Utility functions and tasks used across multiple flows.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
+
 from prefect import task
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,8 @@ def mosaic_id_to_slice_number(mosaic_id: int) -> int:
         return (mosaic_id + 1) // 2
 
 
-def get_slice_paths(project_base_path: str, slice_number: int) -> Tuple[Path, Path, Path, Path]:
+def get_slice_paths(project_base_path: str, slice_number: int) -> Tuple[
+    Path, Path, Path, Path]:
     """
     Get standard paths for a slice directory structure.
     
@@ -68,7 +70,7 @@ def get_slice_paths(project_base_path: str, slice_number: int) -> Tuple[Path, Pa
     stitched_path = slice_path / "stitched/"
     complex_path = slice_path / "complex/"
     state_path = slice_path / "state/"
-    
+
     return processed_path, stitched_path, complex_path, state_path
 
 
@@ -94,20 +96,21 @@ def discover_slices_task(
     """
     if slice_numbers is not None:
         return slice_numbers
-    
+
     logger.info(f"Discovering slices in {data_root_path}")
-    
+
     data_path = Path(data_root_path)
     slices = []
-    
+
     # TODO: Implement actual discovery logic
     # This would scan the directory structure to find available slices
     # For now, return empty list as placeholder
-    
+
     return slices
 
 
-def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[Path, Path, Path, Path]:
+def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[
+    Path, Path, Path, Path]:
     """
     Get standard paths for a mosaic using slice-based structure.
     

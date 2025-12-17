@@ -8,16 +8,13 @@ This flow is triggered by the 'slice.ready' event when both mosaics
 """
 
 import logging
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from prefect import flow
-from prefect.events import emit_event, DeploymentEventTrigger
+from prefect.events import DeploymentEventTrigger, emit_event
 
-from workflow.tasks.slice_registration import (
-    thruplane_registration_task,
-    rgb_3daxis_task,
-)
+from workflow.tasks.slice_registration import (rgb_3daxis_task,
+                                               thruplane_registration_task)
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +64,7 @@ def register_slice_flow(
         f"Starting slice registration for slice {slice_number} "
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"
     )
-    
+
     # Step 1: Run thruplane registration
     processed_dir = thruplane_registration_task(
         project_base_path=project_base_path,
@@ -79,14 +76,14 @@ def register_slice_flow(
         mask_threshold=mask_threshold,
         matlab_script_path="/space/megaera/1/users/kchai/code/psoct-renew",
     )
-    
+
     # Step 2: Run RGB_3Daxis visualization
     axis_outputs = rgb_3daxis_task(
         processed_dir=processed_dir,
         slice_number=slice_number,
         matlab_script_path="/space/megaera/1/users/kchai/code/psoct-renew",
     )
-    
+
     # Emit event that slice registration is complete
     emit_event(
         event="slice.registered",
@@ -105,9 +102,9 @@ def register_slice_flow(
             "axis_outputs": {k: str(v) for k, v in axis_outputs.items()},
         }
     )
-    
+
     logger.info(f"Slice {slice_number} registration complete")
-    
+
     return {
         "slice_number": slice_number,
         "normal_mosaic_id": normal_mosaic_id,
@@ -151,7 +148,7 @@ def register_slice_event_flow(
     gamma = float(payload.get("gamma", -15.0))
     mask_file = payload.get("mask_file", "")
     mask_threshold = float(payload.get("mask_threshold", 55.0))
-    
+
     return register_slice_flow(
         project_name=payload["project_name"],
         project_base_path=payload["project_base_path"],

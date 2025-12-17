@@ -8,7 +8,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
+
 from cyclopts import App
 
 DEFAULT_FIJI_PATH = Path("/autofs/cluster/octdata2/users/Hui/Fiji.app/ImageJ-linux64")
@@ -33,7 +33,8 @@ def build_macro(
 
     Args:
         directory: Directory containing the tiles.
-        file_template: Fiji filename pattern, e.g. "mosaic_001_image_{iii}_processed_aip.nii".
+        file_template: Fiji filename pattern, e.g. "mosaic_001_image_{
+        iii}_processed_aip.nii".
         grid_size_x: Number of tiles in X.
         grid_size_y: Number of tiles in Y.
         tile_overlap: Overlap percentage between tiles.

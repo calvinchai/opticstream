@@ -10,36 +10,27 @@ This module contains all flow definitions organized by scope:
 - upload_flow: Handle uploads to cloud storage
 """
 
-# Tile flows
-from .tile_flow import (
-    process_tile_flow,
-)
-
-from .tile_batch_flow import (
-    process_tile_batch_flow,
-    complex_to_processed_batch_event_flow,
-)
-from .upload_flow import (
-    upload_flow,
-
-    upload_to_linc_batch_flow,
-)
-
 # Mosaic processing flow
 from .mosaic_processing_flow import (
     process_mosaic_event_flow,
     stitch_enface_modalities_flow,
 )
-
 # Slack notification flow
 from .slack_notification_flow import (
     slack_enface_notification_flow,
 )
-
 # Slice registration flow
-from .slice_registration_flow import (
-    register_slice_flow,
-    register_slice_event_flow,
+from .slice_registration_flow import (register_slice_event_flow, register_slice_flow)
+from .tile_batch_flow import (complex_to_processed_batch_event_flow,
+                              process_tile_batch_flow)
+# Tile flows
+from .tile_flow import (
+    process_tile_flow,
+)
+from .upload_flow import (
+    upload_flow,
+
+    upload_to_linc_batch_flow,
 )
 
 __all__ = [
@@ -57,4 +48,3 @@ __all__ = [
     "register_slice_flow",
     "register_slice_event_flow",
 ]
-

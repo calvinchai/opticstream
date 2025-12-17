@@ -6,20 +6,17 @@ at different levels: batch, mosaic, and slice.
 """
 
 import logging
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from prefect import flow
-from prefect.events import emit_event, DeploymentEventTrigger
+from prefect.events import DeploymentEventTrigger, emit_event
 
-from workflow.tasks.state_management import (
-    check_batch_state_task,
-    update_mosaic_artifact_task,
-    check_mosaic_completion_task,
-    check_slice_state_task,
-    update_slice_artifact_task,
-    check_mosaic_stitched_task,
-)
+from workflow.tasks.state_management import (check_batch_state_task,
+                                             check_mosaic_completion_task,
+                                             check_mosaic_stitched_task,
+                                             check_slice_state_task,
+                                             update_mosaic_artifact_task,
+                                             update_slice_artifact_task)
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +50,13 @@ def manage_mosaic_batch_state_flow(
         Dictionary with batch state and completion status
     """
     logger.info(f"Managing batch state for mosaic {mosaic_id}")
-    
+
     # Check batch state from flag files
     batch_state = check_batch_state_task(
         project_base_path=project_base_path,
         mosaic_id=mosaic_id,
     )
-    
+
     # Update Artifact with progress
     artifact_key = update_mosaic_artifact_task(
         project_name=project_name,
@@ -67,14 +64,14 @@ def manage_mosaic_batch_state_flow(
         mosaic_id=mosaic_id,
         batch_state=batch_state,
     )
-    
+
     # Check if all batches are complete
     is_complete = check_mosaic_completion_task(
         project_base_path=project_base_path,
         mosaic_id=mosaic_id,
         batch_state=batch_state,
     )
-    
+
     # If complete and not already stitched, emit mosaic.processed event
     if is_complete:
         # Check if already stitched to avoid duplicate events
@@ -82,7 +79,7 @@ def manage_mosaic_batch_state_flow(
             project_base_path=project_base_path,
             mosaic_id=mosaic_id,
         )
-        
+
         if not is_stitched:
             logger.info(
                 f"All batches processed for mosaic {mosaic_id}. "
@@ -107,7 +104,7 @@ def manage_mosaic_batch_state_flow(
             logger.info(
                 f"Mosaic {mosaic_id} already stitched, skipping event emission"
             )
-    
+
     return {
         "mosaic_id": mosaic_id,
         "batch_state": batch_state,
@@ -177,13 +174,13 @@ def manage_slice_state_flow(
         Dictionary with slice state and completion status
     """
     logger.info(f"Managing state for slice {slice_number}")
-    
+
     # Check state of both mosaics
     slice_state = check_slice_state_task(
         project_base_path=project_base_path,
         slice_number=slice_number,
     )
-    
+
     # Update Artifact with slice progress
     artifact_key = update_slice_artifact_task(
         project_name=project_name,
@@ -191,20 +188,20 @@ def manage_slice_state_flow(
         slice_number=slice_number,
         slice_state=slice_state,
     )
-    
+
     # Check if both mosaics are stitched
     normal_stitched = check_mosaic_stitched_task(
         project_base_path=project_base_path,
         mosaic_id=slice_state["normal_mosaic_id"],
     )
-    
+
     tilted_stitched = check_mosaic_stitched_task(
         project_base_path=project_base_path,
         mosaic_id=slice_state["tilted_mosaic_id"],
     )
-    
+
     both_stitched = normal_stitched and tilted_stitched
-    
+
     # If both mosaics are stitched, emit slice.ready event
     if both_stitched:
         logger.info(
@@ -227,7 +224,7 @@ def manage_slice_state_flow(
                 "triggered_by": "state_management_flow",
             }
         )
-    
+
     return {
         "slice_number": slice_number,
         "slice_state": slice_state,
@@ -265,14 +262,14 @@ def manage_slice_state_event_flow(
     # Normal: mosaic_id = 2n-1, so n = (mosaic_id + 1) / 2
     # Tilted: mosaic_id = 2n, so n = mosaic_id / 2
     mosaic_id = int(payload["mosaic_id"])
-    
+
     if mosaic_id % 2 == 0:
         # Tilted illumination
         slice_number = mosaic_id // 2
     else:
         # Normal illumination
         slice_number = (mosaic_id + 1) // 2
-    
+
     return manage_slice_state_flow(
         project_name=payload["project_name"],
         project_base_path=payload["project_base_path"],
@@ -283,42 +280,44 @@ def manage_slice_state_event_flow(
 # Deployment configurations
 if __name__ == "__main__":
     # Deployment for batch state management (triggered by batch completion events)
-    manage_mosaic_batch_state_event_flow_deployment = manage_mosaic_batch_state_event_flow.to_deployment(
-        name="manage_mosaic_batch_state_event_flow",
-        tags=["event-driven", "state-management", "mosaic"],
-        triggers=[
-            # Trigger when a batch completes processing
-            DeploymentEventTrigger(
-                expect={"tile_batch.complex2processed.ready"},
-                parameters={
-                    "payload": {
-                        "__prefect_kind": "json",
-                        "value": {
-                            "__prefect_kind": "jinja",
-                            "template": "{{ event.payload | tojson }}",
+    manage_mosaic_batch_state_event_flow_deployment = (
+        manage_mosaic_batch_state_event_flow.to_deployment(
+            name="manage_mosaic_batch_state_event_flow",
+            tags=["event-driven", "state-management", "mosaic"],
+            triggers=[
+                # Trigger when a batch completes processing
+                DeploymentEventTrigger(
+                    expect={"tile_batch.complex2processed.ready"},
+                    parameters={
+                        "payload": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.payload | tojson }}",
+                            }
                         }
-                    }
-                },
-            ),
-            # Also trigger when a batch is archived (for early progress tracking)
-            DeploymentEventTrigger(
-                expect={"tile_batch.archived.ready"},
-                parameters={
-                    "payload": {
-                        "__prefect_kind": "json",
-                        "value": {
-                            "__prefect_kind": "jinja",
-                            "template": "{{ event.payload | tojson }}",
+                    },
+                ),
+                # Also trigger when a batch is archived (for early progress tracking)
+                DeploymentEventTrigger(
+                    expect={"tile_batch.archived.ready"},
+                    parameters={
+                        "payload": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.payload | tojson }}",
+                            }
                         }
-                    }
-                },
-            ),
-        ],
-        concurrency_limit=1
-    )
-    
+                    },
+                ),
+            ],
+            concurrency_limit=1
+        ))
+
     # Deployment for slice state management (triggered by mosaic stitching events)
-    manage_slice_state_event_flow_deployment = manage_slice_state_event_flow.to_deployment(
+    manage_slice_state_event_flow_deployment = (
+    manage_slice_state_event_flow.to_deployment(
         name="manage_slice_state_event_flow",
         tags=["event-driven", "state-management", "slice"],
         triggers=[
@@ -337,8 +336,8 @@ if __name__ == "__main__":
         ],
         concurrency_limit=1
 
-    )
-    
+    ))
+
     # Deployments are created but not served here
     # Use: prefect deploy workflow/flows/state_management_flow.py:manage_mosaic_batch_state_event_flow_deployment
     #      prefect deploy workflow/flows/state_management_flow.py:manage_slice_state_event_flow_deployment

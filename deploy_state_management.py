@@ -22,4 +22,3 @@ if __name__ == "__main__":
         manage_mosaic_batch_state_event_flow_deployment,
         manage_slice_state_event_flow_deployment,
     )
-

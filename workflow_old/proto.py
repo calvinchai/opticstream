@@ -1,8 +1,4 @@
-
-
-
-
-#single file workflow
+# single file workflow
 # check the file metadata
 # mosaic_001_image_001_spectral_001.nii 
 # mosaic_001 image_001 proceseed_001.nii
@@ -14,13 +10,12 @@ if processed, load, save as nii.gz at another directory
 
 """
 
-#upload workflow
+# upload workflow
 
 
+# mosaic workflow
 
-#mosaic workflow
+# slice workflow
 
-#slice workflow
-
-#stack workflow
-#do not need for now
+# stack workflow
+# do not need for now
