@@ -1,10 +1,11 @@
 import logging
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List
 from prefect import flow
 import prefect
 from prefect.events import DeploymentEventTrigger
 from workflow.tasks.upload import upload_to_linc_task, upload_to_dandi_task, upload_to_linc_batch_task
+from workflow.tasks.utils import get_mosaic_paths
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,8 @@ def upload_to_linc_batch_flow(
     Event-driven flow triggered by 'tile_batch.upload_to_linc.ready' event.
     Runs upload_to_linc_batch_task with the list of archived files from the event payload.
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
-    state_path = mosaic_path / "state"
+    # Use slice-based structure
+    _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)
     
     batch_uploaded_path = state_path / f"batch-{batch_id}.uploaded"
@@ -70,7 +71,7 @@ def upload_to_linc_batch_flow(
 
 @flow
 def upload_to_linc_batch_event_flow(
-    payload: dict,
+    payload: Dict[str, Any],
 ):
     return upload_to_linc_batch_flow(
         project_name=payload["project_name"],
@@ -80,6 +81,11 @@ def upload_to_linc_batch_event_flow(
         archived_file_paths=payload["archived_file_paths"],
     )
 
+
+upload_to_linc_batch_deployment = upload_to_linc_batch_flow.to_deployment(
+    name="upload_to_linc_batch_flow",
+    tags=["tile-batch", "upload-to-linc"],
+)
 
 if __name__ == "__main__":
     upload_to_linc_batch_flow_deployment = upload_to_linc_batch_flow.to_deployment(

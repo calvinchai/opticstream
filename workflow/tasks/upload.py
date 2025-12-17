@@ -47,8 +47,9 @@ def upload_to_linc_batch_task(file_list: List[str]) -> None:
     """
     Upload the file to LINC.
     """
+    # TODO: use realpath only for debugging; remove this once paths are confirmed
     # Join file paths with spaces, each enclosed in single quotes
-    file_paths_str = " ".join(f"'{file_path}'" for file_path in file_list)
+    file_paths_str = " ".join(f"'{os.path.realpath(file_path)}'" for file_path in file_list)
     with ShellOperation(
         commands=[f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin/dandi upload -i linc -J 15:15 --allow-any-path --existing overwrite --validation skip {file_paths_str}"],
         env={

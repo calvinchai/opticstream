@@ -4,45 +4,72 @@ Utility functions and tasks used across multiple flows.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from prefect import task
-from prefect.results import MaterializationResult
 
 logger = logging.getLogger(__name__)
 
 
-def extract_path_from_asset(asset: MaterializationResult) -> str:
+def mosaic_id_to_slice_number(mosaic_id: int) -> int:
     """
-    Extract file path from MaterializationResult asset.
+    Convert mosaic ID to slice number.
+    
+    Mapping:
+    - Mosaic 1 (normal) → Slice 1
+    - Mosaic 2 (tilted) → Slice 1
+    - Mosaic 3 (normal) → Slice 2
+    - Mosaic 4 (tilted) → Slice 2
+    - etc.
     
     Parameters
     ----------
-    asset : MaterializationResult
-        Asset containing file metadata
-    
+    mosaic_id : int
+        Mosaic identifier
+        
     Returns
     -------
-    str
-        File path from asset metadata
+    int
+        Slice number (1-indexed)
     """
-    return asset.metadata.get("path", "")
+    # Normal mosaics: 1, 3, 5, ... → slices 1, 2, 3, ...
+    # Tilted mosaics: 2, 4, 6, ... → slices 1, 2, 3, ...
+    if mosaic_id % 2 == 0:
+        # Tilted (even): 2→1, 4→2, 6→3, ...
+        return mosaic_id // 2
+    else:
+        # Normal (odd): 1→1, 3→2, 5→3, ...
+        return (mosaic_id + 1) // 2
 
 
-def extract_paths_from_assets(assets: Dict[str, MaterializationResult]) -> Dict[str, str]:
+def get_slice_paths(project_base_path: str, slice_number: int) -> Tuple[Path, Path, Path, Path]:
     """
-    Extract file paths from dictionary of MaterializationResult assets.
+    Get standard paths for a slice directory structure.
+    
+    Structure:
+    - {project_base_path}/slice-{slice_number:02d}/processed/
+    - {project_base_path}/slice-{slice_number:02d}/stitched/
+    - {project_base_path}/slice-{slice_number:02d}/complex/
+    - {project_base_path}/slice-{slice_number:02d}/state/
     
     Parameters
     ----------
-    assets : Dict[str, MaterializationResult]
-        Dictionary of assets
-    
+    project_base_path : str
+        Base path for the project
+    slice_number : int
+        Slice number (1-indexed)
+        
     Returns
     -------
-    Dict[str, str]
-        Dictionary of file paths
+    Tuple[Path, Path, Path, Path]
+        Tuple of (processed_path, stitched_path, complex_path, state_path)
     """
-    return {k: extract_path_from_asset(v) for k, v in assets.items()}
+    slice_path = Path(project_base_path) / f"slice-{slice_number:02d}"
+    processed_path = slice_path / "processed/"
+    stitched_path = slice_path / "stitched/"
+    complex_path = slice_path / "complex/"
+    state_path = slice_path / "state/"
+    
+    return processed_path, stitched_path, complex_path, state_path
 
 
 @task(name="discover_slices")
@@ -79,3 +106,25 @@ def discover_slices_task(
     
     return slices
 
+
+def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[Path, Path, Path, Path]:
+    """
+    Get standard paths for a mosaic using slice-based structure.
+    
+    This function converts mosaic_id to slice_number and returns the
+    appropriate paths in the slice-based directory structure.
+    
+    Parameters
+    ----------
+    project_base_path : str
+        Base path for the project
+    mosaic_id : int
+        Mosaic identifier
+        
+    Returns
+    -------
+    Tuple[Path, Path, Path, Path]
+        Tuple of (processed_path, stitched_path, complex_path, state_path)
+    """
+    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    return get_slice_paths(project_base_path, slice_number)

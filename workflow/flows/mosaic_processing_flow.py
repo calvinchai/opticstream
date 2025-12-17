@@ -11,7 +11,7 @@ in a mosaic are processed. It handles:
 import logging
 import sys
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import Any, Dict, List, Optional
 
 from prefect import flow
 from prefect.events import emit_event, DeploymentEventTrigger
@@ -24,6 +24,7 @@ from workflow.tasks.mosaic_processing import (
     stitch_mosaic2d_task,
     generate_mask_task,
 )
+from workflow.tasks.utils import mosaic_id_to_slice_number, get_mosaic_paths
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +78,9 @@ def process_first_slice_coordinates(
     tuple[Path, Path]
         Tuple of (template_path, tile_coords_export_path)
     """
-    base_mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
-    base_processed_path = base_mosaic_path / "processed"
-    base_stitched_path = base_mosaic_path / "stitched"
+    # Use slice-based structure
+    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
     
     logger.info(
         f"Processing coordinate determination for {illumination} illumination "
@@ -157,8 +158,9 @@ def stitch_enface_modalities_flow(
     """
     Subflow to stitch all 2D enface modalities.
     
-    This subflow handles the stitching of all enface modalities (ret, ori, biref, mip, surf)
-    asynchronously and returns the outputs.
+    This subflow handles the stitching of all enface modalities (ret, ori, biref, surf)
+    asynchronously and returns the outputs. Note: MIP is excluded as it's already
+    stitched in step 4 without mask.
     
     Parameters
     ----------
@@ -189,8 +191,11 @@ def stitch_enface_modalities_flow(
     logger.info(f"Stitching enface modalities for mosaic {mosaic_id}")
     
     # Stitch all enface modalities asynchronously (using template)
+    # Exclude MIP since it's already stitched in step 4
     enface_futures = {}
     for modality in ENFACE_MODALITIES:
+        if modality == "mip":
+            continue  # Skip MIP, already stitched
         modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
         modality_nifti = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii"
         modality_jpeg = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.jpeg"
@@ -239,7 +244,7 @@ def process_mosaic_flow(
     mask_threshold: float = 50.0,
     scan_resolution_3d: Optional[List[float]] = None,
     force_refresh_coords: bool = False,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Event-driven flow triggered by 'mosaic.processed' event.
     Processes a complete mosaic: determines coordinates, generates template,
@@ -277,12 +282,12 @@ def process_mosaic_flow(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Dictionary with output paths and status
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
-    processed_path = mosaic_path / "processed"
-    stitched_path = mosaic_path / "stitched"
+    # Use slice-based structure
+    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    processed_path, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
     processed_path.mkdir(parents=True, exist_ok=True)
     stitched_path.mkdir(parents=True, exist_ok=True)
     
@@ -303,10 +308,9 @@ def process_mosaic_flow(
     
     # Determine base mosaic ID for this illumination type
     # Normal: mosaic_001, Tilted: mosaic_002
+    # Both belong to slice 1
     base_mosaic_id = 2 if is_tilted else 1
-    base_mosaic_path = Path(project_base_path) / f"mosaic-{base_mosaic_id:03d}"
-    base_processed_path = base_mosaic_path / "processed"
-    base_stitched_path = base_mosaic_path / "stitched"
+    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(project_base_path, base_mosaic_id)
     
     # Check if we need to run coordinate determination
     # Only run for mosaic_001 (normal) or mosaic_002 (tilted) unless forced
@@ -344,11 +348,17 @@ def process_mosaic_flow(
             f"Coordinate determination must be run for mosaic {base_mosaic_id} first."
         )
     
-    # Step 4: Stitch AIP first (needed for mask generation) - synchronous
+    # Step 4: Stitch AIP and MIP in parallel (both without mask) - asynchronous
     aip_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_aip.yaml"
     aip_nifti = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"
     aip_jpeg = stitched_path / f"mosaic_{mosaic_id:03d}_aip.jpeg"
     
+    mip_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_mip.yaml"
+    mip_nifti = stitched_path / f"mosaic_{mosaic_id:03d}_mip.nii"
+    mip_jpeg = stitched_path / f"mosaic_{mosaic_id:03d}_mip.jpeg"
+    mip_tiff = stitched_path / f"mosaic_{mosaic_id:03d}_mip.tif"
+    
+    # Generate tile_info files for AIP and MIP (both without mask)
     generate_tile_info_file_task(
         template_path=str(template_path),
         output_path=str(aip_tile_info),
@@ -358,23 +368,45 @@ def process_mosaic_flow(
         scan_resolution=scan_resolution_2d,
     )
     
-    stitch_mosaic2d_task(
+    generate_tile_info_file_task(
+        template_path=str(template_path),
+        output_path=str(mip_tile_info),
+        base_dir=str(processed_path),
+        modality="mip",
+        mosaic_id=mosaic_id,
+        scan_resolution=scan_resolution_2d,
+    )
+    
+    # Submit both AIP and MIP stitching in parallel
+    aip_future = stitch_mosaic2d_task.submit(
         tile_info_file=str(aip_tile_info),
         nifti_output=str(aip_nifti),
         jpeg_output=str(aip_jpeg),
         circular_mean=False,
     )
     
-    # Step 5: Generate mask from AIP - synchronous
-    mask_path = stitched_path / f"mosaic_{mosaic_id:03d}_mask.nii"
-    
-    generate_mask_task(
-        input_image=str(aip_nifti),
-        output_mask=str(mask_path),
-        threshold=mask_threshold,
+    mip_future = stitch_mosaic2d_task.submit(
+        tile_info_file=str(mip_tile_info),
+        nifti_output=str(mip_nifti),
+        jpeg_output=str(mip_jpeg),
+        tiff_output=str(mip_tiff),
+        circular_mean=False,
     )
     
-    # Step 6: Stitch all enface modalities using subflow
+    # Step 5: Generate mask from MIP (asynchronous, depends on MIP stitching)
+    mask_path = stitched_path / f"mosaic_{mosaic_id:03d}_mask.nii"
+    
+    mask_future = generate_mask_task.submit(
+        input_image=str(mip_nifti),
+        output_mask=str(mask_path),
+        threshold=mask_threshold,
+        wait_for=[mip_future,aip_future],
+    )
+    
+    # Wait for mask generation to complete
+    mask_future.wait()
+    
+    # Step 6: Stitch all enface modalities using subflow (MIP excluded, already stitched)
     enface_outputs = stitch_enface_modalities_flow(
         project_name=project_name,
         project_base_path=project_base_path,
@@ -386,7 +418,8 @@ def process_mosaic_flow(
         mask_path=mask_path,
         scan_resolution_2d=scan_resolution_2d,
     )
-    
+    enface_outputs["aip"] = aip_nifti
+    enface_outputs["mip"] = mip_nifti
     # Step 7: Stitch all volume modalities asynchronously (using template, no mask)
     volume_futures = {}
     for modality in VOLUME_MODALITIES:
@@ -462,6 +495,7 @@ def process_mosaic_flow(
     return {
         "mosaic_id": mosaic_id,
         "aip_path": str(aip_nifti),
+        "mip_path": str(mip_nifti),
         "mask_path": str(mask_path),
         "enface_outputs": enface_outputs,
         "volume_outputs": volume_outputs,
@@ -470,8 +504,8 @@ def process_mosaic_flow(
 
 @flow(name="process_mosaic_event_flow")
 def process_mosaic_event_flow(
-    payload: dict,
-) -> Dict[str, any]:
+    payload: Dict[str, Any],
+) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering.
     Extracts parameters from the event payload and calls process_mosaic_flow.

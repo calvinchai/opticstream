@@ -15,7 +15,7 @@ from prefect import task
 
 from data_processing.stitch import fit_coord_files, generate_mask, fiji_stitch
 from data_processing.stitch.process_tile_coord import process_tile_coord
-from linc_convert.modalities.psoct.mosaic2d import mosaic2d
+from linc_convert.modalities.psoct.mosaic import mosaic
 
 logger = logging.getLogger(__name__)
 
@@ -334,7 +334,7 @@ def stitch_mosaic2d_task(
     """
     logger.info(f"Stitching mosaic from {tile_info_file}")
     
-    mosaic2d(
+    mosaic(
         tile_info_file=tile_info_file,
         nifti_output=nifti_output,
         jpeg_output=jpeg_output,
@@ -359,12 +359,12 @@ def generate_mask_task(
     threshold: float = 50.0,
 ) -> str:
     """
-    Generate mask from AIP image.
+    Generate mask from input image.
     
     Parameters
     ----------
     input_image : str
-        Path to input AIP image
+        Path to input image (e.g., AIP or MIP)
     output_mask : str
         Path to output mask file
     threshold : float

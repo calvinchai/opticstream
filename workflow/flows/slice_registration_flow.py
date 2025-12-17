@@ -9,7 +9,7 @@ This flow is triggered by the 'slice.ready' event when both mosaics
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from prefect import flow
 from prefect.events import emit_event, DeploymentEventTrigger
@@ -32,7 +32,7 @@ def register_slice_flow(
     gamma: float = -15.0,
     mask_file: str = "",
     mask_threshold: float = 55.0,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Register a slice after both mosaics are stitched.
     
@@ -60,7 +60,7 @@ def register_slice_flow(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Dictionary with registration results and output paths
     """
     logger.info(
@@ -77,12 +77,14 @@ def register_slice_flow(
         gamma=gamma,
         mask_file=mask_file,
         mask_threshold=mask_threshold,
+        matlab_script_path="/space/megaera/1/users/kchai/code/psoct-renew",
     )
     
     # Step 2: Run RGB_3Daxis visualization
     axis_outputs = rgb_3daxis_task(
         processed_dir=processed_dir,
         slice_number=slice_number,
+        matlab_script_path="/space/megaera/1/users/kchai/code/psoct-renew",
     )
     
     # Emit event that slice registration is complete
@@ -118,7 +120,7 @@ def register_slice_flow(
 @flow(name="register_slice_event_flow")
 def register_slice_event_flow(
     payload: dict,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering of slice registration.
     
@@ -139,7 +141,7 @@ def register_slice_event_flow(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Result from register_slice_flow
     """
     # Extract and convert types explicitly

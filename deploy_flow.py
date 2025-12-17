@@ -1,35 +1,117 @@
 from prefect import serve
-
-from workflow.flows.tile_batch_flow import process_tile_batch_flow
-from workflow.flows.tile_flow import process_tile_flow
-from workflow.flows.upload_flow import upload_flow
-
-from workflow.flows.mosaic_processing_flow import process_mosaic_event_flow
 from prefect.events import DeploymentEventTrigger
 
+from workflow.flows.mosaic_processing_flow import process_mosaic_event_flow
+from workflow.flows.slice_registration_flow import register_slice_event_flow
+from workflow.flows.tile_batch_flow import (
+    complex_to_processed_batch_event_flow,
+    complex_to_processed_batch_flow,
+    process_tile_batch_flow,
+)
+from workflow.flows.upload_flow import (
+    upload_flow,
+    upload_to_linc_batch_deployment,
+    upload_to_linc_batch_event_flow,
+)
 
-if __name__ == "__main__":
-    serve(
-        process_tile_flow.to_deployment(name="process_tile", concurrency_limit=8),
-        upload_flow.to_deployment(name="upload", concurrency_limit=12),
-        process_tile_batch_flow.to_deployment(name="process_tile_batch", concurrency_limit=2),
-        process_mosaic_event_flow.to_deployment(
-        name="process_mosaic_event_flow",
-        tags=["event-driven", "mosaic-processing", "stitching"],
+
+process_tile_batch_deployment = process_tile_batch_flow.to_deployment(
+    name="process_tile_batch_flow",
+    tags=["tile-batch", "process-tile-batch"],
+    concurrency_limit=1,
+)
+
+# Event-driven deployment that listens for the tile_batch.complex2processed.ready
+# event and forwards the event payload into the flow's `payload` parameter.
+complex_to_processed_batch_event_deployment = (
+    complex_to_processed_batch_event_flow.to_deployment(
+        name="complex_to_processed_batch_event_flow",
+        tags=["event-driven", "tile-batch", "complex-to-processed"],
         triggers=[
             DeploymentEventTrigger(
-                expect={"mosaic.processed"},
+                expect={"tile_batch.complex2processed.ready"},
                 parameters={
                     "payload": {
                         "__prefect_kind": "json",
                         "value": {
                             "__prefect_kind": "jinja",
                             "template": "{{ event.payload | tojson }}",
-                        }
-                    }
+                        },
+                    },
                 },
             )
         ],
     )
-    
+)
+
+complex_to_processed_batch_deployment = complex_to_processed_batch_flow.to_deployment(
+    name="complex_to_processed_batch_flow",
+    tags=["tile-batch", "complex-to-processed"],
+    concurrency_limit=1,
+)
+
+upload_to_linc_batch_event_deployment = upload_to_linc_batch_event_flow.to_deployment(
+    name="upload_to_linc_batch_event_flow",
+    tags=["event-driven", "tile-batch", "upload-to-linc"],
+    triggers=[
+        DeploymentEventTrigger(
+            expect={"tile_batch.upload_to_linc.ready"},
+            parameters={
+                "payload": {
+                    "__prefect_kind": "json",
+                    "value": {
+                        "__prefect_kind": "jinja",
+                        "template": "{{ event.payload | tojson }}",
+                    },
+                },
+            },
+        )
+    ],
+)
+
+
+if __name__ == "__main__":
+    serve(
+        process_tile_batch_deployment,
+        complex_to_processed_batch_deployment,
+        complex_to_processed_batch_event_deployment,
+        upload_to_linc_batch_deployment,
+        upload_to_linc_batch_event_deployment,
+        process_mosaic_event_flow.to_deployment(
+            name="process_mosaic_event_flow",
+            tags=["event-driven", "mosaic-processing", "stitching"],
+            triggers=[
+                DeploymentEventTrigger(
+                    expect={"mosaic.processed"},
+                    parameters={
+                        "payload": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.payload | tojson }}",
+                            }
+                        }
+                    },
+                )
+            ],
+            concurrency_limit=2,
+        ),
+        register_slice_event_flow.to_deployment(
+            name="register_slice_event_flow",
+            tags=["event-driven", "slice-registration"],
+            triggers=[
+                DeploymentEventTrigger(
+                    expect={"slice.ready"},
+                    parameters={
+                        "payload": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.payload | tojson }}",
+                            }
+                        }
+                    },
+                )
+            ],
+        ),
     )

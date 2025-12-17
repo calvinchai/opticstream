@@ -7,7 +7,7 @@ at different levels: batch, mosaic, and slice.
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from prefect import task
@@ -41,8 +41,9 @@ def check_batch_state_task(
         - processed_batches: Number of batches processed
         - uploaded_batches: Number of batches uploaded
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
-    state_path = mosaic_path / "state"
+    # Use slice-based structure
+    from workflow.tasks.utils import get_mosaic_paths
+    _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     
     if not state_path.exists():
         logger.warning(f"State path does not exist: {state_path}")
@@ -194,7 +195,7 @@ def check_mosaic_completion_task(
 def check_slice_state_task(
     project_base_path: str,
     slice_number: int,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Check state of both mosaics in a slice.
     
@@ -209,7 +210,7 @@ def check_slice_state_task(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Dictionary with:
         - normal_mosaic_id: Normal mosaic ID (2n-1)
         - tilted_mosaic_id: Tilted mosaic ID (2n)
@@ -263,7 +264,7 @@ def update_slice_artifact_task(
     project_name: str,
     project_base_path: str,
     slice_number: int,
-    slice_state: Dict[str, any],
+    slice_state: Dict[str, Any],
 ) -> str:
     """
     Update Prefect Artifact with slice progress (both mosaics).
@@ -276,7 +277,7 @@ def update_slice_artifact_task(
         Base path for the project
     slice_number : int
         Slice number
-    slice_state : Dict[str, any]
+    slice_state : Dict[str, Any]
         Slice state dictionary from check_slice_state_task
         
     Returns
@@ -366,8 +367,9 @@ def check_mosaic_stitched_task(
     bool
         True if mosaic is stitched, False otherwise
     """
-    mosaic_path = Path(project_base_path) / f"mosaic-{mosaic_id:03d}"
-    stitched_path = mosaic_path / "stitched"
+    # Use slice-based structure
+    from workflow.tasks.utils import get_mosaic_paths
+    _, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
     
     # Check for AIP file as indicator of stitching completion
     aip_file = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"

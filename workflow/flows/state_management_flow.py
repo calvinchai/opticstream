@@ -7,7 +7,7 @@ at different levels: batch, mosaic, and slice.
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from prefect import flow
 from prefect.events import emit_event, DeploymentEventTrigger
@@ -29,7 +29,7 @@ def manage_mosaic_batch_state_flow(
     project_name: str,
     project_base_path: str,
     mosaic_id: int,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Event-driven flow to manage batch state for a mosaic.
     
@@ -49,7 +49,7 @@ def manage_mosaic_batch_state_flow(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Dictionary with batch state and completion status
     """
     logger.info(f"Managing batch state for mosaic {mosaic_id}")
@@ -119,7 +119,7 @@ def manage_mosaic_batch_state_flow(
 @flow(name="manage_mosaic_batch_state_event_flow")
 def manage_mosaic_batch_state_event_flow(
     payload: dict,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering of batch state management.
     
@@ -138,7 +138,7 @@ def manage_mosaic_batch_state_event_flow(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Result from manage_mosaic_batch_state_flow
     """
     return manage_mosaic_batch_state_flow(
@@ -153,7 +153,7 @@ def manage_slice_state_flow(
     project_name: str,
     project_base_path: str,
     slice_number: int,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Event-driven flow to manage state for a slice (both mosaics).
     
@@ -173,7 +173,7 @@ def manage_slice_state_flow(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Dictionary with slice state and completion status
     """
     logger.info(f"Managing state for slice {slice_number}")
@@ -241,7 +241,7 @@ def manage_slice_state_flow(
 @flow(name="manage_slice_state_event_flow")
 def manage_slice_state_event_flow(
     payload: dict,
-) -> Dict[str, any]:
+) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering of slice state management.
     
@@ -258,7 +258,7 @@ def manage_slice_state_event_flow(
         
     Returns
     -------
-    Dict[str, any]
+    Dict[str, Any]
         Result from manage_slice_state_flow
     """
     # Determine slice number from mosaic_id
