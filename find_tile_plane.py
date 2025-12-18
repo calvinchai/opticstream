@@ -1,502 +1,1340 @@
+#!/usr/bin/env python3
 """
-Find the plane that describes how tiles are tilted in z-direction.
+Find the plane that's being added to each tile's surface values.
 
-The problem: Each tile volume is tilted by a plane, meaning the z-direction
-is shifted based on a plane. For overlapping positions between tiles, the
-surface indices should match after accounting for this plane tilt.
+When tiles are stitched together, overlapping regions should have similar values.
+However, there's a plane being added to the surface value (same plane added to each tile,
+the plane has the same size as each tile). This script finds that plane and exports it
+as a NIfTI volume.
 
-We solve for a plane: z = ax + by + c
-where (x, y) are coordinates in the mosaic space.
+Important: Tile dimensions interpretation
+- tile_size is always (width, height) = (x_size, y_size)
+- For example, tile_size = (200, 350) means:
+  * width = 200 pixels (added to x coordinate)
+  * height = 350 pixels (added to y coordinate)
+- When a tile has origin (x, y), its extent is:
+  * x: [x, x + width) = [x, x + 200)
+  * y: [y, y + height) = [y, y + 350)
+
+The approach:
+1. Load surface map NIfTI files for each tile
+2. Find overlapping regions between adjacent tiles
+3. Compare surface values in overlapping regions
+4. Fit a plane that explains the differences: surf1 - surf2 = plane(x2,y2) - plane(x1,y1)
+   - Note: This only determines coefficients a, b, and d (x, y gradients, and xy interaction)
+   - The constant term c cancels out in differences and must be determined separately
+   - Plane equation: signal = a*x + b*y + d*x*y + c
+5. Determine constant term c from all surface values
+6. Create a plane volume with the same size as each tile
+7. Export the plane as a NIfTI volume
+8. Verify that subtracting the plane makes overlapping regions similar
 """
 
+import argparse
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 import yaml
 from scipy.optimize import least_squares
 
+try:
+    import matplotlib.pyplot as plt
+    HAS_MATPLOTLIB = True
+except ImportError:
+    HAS_MATPLOTLIB = False
+    print("Warning: matplotlib not available, plotting will be disabled")
 
-def load_tile_config(yaml_path: str) -> Tuple[Dict, List[Dict]]:
+
+def load_yaml_config(yaml_path: str) -> Tuple[Dict, List[Dict]]:
     """Load tile configuration from YAML file."""
     with open(yaml_path, 'r') as f:
         data = yaml.safe_load(f)
-
+    
     metadata = data.get('metadata', {})
     tiles = data.get('tiles', [])
-
+    
     return metadata, tiles
 
 
-def load_surface_map(filepath: str, base_dir: str) -> Optional[np.ndarray]:
-    """Load surface map for a tile."""
+def load_surface_nifti(filepath: str, base_dir: str, crop_x: int = 0) -> Optional[np.ndarray]:
+    """
+    Load surface map from NIfTI file.
+    
+    Parameters
+    ----------
+    filepath : str
+        Path to surface map file (relative to base_dir)
+    base_dir : str
+        Base directory for surface map files
+    crop_x : int
+        Number of pixels to crop from the start of x dimension (default: 0)
+        If crop_x > 0, surface is cropped as surface[crop_x:, :]
+    
+    Returns
+    -------
+    surface : np.ndarray or None
+        2D surface map array indexed as [x, y], shape = (width, height)
+        If crop_x > 0, the width is reduced by crop_x
+    """
     full_path = Path(base_dir) / filepath
     if not full_path.exists():
         print(f"Warning: Surface map not found: {full_path}")
         return None
-
+    
     try:
         img = nib.load(str(full_path))
         surface = np.array(img.dataobj)
-        # Surface maps are typically 2D (x, y) -> z_index
+        # Surface maps are 2D arrays indexed as [x, y], so shape = (width, height) = (x_size, y_size)
         if surface.ndim == 3:
-            # If 3D, take first slice or squeeze
             surface = surface.squeeze()
+        
+        # Crop x dimension if requested
+        if crop_x > 0:
+            if crop_x >= surface.shape[0]:
+                print(f"Warning: crop_x ({crop_x}) >= surface width ({surface.shape[0]}), skipping crop")
+            else:
+                surface = surface[crop_x:, :]
+        
         return surface
     except Exception as e:
         print(f"Error loading {full_path}: {e}")
         return None
 
 
-def get_tile_overlap(
-    tile1: Dict, tile2: Dict, tile_size: Tuple[int, int] = (512, 512)
-    ) -> Optional[Tuple]:
+def find_tile_overlap(
+    tile1: Dict, tile2: Dict, tile_size: Tuple[int, int] = (512, 512), crop_x: int = 0
+) -> Optional[Tuple]:
     """
     Determine if two tiles overlap and return overlap region.
     
-    Note: The tile positions (x, y) in the YAML are in the mosaic coordinate system.
-    The tile_size should match the actual dimensions of the surface maps.
+    Parameters
+    ----------
+    tile_size : tuple
+        (width, height) = (x_size, y_size) in pixels
+        e.g., (200, 350) means width=200 (added to x), height=350 (added to y)
+    crop_x : int
+        Number of pixels cropped from x dimension. The tile's x coordinate is adjusted by adding crop_x.
     
     Returns:
         (x1_start, x1_end, y1_start, y1_end, x2_start, x2_end, y2_start, y2_end)
         or None if no overlap
     """
-    x1, y1 = tile1['x'], tile1['y']
-    x2, y2 = tile2['x'], tile2['y']
-
-    # Tile size in pixels (width, height)
-    # This should match the dimensions of the surface maps
-    w, h = tile_size
-
-    # Tile 1 bounds in mosaic space
+    # Adjust x coordinates to account for cropping
+    # When we crop crop_x pixels from the start, the effective x coordinate increases by crop_x
+    x1, y1 = tile1['x'] + crop_x, tile1['y']
+    x2, y2 = tile2['x'] + crop_x, tile2['y']
+    
+    # tile_size is (width, height) = (x_size, y_size)
+    # width is added to x coordinate, height is added to y coordinate
+    w, h = tile_size  # w = width (x dimension), h = height (y dimension)
+    
+    # Tile bounds in mosaic space
     x1_min, x1_max = x1, x1 + w
     y1_min, y1_max = y1, y1 + h
-
-    # Tile 2 bounds in mosaic space
     x2_min, x2_max = x2, x2 + w
     y2_min, y2_max = y2, y2 + h
-
+    
     # Find overlap
     overlap_x_min = max(x1_min, x2_min)
     overlap_x_max = min(x1_max, x2_max)
     overlap_y_min = max(y1_min, y2_min)
     overlap_y_max = min(y1_max, y2_max)
-
+    
     if overlap_x_min >= overlap_x_max or overlap_y_min >= overlap_y_max:
         return None  # No overlap
-
+    
     # Convert to local tile coordinates
-    # For tile 1
     x1_local_start = overlap_x_min - x1
     x1_local_end = overlap_x_max - x1
     y1_local_start = overlap_y_min - y1
     y1_local_end = overlap_y_max - y1
-
-    # For tile 2
+    
     x2_local_start = overlap_x_min - x2
     x2_local_end = overlap_x_max - x2
     y2_local_start = overlap_y_min - y2
     y2_local_end = overlap_y_max - y2
-
+    
     return (x1_local_start, x1_local_end, y1_local_start, y1_local_end,
             x2_local_start, x2_local_end, y2_local_start, y2_local_end)
 
 
-def extract_overlap_surfaces(
-    tile1_surf: np.ndarray, tile2_surf: np.ndarray,
-    overlap: Tuple
-    ) -> Tuple[np.ndarray, np.ndarray]:
+def extract_overlap_data(
+    surf1: np.ndarray, surf2: np.ndarray,
+    overlap: Tuple,
+    tile1: Dict, tile2: Dict
+) -> Optional[Dict]:
     """
     Extract surface values from overlap region.
     
-    Note: Surface maps are typically indexed as [y, x] (row, column) in numpy,
-    which corresponds to [height, width].
+    Returns:
+        Dictionary with overlap surface values and local tile coordinates
     """
     x1_start, x1_end, y1_start, y1_end, x2_start, x2_end, y2_start, y2_end = overlap
-
-    # Convert to integer indices and ensure they're within bounds
+    
+    # Convert to integer indices
+    # Surface arrays are indexed as [x, y], so shape = (width, height) = (x_size, y_size)
+    # shape[0] = width (x dimension), shape[1] = height (y dimension)
     x1_start = max(0, int(np.floor(x1_start)))
-    x1_end = min(tile1_surf.shape[1], int(np.ceil(x1_end)))
+    x1_end = min(surf1.shape[0], int(np.ceil(x1_end)))  # shape[0] is width (x dimension)
     y1_start = max(0, int(np.floor(y1_start)))
-    y1_end = min(tile1_surf.shape[0], int(np.ceil(y1_end)))
-
+    y1_end = min(surf1.shape[1], int(np.ceil(y1_end)))  # shape[1] is height (y dimension)
+    
     x2_start = max(0, int(np.floor(x2_start)))
-    x2_end = min(tile2_surf.shape[1], int(np.ceil(x2_end)))
+    x2_end = min(surf2.shape[0], int(np.ceil(x2_end)))  # shape[0] is width (x dimension)
     y2_start = max(0, int(np.floor(y2_start)))
-    y2_end = min(tile2_surf.shape[0], int(np.ceil(y2_end)))
-
-    # Ensure overlap regions have the same size (take minimum)
+    y2_end = min(surf2.shape[1], int(np.ceil(y2_end)))  # shape[1] is height (y dimension)
+    
+    # Ensure same size
     x_size = min(x1_end - x1_start, x2_end - x2_start)
     y_size = min(y1_end - y1_start, y2_end - y2_start)
-
+    
     x1_end = x1_start + x_size
     y1_end = y1_start + y_size
     x2_end = x2_start + x_size
     y2_end = y2_start + y_size
-
-    # Extract overlap regions (note: numpy arrays are indexed as [y, x])
-    surf1_overlap = tile1_surf[y1_start:y1_end, x1_start:x1_end]
-    surf2_overlap = tile2_surf[y2_start:y2_end, x2_start:x2_end]
-
-    return surf1_overlap, surf2_overlap
-
-
-def plane_z(x: np.ndarray, y: np.ndarray, params: np.ndarray) -> np.ndarray:
-    """Compute z = ax + by + c for given x, y coordinates."""
-    a, b, c = params
-    return a * x + b * y + c
-
-
-def compute_residuals(params: np.ndarray, overlap_data: List[Dict]) -> np.ndarray:
-    """
-    Compute residuals for plane fitting.
     
-    For each overlapping region between two tiles:
-    - Surface from tile 1 at (x1, y1) in mosaic space: z1_local
-    - Surface from tile 2 at (x2, y2) in mosaic space: z2_local
-    - After plane correction:
-      z1_global = z1_local + plane(x1, y1)
-      z2_global = z2_local + plane(x2, y2)
-    - These should match: z1_global = z2_global
-    - Residual: z1_local + plane(x1, y1) - z2_local - plane(x2, y2)
+    # Extract overlap regions (surface arrays are indexed as [x, y])
+    surf1_overlap = surf1[x1_start:x1_end, y1_start:y1_end]
+    surf2_overlap = surf2[x2_start:x2_end, y2_start:y2_end]
+    
+    # Create local coordinate arrays (relative to each tile's origin)
+    # The plane is a function of local tile coordinates, not mosaic coordinates
+    x1_local = np.arange(x1_start, x1_start + x_size)  # local x coordinates in tile1
+    y1_local = np.arange(y1_start, y1_start + y_size)  # local y coordinates in tile1
+    
+    x2_local = np.arange(x2_start, x2_start + x_size)  # local x coordinates in tile2
+    y2_local = np.arange(y2_start, y2_start + y_size)  # local y coordinates in tile2
+    
+    # Create meshgrids for local coordinates
+    # With indexing='ij': x1_local_grid[i, j] = x1_local[i], y1_local_grid[i, j] = y1_local[j]
+    x1_local_grid, y1_local_grid = np.meshgrid(x1_local, y1_local, indexing='ij')
+    x2_local_grid, y2_local_grid = np.meshgrid(x2_local, y2_local, indexing='ij')
+    
+    # Flatten for easier processing
+    surf1_flat = surf1_overlap.flatten()
+    surf2_flat = surf2_overlap.flatten()
+    x1_flat = x1_local_grid.flatten()
+    y1_flat = y1_local_grid.flatten()
+    x2_flat = x2_local_grid.flatten()
+    y2_flat = y2_local_grid.flatten()
+    
+    return {
+        'surf1': surf1_flat,
+        'surf2': surf2_flat,
+        'x1': x1_flat,  # local x coordinates in tile1
+        'y1': y1_flat,  # local y coordinates in tile1
+        'x2': x2_flat,  # local x coordinates in tile2
+        'y2': y2_flat   # local y coordinates in tile2
+    }
+
+
+def filter_outliers_iqr(differences: np.ndarray, iqr_factor: float = 1.5) -> np.ndarray:
     """
-    residuals = []
+    Filter outliers using the Interquartile Range (IQR) method.
+    
+    Parameters
+    ----------
+    differences : np.ndarray
+        Array of differences to filter
+    iqr_factor : float
+        Factor to multiply IQR by (default: 1.5, typical for outlier detection)
+    
+    Returns
+    -------
+    mask : np.ndarray
+        Boolean mask where True indicates inlier (non-outlier) values
+    """
+    q1 = np.percentile(differences, 25)
+    q3 = np.percentile(differences, 75)
+    iqr = q3 - q1
+    
+    lower_bound = q1 - iqr_factor * iqr
+    upper_bound = q3 + iqr_factor * iqr
+    
+    mask = (differences >= lower_bound) & (differences <= upper_bound)
+    return mask
 
-    for overlap_info in overlap_data:
-        tile1_x = overlap_info['tile1_x']
-        tile1_y = overlap_info['tile1_y']
-        tile2_x = overlap_info['tile2_x']
-        tile2_y = overlap_info['tile2_y']
 
-        # Mosaic coordinates for each pixel in overlap
-        x1_coords = overlap_info['x1_coords']
-        y1_coords = overlap_info['y1_coords']
-        x2_coords = overlap_info['x2_coords']
-        y2_coords = overlap_info['y2_coords']
+def filter_outliers_zscore(differences: np.ndarray, z_threshold: float = 3.0) -> np.ndarray:
+    """
+    Filter outliers using z-score method.
+    
+    Parameters
+    ----------
+    differences : np.ndarray
+        Array of differences to filter
+    z_threshold : float
+        Z-score threshold (default: 3.0, values beyond 3 standard deviations are outliers)
+    
+    Returns
+    -------
+    mask : np.ndarray
+        Boolean mask where True indicates inlier (non-outlier) values
+    """
+    z_scores = np.abs((differences - np.mean(differences)) / np.std(differences))
+    mask = z_scores < z_threshold
+    return mask
 
-        # Surface values
-        surf1 = overlap_info['surf1']
-        surf2 = overlap_info['surf2']
 
-        # Valid pixels (non-zero, non-NaN)
+def filter_overlap_outliers(
+    overlap_data_list: List[Dict],
+    method: str = 'iqr',
+    iqr_factor: float = 1.5,
+    z_threshold: float = 3.0
+) -> List[Dict]:
+    """
+    Filter outliers from overlap data based on differences.
+    
+    Parameters
+    ----------
+    overlap_data_list : List[Dict]
+        List of overlap data dictionaries
+    method : str
+        Outlier detection method: 'iqr' or 'zscore' (default: 'iqr')
+    iqr_factor : float
+        IQR factor for IQR method (default: 1.5)
+    z_threshold : float
+        Z-score threshold for z-score method (default: 3.0)
+    
+    Returns
+    -------
+    filtered_overlap_data_list : List[Dict]
+        Filtered overlap data with outliers removed
+    """
+    # First, collect all differences to determine global outlier thresholds
+    all_diffs = []
+    for overlap_data in overlap_data_list:
+        surf1 = overlap_data['surf1']
+        surf2 = overlap_data['surf2']
         valid_mask = (surf1 > 0) & (surf2 > 0) & np.isfinite(surf1) & np.isfinite(surf2)
-
+        if np.any(valid_mask):
+            diff = surf1[valid_mask] - surf2[valid_mask]
+            all_diffs.extend(diff)
+    
+    if len(all_diffs) == 0:
+        return overlap_data_list
+    
+    all_diffs = np.array(all_diffs)
+    
+    # Determine outlier thresholds based on all differences
+    if method == 'iqr':
+        q1 = np.percentile(all_diffs, 25)
+        q3 = np.percentile(all_diffs, 75)
+        iqr = q3 - q1
+        lower_bound = q1 - iqr_factor * iqr
+        upper_bound = q3 + iqr_factor * iqr
+    elif method == 'zscore':
+        mean_diff = np.mean(all_diffs)
+        std_diff = np.std(all_diffs)
+        lower_bound = mean_diff - z_threshold * std_diff
+        upper_bound = mean_diff + z_threshold * std_diff
+    else:
+        raise ValueError(f"Unknown outlier filtering method: {method}")
+    
+    # Count outliers
+    outlier_mask_global = (all_diffs < lower_bound) | (all_diffs > upper_bound)
+    num_outliers = np.sum(outlier_mask_global)
+    num_total = len(all_diffs)
+    outlier_percent = 100.0 * num_outliers / num_total if num_total > 0 else 0.0
+    
+    print(f"  Outlier filtering ({method}): {num_outliers}/{num_total} ({outlier_percent:.1f}%) outliers removed")
+    print(f"    Threshold: [{lower_bound:.4f}, {upper_bound:.4f}]")
+    
+    # Now filter each overlap region using the global thresholds
+    filtered_list = []
+    diff_idx = 0
+    
+    for overlap_data in overlap_data_list:
+        surf1 = overlap_data['surf1']
+        surf2 = overlap_data['surf2']
+        valid_mask = (surf1 > 0) & (surf2 > 0) & np.isfinite(surf1) & np.isfinite(surf2)
+        
         if not np.any(valid_mask):
             continue
+        
+        # Get differences for this overlap region
+        diff = surf1[valid_mask] - surf2[valid_mask]
+        n_valid = len(diff)
+        
+        # Determine which pixels in this region are outliers using global thresholds
+        region_inlier_mask = (diff >= lower_bound) & (diff <= upper_bound)
+        
+        # Create combined mask (valid pixels that are not outliers)
+        # Map back to original array indices
+        inlier_mask = np.zeros(len(surf1), dtype=bool)
+        inlier_mask[valid_mask] = region_inlier_mask
+        
+        if not np.any(inlier_mask):
+            continue  # Skip if all pixels are outliers
+        
+        # Filter the overlap data
+        filtered_data = {
+            'surf1': overlap_data['surf1'][inlier_mask],
+            'surf2': overlap_data['surf2'][inlier_mask],
+            'x1': overlap_data['x1'][inlier_mask],
+            'y1': overlap_data['y1'][inlier_mask],
+            'x2': overlap_data['x2'][inlier_mask],
+            'y2': overlap_data['y2'][inlier_mask]
+        }
+        
+        filtered_list.append(filtered_data)
+        diff_idx += n_valid
+    
+    return filtered_list
 
+
+def compute_residuals(params: np.ndarray, overlap_data_list: List[Dict]) -> np.ndarray:
+    """
+    Compute residuals for plane fitting from overlapping regions.
+    
+    The plane is a function of local tile coordinates: plane(x_local, y_local) = a*x_local + b*y_local + d*x_local*y_local + c
+    
+    For overlapping pixels at the same physical location:
+    - surf1(x1_local, y1_local) - surf2(x2_local, y2_local) = plane(x1_local, y1_local) - plane(x2_local, y2_local)
+    - surf1 - surf2 = a*(x1_local-x2_local) + b*(y1_local-y2_local) + d*(x1_local*y1_local - x2_local*y2_local)
+    
+    Note: The constant term c cancels out, so we can only fit a, b, and d from overlaps.
+    """
+    residuals = []
+    
+    # Extract coefficients: a (x), b (y), d (xy interaction)
+    # c cancels out in differences, so we only fit a, b, d from overlaps
+    a, b, d = params[:3]
+    
+    for overlap_data in overlap_data_list:
+        surf1 = overlap_data['surf1']
+        surf2 = overlap_data['surf2']
+        x1 = overlap_data['x1']
+        y1 = overlap_data['y1']
+        x2 = overlap_data['x2']
+        y2 = overlap_data['y2']
+        
+        # Valid pixels (non-zero, non-NaN)
+        valid_mask = (surf1 > 0) & (surf2 > 0) & np.isfinite(surf1) & np.isfinite(surf2)
+        
+        if not np.any(valid_mask):
+            continue
+        
         # Extract valid values
-        x1_valid = x1_coords[valid_mask]
-        y1_valid = y1_coords[valid_mask]
-        x2_valid = x2_coords[valid_mask]
-        y2_valid = y2_coords[valid_mask]
         surf1_valid = surf1[valid_mask]
         surf2_valid = surf2[valid_mask]
-
-        # Compute plane corrections
-        z1_plane = plane_z(x1_valid, y1_valid, params)
-        z2_plane = plane_z(x2_valid, y2_valid, params)
-
-        # Residual: difference in global z after plane correction
-        residual = (surf1_valid + z1_plane) - (surf2_valid + z2_plane)
+        x1_valid = x1[valid_mask]
+        y1_valid = y1[valid_mask]
+        x2_valid = x2[valid_mask]
+        y2_valid = y2[valid_mask]
+        
+        # Compute plane difference: plane(x1_local, y1_local) - plane(x2_local, y2_local)
+        # The plane is a function of local tile coordinates
+        # Note: c cancels out, so we only use a, b, and d
+        # plane(x1_local,y1_local) - plane(x2_local,y2_local) = a*(x1_local-x2_local) + b*(y1_local-y2_local) + d*(x1_local*y1_local - x2_local*y2_local)
+        plane_diff = (a * (x1_valid - x2_valid) + 
+                     b * (y1_valid - y2_valid) + 
+                     d * (x1_valid * y1_valid - x2_valid * y2_valid))
+        
+        # Residual: (surf1 - surf2) - (plane(x1_local,y1_local) - plane(x2_local,y2_local))
+        residual = (surf1_valid - surf2_valid) - plane_diff
         residuals.extend(residual)
-
+    
     return np.array(residuals)
 
 
-def find_tile_plane(
+def fit_plane_from_overlaps(
     yaml_path: str,
     base_dir: Optional[str] = None,
-    tile_size: Tuple[int, int] = (512, 512),
-    max_tiles: Optional[int] = None,
-    subsample: int = 10
-    ) -> Tuple[np.ndarray, Dict]:
+    tile_size: Optional[Tuple[int, int]] = None,
+    subsample: int = 5,
+    avg_signal_threshold: Optional[float] = None,
+    outlier_method: Optional[str] = 'iqr',
+    outlier_iqr_factor: float = 1.5,
+    outlier_z_threshold: float = 3.0,
+    crop_x: int = 0
+) -> Tuple[np.ndarray, Dict]:
     """
-    Find the plane that describes tile tilt.
+    Fit a plane to surface values by comparing overlapping regions.
+    
+    Returns:
+        params: [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+        info: Dictionary with fit statistics
+    """
+    # Load configuration
+    metadata, tiles = load_yaml_config(yaml_path)
+    
+    if base_dir is None:
+        base_dir = metadata.get('base_dir', '.')
+    
+    print(f"Loaded {len(tiles)} tiles from {yaml_path}")
+    print(f"Base directory: {base_dir}")
+    
+    # Filter tiles by avg_signal threshold if provided
+    if avg_signal_threshold is not None:
+        original_count = len(tiles)
+        tiles = [t for t in tiles if 'avg_signal' in t and t['avg_signal'] >= avg_signal_threshold]
+        filtered_count = len(tiles)
+        print(f"Filtered tiles by avg_signal threshold >= {avg_signal_threshold}: {filtered_count}/{original_count} tiles kept")
+        if filtered_count == 0:
+            raise ValueError(f"No tiles with avg_signal >= {avg_signal_threshold}")
+    
+    # Load surface maps
+    if crop_x > 0:
+        print(f"Loading surface maps with crop_x = {crop_x}...")
+    else:
+        print("Loading surface maps...")
+    tile_data = {}
+    for tile in tiles:
+        filepath = tile['filepath']
+        surface = load_surface_nifti(filepath, base_dir, crop_x=crop_x)
+        if surface is not None:
+            tile_data[tile['tile_number']] = {
+                'surface': surface,
+                'tile': tile
+            }
+            # Determine tile size from first surface map (after cropping)
+            # Surface arrays are indexed as [x, y], so shape = (width, height) = (x_size, y_size)
+            if tile_size is None:
+                w, h = surface.shape[:2]  # w = width (x dimension), h = height (y dimension)
+                tile_size = (w, h)  # tile_size = (width, height) = (x_size, y_size)
+    
+    print(f"Loaded {len(tile_data)} surface maps")
+    if tile_size:
+        print(f"Tile size (after cropping): {tile_size}")
+    
+    # Find overlapping regions
+    print("Finding overlapping regions...")
+    overlap_data_list = []
+    tile_list = list(tile_data.values())
+    
+    for i, tile1_info in enumerate(tile_list):
+        for j, tile2_info in enumerate(tile_list[i + 1:], start=i + 1):
+            tile1 = tile1_info['tile']
+            tile2 = tile2_info['tile']
+            
+            overlap = find_tile_overlap(tile1, tile2, tile_size, crop_x=crop_x)
+            if overlap is None:
+                continue
+            
+            surf1 = tile1_info['surface']
+            surf2 = tile2_info['surface']
+            
+            # Extract overlap data
+            overlap_data = extract_overlap_data(surf1, surf2, overlap, tile1, tile2)
+            if overlap_data is None:
+                continue
+            
+            # Subsample if requested
+            if subsample > 1:
+                indices = np.arange(0, len(overlap_data['surf1']), subsample)
+                for key in ['surf1', 'surf2', 'x1', 'y1', 'x2', 'y2']:
+                    overlap_data[key] = overlap_data[key][indices]
+            
+            overlap_data_list.append(overlap_data)
+    
+    print(f"Found {len(overlap_data_list)} overlapping regions")
+    
+    if len(overlap_data_list) == 0:
+        raise ValueError("No overlapping regions found between tiles!")
+    
+    # Filter outliers if requested
+    if outlier_method is not None:
+        print(f"\nFiltering outliers using {outlier_method} method...")
+        overlap_data_list = filter_overlap_outliers(
+            overlap_data_list,
+            method=outlier_method,
+            iqr_factor=outlier_iqr_factor,
+            z_threshold=outlier_z_threshold
+        )
+        print(f"  Remaining overlap regions after filtering: {len(overlap_data_list)}")
+        if len(overlap_data_list) == 0:
+            raise ValueError("No overlap data remaining after outlier filtering!")
+    
+    # Compute and output initial differences before fitting
+    print("\nComputing initial differences in overlapping regions...")
+    all_diffs_before = []
+    for overlap_data in overlap_data_list:
+        surf1 = overlap_data['surf1']
+        surf2 = overlap_data['surf2']
+        valid_mask = (surf1 > 0) & (surf2 > 0) & np.isfinite(surf1) & np.isfinite(surf2)
+        if np.any(valid_mask):
+            diff = surf1[valid_mask] - surf2[valid_mask]
+            all_diffs_before.extend(diff)
+    
+    if len(all_diffs_before) > 0:
+        all_diffs_before = np.array(all_diffs_before)
+        print(f"  Mean absolute difference: {np.mean(np.abs(all_diffs_before)):.4f}")
+        print(f"  Std of differences: {np.std(all_diffs_before):.4f}")
+        print(f"  Max absolute difference: {np.max(np.abs(all_diffs_before)):.4f}")
+        print(f"  Min difference: {np.min(all_diffs_before):.4f}")
+        print(f"  Max difference: {np.max(all_diffs_before):.4f}")
+    
+    # Fit plane using least squares
+    print("Fitting plane to overlapping regions...")
+    print("  Note: Overlapping regions can only determine coefficients a, b, and d (x, y gradients, and xy interaction).")
+    print("  The constant term c cancels out in differences and must be determined separately.")
+    
+    def residual_func(params):
+        return compute_residuals(params, overlap_data_list)
+    
+    # Initial guess: small plane (a, b, d; c will be determined separately)
+    # This is because: surf1 - surf2 = plane(x2,y2) - plane(x1,y1) 
+    #                 = a*(x2-x1) + b*(y2-y1) + d*(x2*y2 - x1*y1)
+    # The constant c cancels out, so we can only fit a, b, d from overlaps
+    initial_params = np.array([0.0, 0.0, 0.0])  # [a, b, d]
+    
+    # Use least squares optimization to fit a, b, and d
+    result = least_squares(residual_func, initial_params, method='lm')
+    a, b, d = result.x
+    
+    print(f"  Fitted coefficients: a = {a:.6e}, b = {b:.6e}, d = {d:.6e}")
+    
+    # Now determine c by using all surface values
+    # Since overlaps can't determine c, we use the mean difference between actual
+    # surface values and the plane component (a*x + b*y) across all tiles
+    print("Determining constant term c from all surface values...")
+    
+    # Collect all surface values and their coordinates
+    all_surfaces = []
+    all_x_coords = []
+    all_y_coords = []
+    
+    for tile_info in tile_list:
+        tile = tile_info['tile']
+        surface = tile_info['surface']
+        
+        # Get valid surface pixels
+        valid_mask = (surface > 0) & np.isfinite(surface)
+        if not np.any(valid_mask):
+            continue
+        
+        # Create coordinate arrays
+        # Surface arrays are indexed as [x, y], so surface.shape[:2] = (width, height) = (x_size, y_size)
+        w, h = surface.shape[:2]  # w = width (x dimension), h = height (y dimension)
+        # Create local coordinate grids: x varies from 0 to w-1, y varies from 0 to h-1
+        # The plane is a function of local tile coordinates, not mosaic coordinates
+        # With indexing='ij': x_local[i, j] = i, y_local[i, j] = j
+        x_local, y_local = np.meshgrid(np.arange(w), np.arange(h), indexing='ij')
+        
+        # Subsample for efficiency
+        if subsample > 1:
+            mask_subsample = np.zeros_like(valid_mask, dtype=bool)
+            mask_subsample[::subsample, ::subsample] = True
+            valid_mask = valid_mask & mask_subsample
+        
+        valid_surface = surface[valid_mask]
+        valid_x_local = x_local[valid_mask]  # local x coordinates (0 to w-1)
+        valid_y_local = y_local[valid_mask]  # local y coordinates (0 to h-1)
+        
+        all_surfaces.append(valid_surface)
+        all_x_coords.append(valid_x_local)
+        all_y_coords.append(valid_y_local)
+    
+    if len(all_surfaces) > 0:
+        all_surfaces = np.concatenate(all_surfaces)
+        all_x_coords = np.concatenate(all_x_coords)
+        all_y_coords = np.concatenate(all_y_coords)
+        
+        # Compute plane component (a*x_local + b*y_local + d*x_local*y_local) for all points
+        # Note: This uses local tile coordinates (0 to w-1, 0 to h-1), not mosaic coordinates
+        # The plane is a function of local coordinates, identical for each tile
+        # Note: This doesn't include c, which we're trying to determine
+        plane_component = (a * all_x_coords + 
+                          b * all_y_coords + 
+                          d * all_x_coords * all_y_coords)
+        
+        # Determine c such that the mean of (surface - plane_component) is minimized
+        # This centers the plane around the mean surface value
+        # c = mean(surface - (a*x_local + b*y_local + d*x_local*y_local)) ensures that the plane passes through
+        # the mean surface value at the mean local coordinates
+        residuals_without_c = all_surfaces - plane_component
+        c = np.mean(residuals_without_c)
+        
+        print(f"  Determined c = {c:.6f} from {len(all_surfaces)} surface pixels")
+    else:
+        # No valid surface pixels found - this should not happen if tiles are loaded correctly
+        c = 0.0
+        print("  Warning: Could not determine c from surface values, setting to 0")
+        print("  This means the plane will pass through the origin in signal space")
+    
+    params = np.array([a, b, d, c])  # [a, b, d, c]
+    
+    # Compute statistics (use a, b, d for residuals, c doesn't affect overlap differences)
+    residuals = compute_residuals(params[:3], overlap_data_list)
+    rmse = np.sqrt(np.mean(residuals ** 2))
+    mae = np.mean(np.abs(residuals))
+    
+    # Output differences after fitting
+    print("\nDifferences after plane fitting:")
+    print(f"  Mean absolute difference: {mae:.4f}")
+    print(f"  Std of differences: {np.std(residuals):.4f}")
+    print(f"  Max absolute difference: {np.max(np.abs(residuals)):.4f}")
+    print(f"  RMSE: {rmse:.4f}")
+    
+    info = {
+        'rmse': rmse,
+        'mae': mae,
+        'num_overlaps': len(overlap_data_list),
+        'num_pixels': len(residuals),
+        'residuals': residuals,
+        'tile_size': tile_size,
+        'initial_diffs': all_diffs_before if len(all_diffs_before) > 0 else None
+    }
+    
+    return params, info
+
+
+def create_tile_plane(
+    params: np.ndarray,
+    tile_size: Tuple[int, int],
+    tile_x: float = 0.0,
+    tile_y: float = 0.0
+) -> np.ndarray:
+    """
+    Create a plane array with the same size as a tile.
+    
+    Parameters
+    ----------
+    params : np.ndarray
+        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+    tile_size : tuple
+        (width, height) = (x_size, y_size) in pixels
+        e.g., (200, 350) means width=200 (added to x), height=350 (added to y)
+    tile_x : float
+        X coordinate of tile origin in mosaic space (for NIfTI affine, default: 0.0)
+        Note: The plane itself is computed using local coordinates (0 to w-1, 0 to h-1)
+    tile_y : float
+        Y coordinate of tile origin in mosaic space (for NIfTI affine, default: 0.0)
+        Note: The plane itself is computed using local coordinates (0 to w-1, 0 to h-1)
+    
+    Returns
+    -------
+    plane : np.ndarray
+        2D array with plane values, shape (width, height) = (x_size, y_size) to match surface array indexing [x, y]
+    """
+    a, b, d, c = params
+    # tile_size is (width, height) = (x_size, y_size)
+    w, h = tile_size  # w = width (x dimension), h = height (y dimension)
+    
+    # Create local coordinate arrays
+    # x_local: [0, 1, 2, ..., w-1] - x coordinates within tile
+    # y_local: [0, 1, 2, ..., h-1] - y coordinates within tile
+    x_local = np.arange(w)  # width values: 0 to w-1
+    y_local = np.arange(h)  # height values: 0 to h-1
+    
+    # Create meshgrid for local coordinates
+    # The plane is a function of local tile coordinates (0 to w-1, 0 to h-1), not mosaic coordinates
+    # With indexing='ij': x_local_grid[i, j] = x_local[i], y_local_grid[i, j] = y_local[j]
+    # Result shape: (w, h) = (width, height)
+    x_local_grid, y_local_grid = np.meshgrid(x_local, y_local, indexing='ij')
+    
+    # Compute plane values: plane = a*x_local + b*y_local + d*x_local*y_local + c
+    # The plane is computed using local coordinates, not mosaic coordinates
+    plane = a * x_local_grid + b * y_local_grid + d * x_local_grid * y_local_grid + c
+    
+    # Plane has shape (w, h) = (width, height) = (x_size, y_size)
+    # which matches surface array indexing [x, y]
+    return plane
+
+
+def verify_plane_correction(
+    yaml_path: str,
+    params: np.ndarray,
+    base_dir: Optional[str] = None,
+    tile_size: Optional[Tuple[int, int]] = None,
+    subsample: int = 1,
+    avg_signal_threshold: Optional[float] = None,
+    crop_x: int = 0
+) -> Dict:
+    """
+    Verify that after subtracting the plane from each tile, overlapping regions have similar values.
     
     Parameters
     ----------
     yaml_path : str
         Path to YAML file with tile configuration
+    params : np.ndarray
+        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
     base_dir : str, optional
         Base directory for surface map files. If None, uses metadata['base_dir']
-    tile_size : tuple
-        Size of each tile (width, height) in pixels
-    max_tiles : int, optional
-        Maximum number of tiles to process (for testing)
+    tile_size : tuple, optional
+        Size of each tile (width, height) in pixels. If None, will estimate from surface maps.
     subsample : int
         Subsample factor for overlap regions (use every Nth pixel)
+    avg_signal_threshold : float, optional
+        Minimum avg_signal value for tiles to be included. If None, all tiles are used.
     
     Returns
     -------
-    params : np.ndarray
-        Plane parameters [a, b, c] where z = ax + by + c
-    info : dict
-        Additional information about the fitting
+    stats : dict
+        Dictionary with verification statistics
     """
+    print("\n" + "="*60)
+    print("Verifying plane correction...")
+    print("="*60)
+    
     # Load configuration
-    metadata, tiles = load_tile_config(yaml_path)
-
+    metadata, tiles = load_yaml_config(yaml_path)
+    
     if base_dir is None:
         base_dir = metadata.get('base_dir', '.')
-
-    print(f"Loaded {len(tiles)} tiles from {yaml_path}")
-    print(f"Base directory: {base_dir}")
-
-    # Limit tiles if requested
-    if max_tiles is not None:
-        tiles = tiles[:max_tiles]
-        print(f"Processing first {len(tiles)} tiles")
-
+    
+    # Filter tiles by avg_signal threshold if provided
+    if avg_signal_threshold is not None:
+        original_count = len(tiles)
+        tiles = [t for t in tiles if 'avg_signal' in t and t['avg_signal'] >= avg_signal_threshold]
+        filtered_count = len(tiles)
+        print(f"Filtered tiles by avg_signal threshold >= {avg_signal_threshold}: {filtered_count}/{original_count} tiles kept")
+        if filtered_count == 0:
+            raise ValueError(f"No tiles with avg_signal >= {avg_signal_threshold}")
+    
     # Load surface maps
-    print("Loading surface maps...")
-    tile_surfaces = {}
+    if crop_x > 0:
+        print(f"Loading surface maps for verification with crop_x = {crop_x}...")
+    else:
+        print("Loading surface maps for verification...")
+    tile_data = {}
     for tile in tiles:
         filepath = tile['filepath']
-        surface = load_surface_map(filepath, base_dir)
+        surface = load_surface_nifti(filepath, base_dir, crop_x=crop_x)
         if surface is not None:
-            tile_surfaces[tile['tile_number']] = {
+            tile_data[tile['tile_number']] = {
                 'surface': surface,
-                'tile': tile,
-                'shape': surface.shape
+                'tile': tile
             }
-            # Update tile_size from actual surface map if available
-            if tile_size == (512, 512):  # Default, try to get actual size
-                h, w = surface.shape[:2]
-                tile_size = (w, h)
-
-    print(f"Loaded {len(tile_surfaces)} surface maps")
-    print(f"Tile size: {tile_size}")
-
-    # Find overlapping regions
-    print("Finding overlapping regions...")
-    overlap_data = []
-    tile_list = list(tile_surfaces.values())
-
+            # Determine tile size from first surface map (after cropping)
+            # Surface arrays are indexed as [x, y], so shape = (width, height) = (x_size, y_size)
+            if tile_size is None:
+                w, h = surface.shape[:2]  # w = width (x dimension), h = height (y dimension)
+                tile_size = (w, h)  # tile_size = (width, height) = (x_size, y_size)
+    
+    print(f"Loaded {len(tile_data)} surface maps")
+    
+    # Collect differences in overlapping regions (before and after correction)
+    all_differences_before = []
+    all_differences_after = []
+    overlap_stats = []
+    
+    tile_list = list(tile_data.values())
+    
     for i, tile1_info in enumerate(tile_list):
         for j, tile2_info in enumerate(tile_list[i + 1:], start=i + 1):
             tile1 = tile1_info['tile']
             tile2 = tile2_info['tile']
-
-            overlap = get_tile_overlap(tile1, tile2, tile_size)
+            
+            overlap = find_tile_overlap(tile1, tile2, tile_size, crop_x=crop_x)
             if overlap is None:
                 continue
-
+            
             surf1 = tile1_info['surface']
             surf2 = tile2_info['surface']
-
-            # Extract overlap surfaces (this may adjust the bounds)
-            surf1_overlap, surf2_overlap = extract_overlap_surfaces(surf1, surf2,
-                                                                    overlap)
-
-            # Skip if overlap is too small
-            if surf1_overlap.size < 100:
+            
+            # Extract overlap data
+            overlap_data = extract_overlap_data(surf1, surf2, overlap, tile1, tile2)
+            if overlap_data is None:
                 continue
-
-            # Get the actual overlap bounds after extraction
-            # The extract function ensures both surfaces have the same size
-            h_overlap, w_overlap = surf1_overlap.shape
-
-            # Get original overlap bounds
-            x1_start, x1_end, y1_start, y1_end, x2_start, x2_end, y2_start, y2_end = (
-            overlap)
-
-            # Compute actual local coordinates used (after bounds adjustment in extract function)
-            x1_local_start = max(0, int(np.floor(x1_start)))
-            y1_local_start = max(0, int(np.floor(y1_start)))
-            x2_local_start = max(0, int(np.floor(x2_start)))
-            y2_local_start = max(0, int(np.floor(y2_start)))
-
-            # Mosaic coordinates for tile 1 overlap region
-            # Create coordinate arrays matching the extracted surface shape
-            x1_local_coords = np.arange(x1_local_start, x1_local_start + w_overlap)
-            y1_local_coords = np.arange(y1_local_start, y1_local_start + h_overlap)
-            x1_mesh, y1_mesh = np.meshgrid(x1_local_coords + tile1['x'],
-                                           y1_local_coords + tile1['y'])
-
-            # Mosaic coordinates for tile 2 overlap region
-            x2_local_coords = np.arange(x2_local_start, x2_local_start + w_overlap)
-            y2_local_coords = np.arange(y2_local_start, y2_local_start + h_overlap)
-            x2_mesh, y2_mesh = np.meshgrid(x2_local_coords + tile2['x'],
-                                           y2_local_coords + tile2['y'])
-
+            
             # Subsample if requested
             if subsample > 1:
-                mask = np.zeros_like(surf1_overlap, dtype=bool)
-                mask[::subsample, ::subsample] = True
-                surf1_overlap = surf1_overlap[mask]
-                surf2_overlap = surf2_overlap[mask]
-                x1_mesh = x1_mesh[mask]
-                y1_mesh = y1_mesh[mask]
-                x2_mesh = x2_mesh[mask]
-                y2_mesh = y2_mesh[mask]
-
-            overlap_data.append({
-                'tile1_x': tile1['x'],
-                'tile1_y': tile1['y'],
-                'tile2_x': tile2['x'],
-                'tile2_y': tile2['y'],
-                'x1_coords': x1_mesh,
-                'y1_coords': y1_mesh,
-                'x2_coords': x2_mesh,
-                'y2_coords': y2_mesh,
-                'surf1': surf1_overlap,
-                'surf2': surf2_overlap,
+                indices = np.arange(0, len(overlap_data['surf1']), subsample)
+                for key in ['surf1', 'surf2', 'x1', 'y1', 'x2', 'y2']:
+                    overlap_data[key] = overlap_data[key][indices]
+            
+            # Get valid pixels
+            valid_mask = (overlap_data['surf1'] > 0) & (overlap_data['surf2'] > 0) & \
+                        np.isfinite(overlap_data['surf1']) & np.isfinite(overlap_data['surf2'])
+            
+            if not np.any(valid_mask):
+                continue
+            
+            surf1_valid = overlap_data['surf1'][valid_mask]
+            surf2_valid = overlap_data['surf2'][valid_mask]
+            x1_valid = overlap_data['x1'][valid_mask]
+            y1_valid = overlap_data['y1'][valid_mask]
+            x2_valid = overlap_data['x2'][valid_mask]
+            y2_valid = overlap_data['y2'][valid_mask]
+            
+            # Compute plane values at local tile coordinates
+            # The plane is a function of local tile coordinates, not mosaic coordinates
+            a, b, d, c = params
+            plane1 = a * x1_valid + b * y1_valid + d * x1_valid * y1_valid + c  # plane at tile1 local coords
+            plane2 = a * x2_valid + b * y2_valid + d * x2_valid * y2_valid + c  # plane at tile2 local coords
+            
+            # Corrected surface values (after subtracting plane)
+            surf1_corrected = surf1_valid - plane1
+            surf2_corrected = surf2_valid - plane2
+            
+            # Differences before and after correction
+            diff_before = surf1_valid - surf2_valid
+            diff_after = surf1_corrected - surf2_corrected
+            
+            all_differences_before.extend(diff_before)
+            all_differences_after.extend(diff_after)
+            
+            # Statistics for this overlap
+            overlap_stats.append({
+                'tile1': tile1['tile_number'],
+                'tile2': tile2['tile_number'],
+                'num_pixels': len(diff_before),
+                'mean_diff_before': np.mean(np.abs(diff_before)),
+                'std_diff_before': np.std(diff_before),
+                'max_diff_before': np.max(np.abs(diff_before)),
+                'mean_diff_after': np.mean(np.abs(diff_after)),
+                'std_diff_after': np.std(diff_after),
+                'max_diff_after': np.max(np.abs(diff_after)),
             })
-
-    print(f"Found {len(overlap_data)} overlapping regions")
-
-    if len(overlap_data) == 0:
-        raise ValueError("No overlapping regions found. Cannot fit plane.")
-
-    # Fit plane using least squares
-    print("Fitting plane...")
-    initial_params = np.array([0.0, 0.0, 0.0])  # [a, b, c]
-
-    result = least_squares(
-        compute_residuals,
-        initial_params,
-        args=(overlap_data,),
-        method='lm',  # Levenberg-Marquardt
-        verbose=2
-    )
-
-    params = result.x
-    print(f"\nFitted plane parameters:")
-    print(f"  a (x coefficient): {params[0]:.6e}")
-    print(f"  b (y coefficient): {params[1]:.6e}")
-    print(f"  c (constant):     {params[2]:.6f}")
-    print(
-        f"\nPlane equation: z = {params[0]:.6e} * x + {params[1]:.6e} * y + {params[2]:.6f}")
-
-    # Compute statistics
-    residuals = compute_residuals(params, overlap_data)
-    rmse = np.sqrt(np.mean(residuals ** 2))
-    print(f"\nRMSE: {rmse:.4f} pixels")
-    print(f"Mean absolute error: {np.mean(np.abs(residuals)):.4f} pixels")
-    print(f"Max absolute error: {np.max(np.abs(residuals)):.4f} pixels")
-
-    info = {
-        'rmse': rmse,
-        'residuals': residuals,
-        'num_overlaps': len(overlap_data),
-        'num_residuals': len(residuals),
-        'tile_size': tile_size,
+    
+    # Convert to numpy arrays for statistics
+    all_differences_before = np.array(all_differences_before)
+    all_differences_after = np.array(all_differences_after)
+    
+    # Compute overall statistics
+    stats = {
+        'num_overlaps': len(overlap_stats),
+        'num_pixels': len(all_differences_before),
+        'before_correction': {
+            'mean_abs_diff': np.mean(np.abs(all_differences_before)),
+            'std_diff': np.std(all_differences_before),
+            'max_abs_diff': np.max(np.abs(all_differences_before)),
+            'rmse': np.sqrt(np.mean(all_differences_before ** 2)),
+        },
+        'after_correction': {
+            'mean_abs_diff': np.mean(np.abs(all_differences_after)),
+            'std_diff': np.std(all_differences_after),
+            'max_abs_diff': np.max(np.abs(all_differences_after)),
+            'rmse': np.sqrt(np.mean(all_differences_after ** 2)),
+        },
+        'overlap_stats': overlap_stats
     }
+    
+    # Print results
+    print(f"\nVerification Results:")
+    print(f"  Number of overlapping regions: {stats['num_overlaps']}")
+    print(f"  Total pixels analyzed: {stats['num_pixels']}")
+    
+    print(f"\n  BEFORE plane correction:")
+    print(f"    Mean absolute difference: {stats['before_correction']['mean_abs_diff']:.4f}")
+    print(f"    Std of differences:      {stats['before_correction']['std_diff']:.4f}")
+    print(f"    Max absolute difference:  {stats['before_correction']['max_abs_diff']:.4f}")
+    print(f"    RMSE:                     {stats['before_correction']['rmse']:.4f}")
+    
+    print(f"\n  AFTER plane correction:")
+    print(f"    Mean absolute difference: {stats['after_correction']['mean_abs_diff']:.4f}")
+    print(f"    Std of differences:      {stats['after_correction']['std_diff']:.4f}")
+    print(f"    Max absolute difference:  {stats['after_correction']['max_abs_diff']:.4f}")
+    print(f"    RMSE:                     {stats['after_correction']['rmse']:.4f}")
+    
+    # Improvement metrics
+    improvement_mean = (stats['before_correction']['mean_abs_diff'] - 
+                       stats['after_correction']['mean_abs_diff']) / stats['before_correction']['mean_abs_diff'] * 100
+    improvement_rmse = (stats['before_correction']['rmse'] - 
+                        stats['after_correction']['rmse']) / stats['before_correction']['rmse'] * 100
+    
+    print(f"\n  Improvement:")
+    print(f"    Mean absolute difference: {improvement_mean:.1f}% reduction")
+    print(f"    RMSE:                     {improvement_rmse:.1f}% reduction")
+    
+    # Check if verification passed (threshold-based)
+    threshold_mean = 1.0  # Mean absolute difference should be < 1.0 after correction
+    threshold_max = 5.0   # Max absolute difference should be < 5.0 after correction
+    
+    passed = (stats['after_correction']['mean_abs_diff'] < threshold_mean and
+              stats['after_correction']['max_abs_diff'] < threshold_max)
+    
+    stats['verification_passed'] = passed
+    stats['thresholds'] = {'mean': threshold_mean, 'max': threshold_max}
+    
+    if passed:
+        print(f"\n  ✓ Verification PASSED: Overlapping regions are similar after correction")
+    else:
+        print(f"\n  ✗ Verification FAILED: Overlapping regions still differ significantly")
+        print(f"    (Thresholds: mean < {threshold_mean}, max < {threshold_max})")
+    
+    print("="*60)
+    
+    return stats
 
-    return params, info
+
+def export_plane_to_nifti(
+    params: np.ndarray,
+    tile_size: Tuple[int, int],
+    output_path: str,
+    metadata: Dict,
+    resolution: Optional[Tuple[float, float]] = None,
+    tile_x: float = 0.0,
+    tile_y: float = 0.0
+):
+    """
+    Export the fitted plane as a NIfTI volume with the same size as a tile.
+    
+    Parameters
+    ----------
+    params : np.ndarray
+        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+    tile_size : tuple
+        Size of tile (width, height) in pixels
+    output_path : str
+        Path to save the output NIfTI file
+    metadata : Dict
+        Metadata from YAML file (may contain scan_resolution)
+    resolution : tuple, optional
+        Resolution (x, y) in mm/pixel. If None, will use metadata or default.
+    tile_x : float
+        X coordinate of tile in mosaic space (default: 0.0)
+    tile_y : float
+        Y coordinate of tile in mosaic space (default: 0.0)
+    """
+    print(f"\nExporting plane to NIfTI file: {output_path}")
+    
+    # Determine resolution
+    if resolution is None:
+        if 'scan_resolution' in metadata and len(metadata['scan_resolution']) >= 2:
+            resolution = tuple(metadata['scan_resolution'][:2])
+            print(f"  Using resolution from metadata: {resolution} mm/pixel")
+        else:
+            resolution = (0.01, 0.01)  # Default: 0.01 mm/pixel
+            print(f"  Using default resolution: {resolution} mm/pixel")
+    
+    w, h = tile_size
+    print(f"  Tile size: {w} x {h} pixels")
+    
+    # Create plane array
+    plane = create_tile_plane(params, tile_size, tile_x, tile_y)
+    
+    print(f"  Plane shape: {plane.shape}")
+    print(f"  Plane value range: [{np.min(plane):.4f}, {np.max(plane):.4f}]")
+    a, b, d, c = params
+    print(f"  Plane equation: signal = {a:.6e} * x + {b:.6e} * y + {d:.6e} * x*y + {c:.6f}")
+    
+    # Set up affine matrix with proper spacing
+    affine = np.eye(4)
+    affine[0, 0] = resolution[0]  # x spacing in mm
+    affine[1, 1] = resolution[1]  # y spacing in mm
+    affine[0, 3] = tile_x * resolution[0]  # x origin in mm
+    affine[1, 3] = tile_y * resolution[1]  # y origin in mm
+    
+    # Ensure plane is 3D for NIfTI (add z dimension)
+    if plane.ndim == 2:
+        plane_3d = plane[:, :, np.newaxis]
+    else:
+        plane_3d = plane
+    
+    # Create and save NIfTI image
+    plane_img = nib.Nifti1Image(plane_3d.astype(np.float32), affine)
+    nib.save(plane_img, output_path)
+    
+    print(f"  Saved plane to {output_path}")
 
 
-def visualize_plane(
-    params: np.ndarray, tiles: List[Dict], output_path: Optional[str] = None
-    ):
-    """Visualize the fitted plane over the tile layout."""
-    fig = plt.figure(figsize=(12, 10))
-    ax = fig.add_subplot(111, projection='3d')
+def save_corrected_surfaces(
+    yaml_path: str,
+    params: np.ndarray,
+    tile_size: Tuple[int, int],
+    output_dir: str,
+    base_dir: Optional[str] = None,
+    avg_signal_threshold: Optional[float] = None,
+    crop_x: int = 0
+):
+    """
+    Save corrected surface maps (with plane subtracted) to output directory.
+    
+    Note: ALL tiles are processed and saved, regardless of avg_signal_threshold.
+    The threshold is only used for plane fitting, not for outputting corrected surfaces.
+    
+    Parameters
+    ----------
+    yaml_path : str
+        Path to YAML file with tile configuration
+    params : np.ndarray
+        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+    tile_size : tuple
+        (width, height) = (x_size, y_size) in pixels
+    output_dir : str
+        Directory to save corrected surface maps
+    base_dir : str, optional
+        Base directory for surface map files. If None, uses metadata['base_dir']
+    avg_signal_threshold : float, optional
+        This parameter is kept for API compatibility but is not used.
+        All tiles are processed regardless of avg_signal_threshold.
+    crop_x : int
+        Number of pixels to crop from the start of x dimension (default: 0)
+    """
+    print(f"\nSaving corrected surface maps to {output_dir}")
+    
+    # Create output directory if it doesn't exist
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    # Load configuration
+    metadata, tiles = load_yaml_config(yaml_path)
+    
+    if base_dir is None:
+        base_dir = metadata.get('base_dir', '.')
+    
+    # Note: We process ALL tiles for output, regardless of avg_signal_threshold
+    # The threshold is only used for plane fitting, not for outputting corrected surfaces
+    print(f"Processing all {len(tiles)} tiles for corrected surface output")
+    
+    # Create plane array (same for all tiles, using local coordinates)
+    plane = create_tile_plane(params, tile_size)
+    
+    # Process each tile
+    saved_count = 0
+    skipped_count = 0
+    
+    for tile in tiles:
+        filepath = tile['filepath']
+        input_path = Path(base_dir) / filepath
+        
+        if not input_path.exists():
+            print(f"  Warning: Surface map not found: {input_path}, skipping")
+            skipped_count += 1
+            continue
+        
+        try:
+            # Load original NIfTI file (preserving header/affine)
+            img = nib.load(str(input_path))
+            surface = np.array(img.dataobj)
+            
+            # Handle 3D arrays
+            if surface.ndim == 3:
+                surface = surface.squeeze()
+            
+            # Crop x dimension if requested
+            if crop_x > 0:
+                if crop_x >= surface.shape[0]:
+                    print(f"  Warning: crop_x ({crop_x}) >= surface width ({surface.shape[0]}) for {filepath}, skipping")
+                    skipped_count += 1
+                    continue
+                surface = surface[crop_x:, :]
+            
+            # Check if surface size matches tile_size
+            w, h = tile_size
+            if surface.shape[:2] != (w, h):
+                print(f"  Warning: Surface size {surface.shape[:2]} doesn't match tile size {tile_size} for {filepath}, skipping")
+                skipped_count += 1
+                continue
+            
+            # Subtract plane from surface
+            # The plane is computed in local tile coordinates, so we can directly subtract
+            corrected_surface = surface - plane
+            
+            # Preserve original shape (in case it was 3D)
+            if img.shape != corrected_surface.shape:
+                # If original was 3D, add z dimension back
+                if len(img.shape) == 3 and corrected_surface.ndim == 2:
+                    corrected_surface = corrected_surface[:, :, np.newaxis]
+            
+            # Create new NIfTI image with same header/affine as original
+            corrected_img = nib.Nifti1Image(corrected_surface.astype(np.float32), img.affine, img.header)
+            
+            # Save to output directory with same filename
+            output_file = output_path / Path(filepath).name
+            nib.save(corrected_img, str(output_file))
+            
+            saved_count += 1
+            if saved_count % 10 == 0:
+                print(f"  Processed {saved_count} tiles...")
+        
+        except Exception as e:
+            print(f"  Error processing {filepath}: {e}")
+            skipped_count += 1
+            continue
+    
+    print(f"\n  Saved {saved_count} corrected surface maps")
+    if skipped_count > 0:
+        print(f"  Skipped {skipped_count} tiles")
 
-    # Extract tile positions
-    x_positions = [t['x'] for t in tiles]
-    y_positions = [t['y'] for t in tiles]
 
-    # Create grid for plane visualization
-    x_min, x_max = min(x_positions), max(x_positions)
-    y_min, y_max = min(y_positions), max(y_positions)
-
-    x_range = x_max - x_min
-    y_range = y_max - y_min
-
-    # Extend range a bit
-    x_min -= x_range * 0.1
-    x_max += x_range * 0.1
-    y_min -= y_range * 0.1
-    y_max += y_range * 0.1
-
-    # Create meshgrid
-    x_grid = np.linspace(x_min, x_max, 50)
-    y_grid = np.linspace(y_min, y_max, 50)
-    X, Y = np.meshgrid(x_grid, y_grid)
-
-    # Compute plane
-    Z = plane_z(X, Y, params)
-
-    # Plot plane
-    ax.plot_surface(X, Y, Z, alpha=0.3, color='blue', label='Fitted plane')
-
-    # Plot tile positions
-    z_tiles = plane_z(np.array(x_positions), np.array(y_positions), params)
-    ax.scatter(x_positions, y_positions, z_tiles,
-               c='red', s=50, label='Tile positions', alpha=0.6)
-
-    ax.set_xlabel('X (mosaic space)')
-    ax.set_ylabel('Y (mosaic space)')
-    ax.set_zlabel('Z (plane correction)')
-    ax.set_title('Fitted Plane for Tile Tilt Correction')
-    ax.legend()
-
+def plot_plane_cross_sections(
+    params: np.ndarray,
+    tile_size: Tuple[int, int],
+    output_path: Optional[str] = None
+):
+    """
+    Plot the fitted plane at middle x and middle y coordinates in tile space.
+    
+    Parameters
+    ----------
+    params : np.ndarray
+        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+        The plane is a function of local tile coordinates (0 to width-1, 0 to height-1)
+    tile_size : tuple
+        (width, height) = (x_size, y_size) in pixels
+    output_path : str, optional
+        Path to save the plot. If None, displays interactively.
+    """
+    if not HAS_MATPLOTLIB:
+        print("Warning: matplotlib not available, skipping plane plots")
+        return
+    
+    a, b, d, c = params
+    
+    # tile_size is (width, height) = (x_size, y_size)
+    w, h = tile_size  # w = width (x dimension), h = height (y dimension)
+    
+    # Middle coordinates in tile space
+    x_mid = (w - 1) / 2.0  # Middle x in local tile coordinates (0 to w-1)
+    y_mid = (h - 1) / 2.0  # Middle y in local tile coordinates (0 to h-1)
+    
+    # Create coordinate arrays for plotting in tile space
+    x_local = np.linspace(0, w - 1, 200)  # x coordinates: 0 to w-1
+    y_local = np.linspace(0, h - 1, 200)  # y coordinates: 0 to h-1
+    
+    # Compute plane values using local tile coordinates
+    # At fixed x_local = x_mid: plane = a*x_mid + b*y_local + d*x_mid*y_local + c
+    plane_at_x_mid = (a * x_mid + c) + (b + d * x_mid) * y_local
+    
+    # At fixed y_local = y_mid: plane = a*x_local + b*y_mid + d*x_local*y_mid + c
+    plane_at_y_mid = (b * y_mid + c) + (a + d * y_mid) * x_local
+    
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Plot 1: Plane as function of y_local at x_local = x_mid
+    ax1.plot(y_local, plane_at_x_mid, 'b-', linewidth=2, label=f'Plane at x = {x_mid:.1f}')
+    ax1.set_xlabel('Y coordinate (tile space)', fontsize=12)
+    ax1.set_ylabel('Plane value', fontsize=12)
+    ax1.set_title(f'Plane Cross-Section at x = {x_mid:.1f} (tile space)', fontsize=14)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
+    
+    # Plot 2: Plane as function of x_local at y_local = y_mid
+    ax2.plot(x_local, plane_at_y_mid, 'r-', linewidth=2, label=f'Plane at y = {y_mid:.1f}')
+    ax2.set_xlabel('X coordinate (tile space)', fontsize=12)
+    ax2.set_ylabel('Plane value', fontsize=12)
+    ax2.set_title(f'Plane Cross-Section at y = {y_mid:.1f} (tile space)', fontsize=14)
+    ax2.grid(True, alpha=0.3)
+    ax2.legend()
+    
+    plt.tight_layout()
+    
     if output_path:
-        plt.savefig(output_path, dpi=150)
-        print(f"Saved visualization to {output_path}")
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"\nSaved plane cross-section plots to {output_path}")
     else:
         plt.show()
+    
+    plt.close()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Find plane that describes surface signal variation across mosaic tiles'
+    )
+    parser.add_argument('yaml_path', type=str, help='Path to tile configuration YAML')
+    parser.add_argument('--output', type=str, default='tile_plane.nii.gz',
+                       help='Output NIfTI file path (default: tile_plane.nii.gz)')
+    parser.add_argument('--base-dir', type=str, default=None,
+                       help='Base directory for surface map files (default: from YAML metadata)')
+    parser.add_argument('--resolution', type=float, nargs=2, default=None,
+                       help='Resolution [x, y] in mm/pixel (default: from YAML metadata)')
+    parser.add_argument('--tile-size', type=int, nargs=2, default=None,
+                       help='Tile size [width, height] in pixels (default: estimate from surface maps)')
+    parser.add_argument('--subsample', type=int, default=1,
+                       help='Subsample factor for overlap regions (default: 1)')
+    parser.add_argument('--avg-signal-threshold', type=float, default=None,
+                       help='Minimum avg_signal value for tiles to be included (default: no threshold)')
+    parser.add_argument('--no-verify', action='store_true',
+                       help='Skip verification step (default: verification is enabled)')
+    parser.add_argument('--plot', type=str, default=None,
+                       help='Output path for plane cross-section plots (default: no plot)')
+    parser.add_argument('--outlier-method', type=str, default='iqr',
+                       help='Outlier detection method (default: iqr)')
+    parser.add_argument('--outlier-iqr-factor', type=float, default=1.5,
+                       help='IQR factor for outlier detection (default: 1.5)')
+    parser.add_argument('--outlier-z-threshold', type=float, default=3.0,
+                       help='Z-score threshold for outlier detection (default: 3.0)')
+    parser.add_argument('--output-corrected-dir', type=str, default=None,
+                       help='Directory to save corrected surface maps (with plane subtracted). If not specified, corrected surfaces are not saved.')
+    parser.add_argument('--crop-x', type=int, default=0,
+                       help='Number of pixels to crop from the start of x dimension. When set, surface maps are cropped as surface[crop_x:, :] and tile x coordinates are adjusted by adding crop_x (default: 0)')
+    args = parser.parse_args()
+    
+    # Default verification to True unless --no-verify is set
+    args.verify = not args.no_verify
+    
+    # Load configuration
+    print(f"Loading tile configuration from {args.yaml_path}")
+    metadata, tiles = load_yaml_config(args.yaml_path)
+    
+    print(f"Loaded {len(tiles)} tiles")
+    
+    # Fit plane
+    tile_size = tuple(args.tile_size) if args.tile_size else None
+    
+    print("\nFitting plane from overlapping regions in surface maps...")
+    params, info = fit_plane_from_overlaps(
+        args.yaml_path,
+        base_dir=args.base_dir,
+        tile_size=tile_size,
+        subsample=args.subsample,
+        avg_signal_threshold=args.avg_signal_threshold,
+        outlier_method=args.outlier_method,
+        outlier_iqr_factor=args.outlier_iqr_factor,
+        outlier_z_threshold=args.outlier_z_threshold,
+        crop_x=args.crop_x
+    )
+    
+    print(f"\nFitted plane parameters:")
+    a, b, d, c = params
+    print(f"  a (x coefficient): {a:.6e}  [determined from overlaps]")
+    print(f"  b (y coefficient): {b:.6e}  [determined from overlaps]")
+    print(f"  d (xy coefficient): {d:.6e}  [determined from overlaps]")
+    print(f"  c (constant):      {c:.6f}  [determined from all surface values]")
+    print(f"\nPlane equation: signal = {a:.6e} * x + {b:.6e} * y + {d:.6e} * x*y + {c:.6f}")
+    print(f"\nNote: Coefficients a, b, and d are determined from overlapping regions.")
+    print(f"      Constant c is determined separately from all surface values.")
+    print(f"\nFit statistics:")
+    print(f"  RMSE: {info['rmse']:.4f}")
+    print(f"  MAE:  {info['mae']:.4f}")
+    print(f"  Number of overlapping regions: {info['num_overlaps']}")
+    print(f"  Number of pixels used: {info['num_pixels']}")
+    
+    # Export to NIfTI
+    resolution = tuple(args.resolution) if args.resolution else None
+    tile_size = info['tile_size']
+    
+    export_plane_to_nifti(
+        params,
+        tile_size,
+        args.output,
+        metadata,
+        resolution=resolution
+    )
+    
+    # Verify plane correction if requested
+    if args.verify:
+        verify_stats = verify_plane_correction(
+            args.yaml_path,
+            params,
+            base_dir=args.base_dir,
+            tile_size=tile_size,
+            subsample=args.subsample,
+            avg_signal_threshold=args.avg_signal_threshold,
+            crop_x=args.crop_x
+        )
+        
+        # Exit with error code if verification failed
+        if not verify_stats.get('verification_passed', False):
+            print("\nWarning: Verification failed. The plane correction may not be optimal.")
+    
+    # Plot plane cross-sections if requested
+    if args.plot:
+        plot_plane_cross_sections(params, tile_size, args.plot)
+    
+    # Save corrected surfaces if requested
+    if args.output_corrected_dir:
+        save_corrected_surfaces(
+            args.yaml_path,
+            params,
+            tile_size,
+            args.output_corrected_dir,
+            base_dir=args.base_dir,
+            avg_signal_threshold=args.avg_signal_threshold,
+            crop_x=args.crop_x
+        )
+    
+    print("\nDone!")
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description='Find plane that describes tile tilt')
-    parser.add_argument('yaml_path', type=str, help='Path to tile configuration YAML')
-    parser.add_argument('--base-dir', type=str, default=None,
-                        help='Base directory for surface maps (default: from YAML metadata)')
-    parser.add_argument('--tile-size', type=int, nargs=2, default=[512, 512],
-                        help='Tile size [width, height] in pixels')
-    parser.add_argument('--max-tiles', type=int, default=None,
-                        help='Maximum number of tiles to process (for testing)')
-    parser.add_argument('--subsample', type=int, default=10,
-                        help='Subsample factor for overlap regions')
-    parser.add_argument('--visualize', action='store_true',
-                        help='Create visualization of fitted plane')
-    parser.add_argument('--output', type=str, default=None,
-                        help='Output file for plane parameters (JSON)')
-
-    args = parser.parse_args()
-
-    # Find plane
-    params, info = find_tile_plane(
-        args.yaml_path,
-        base_dir=args.base_dir,
-        tile_size=tuple(args.tile_size),
-        max_tiles=args.max_tiles,
-        subsample=args.subsample
-    )
-
-    # Save results
-    if args.output:
-        import json
-
-        result = {
-            'plane_parameters': {
-                'a': float(params[0]),
-                'b': float(params[1]),
-                'c': float(params[2])
-            },
-            'plane_equation': f"z = {params[0]:.6e} * x + {params[1]:.6e} * y + {params[2]:.6f}",
-            'statistics': {
-                'rmse': float(info['rmse']),
-                'mean_abs_error': float(np.mean(np.abs(info['residuals']))),
-                'max_abs_error': float(np.max(np.abs(info['residuals']))),
-                'num_overlaps': info['num_overlaps'],
-                'num_residuals': info['num_residuals'],
-            }
-        }
-        with open(args.output, 'w') as f:
-            json.dump(result, f, indent=2)
-        print(f"\nSaved results to {args.output}")
-
-    # Visualize
-    if args.visualize:
-        metadata, tiles = load_tile_config(args.yaml_path)
-        vis_path = args.output.replace('.json',
-                                       '_plane.png') if args.output else 'plane_visualization.png'
-        visualize_plane(params, tiles, vis_path)
-
+    main()
