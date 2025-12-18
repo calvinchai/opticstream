@@ -844,6 +844,72 @@ def create_tile_plane(
     return plane
 
 
+def create_tile_plane_original_size(
+    params: np.ndarray,
+    tile_size: Tuple[int, int],
+    crop_x: int = 0,
+    normalize_min: Optional[float] = None,
+    degree: float = 1.5
+) -> np.ndarray:
+    """
+    Create a plane array in the original size (before cropping), including the cropped x region.
+    
+    Parameters
+    ----------
+    params : np.ndarray
+        Plane parameters (non-constant params + c). Length depends on degree.
+    tile_size : tuple
+        (width, height) = (x_size, y_size) in pixels (after cropping)
+    crop_x : int
+        Number of pixels cropped from the start of x dimension
+    normalize_min : float, optional
+        If specified, normalize the plane so its minimum value becomes this value.
+        If None, the plane is not normalized (default: None)
+    degree : float
+        Polynomial degree (1.0, 1.5, 2.0, 2.5, 3.0)
+    
+    Returns
+    -------
+    plane : np.ndarray
+        2D array with plane values, shape (width + crop_x, height) = (original_width, height)
+        The plane includes the cropped region with x coordinates from -crop_x to width-1
+    """
+    # Extract non-constant parameters and constant c
+    num_params = get_plane_params_count(degree)
+    non_const_params = params[:num_params]
+    c = params[-1]
+    
+    # tile_size is (width, height) = (x_size, y_size) after cropping
+    w, h = tile_size  # w = width (x dimension), h = height (y dimension)
+    
+    # Original size includes the cropped region
+    original_w = w + crop_x
+    
+    # Create local coordinate arrays for original size
+    # x_local: [-crop_x, -crop_x+1, ..., -1, 0, 1, 2, ..., w-1]
+    # y_local: [0, 1, 2, ..., h-1]
+    x_local = np.arange(-crop_x, w)  # x coordinates: -crop_x to w-1
+    y_local = np.arange(h)  # y coordinates: 0 to h-1
+    
+    # Create meshgrid for local coordinates
+    # With indexing='ij': x_local_grid[i, j] = x_local[i], y_local_grid[i, j] = y_local[j]
+    # Result shape: (original_w, h) = (width + crop_x, height)
+    x_local_grid, y_local_grid = np.meshgrid(x_local, y_local, indexing='ij')
+    
+    # Compute plane values using the plane equation
+    # The plane equation works for any x, y coordinates, including negative x (cropped region)
+    plane = compute_plane_value(non_const_params, x_local_grid, y_local_grid, degree) + c
+    
+    # Normalize plane if requested
+    if normalize_min is not None:
+        plane_min = np.min(plane)
+        plane = plane - plane_min + normalize_min
+    
+    # Plane has shape (original_w, h) = (width + crop_x, height)
+    # which matches surface array indexing [x, y]
+    return plane
+
+
 def verify_plane_correction(
     yaml_path: str,
     params: np.ndarray,
@@ -1074,7 +1140,8 @@ def export_plane_to_nifti(
     tile_x: float = 0.0,
     tile_y: float = 0.0,
     normalize_min: Optional[float] = None,
-    degree: float = 1.5
+    degree: float = 1.5,
+    crop_x: int = 0
 ):
     """
     Export the fitted plane as a NIfTI volume with the same size as a tile.
@@ -1082,7 +1149,12 @@ def export_plane_to_nifti(
     Parameters
     ----------
     params : np.ndarray
-        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+        Plane parameters (non-constant params + c). Length depends on degree:
+        - degree 1.0: [a, b, c]
+        - degree 1.5: [a, b, d, c]
+        - degree 2.0: [a, b, d, e, f, c]
+        - degree 2.5: [a, b, d, e, f, g, c]
+        - degree 3.0: [a, b, d, e, f, g, h, c]
     tile_size : tuple
         Size of tile (width, height) in pixels
     output_path : str
@@ -1095,6 +1167,14 @@ def export_plane_to_nifti(
         X coordinate of tile in mosaic space (default: 0.0)
     tile_y : float
         Y coordinate of tile in mosaic space (default: 0.0)
+    normalize_min : float, optional
+        If specified, normalize the plane so its minimum value becomes this value.
+        If None, the plane is not normalized (default: None)
+    degree : float
+        Polynomial degree (1.0, 1.5, 2.0, 2.5, 3.0)
+    crop_x : int
+        Number of pixels cropped from the start of x dimension. If > 0, the plane will be
+        output in the original size (including the cropped region) (default: 0)
     """
     print(f"\nExporting plane to NIfTI file: {output_path}")
     
@@ -1108,17 +1188,48 @@ def export_plane_to_nifti(
             print(f"  Using default resolution: {resolution} mm/pixel")
     
     w, h = tile_size
-    print(f"  Tile size: {w} x {h} pixels")
+    original_w = w + crop_x
+    if crop_x > 0:
+        print(f"  Tile size (after cropping): {w} x {h} pixels")
+        print(f"  Original tile size (including cropped region): {original_w} x {h} pixels")
+        print(f"  Cropped region: {crop_x} pixels from start of x dimension")
+    else:
+        print(f"  Tile size: {w} x {h} pixels")
     
-    # Create plane array
-    plane = create_tile_plane(params, tile_size, tile_x, tile_y, normalize_min=normalize_min, degree=degree)
+    # Create plane array in original size (including cropped region)
+    if crop_x > 0:
+        plane = create_tile_plane_original_size(params, tile_size, crop_x=crop_x, normalize_min=normalize_min, degree=degree)
+    else:
+        plane = create_tile_plane(params, tile_size, tile_x, tile_y, normalize_min=normalize_min, degree=degree)
     
     print(f"  Plane shape: {plane.shape}")
     if normalize_min is not None:
         print(f"  Plane normalized: minimum value = {normalize_min:.4f}")
     print(f"  Plane value range: [{np.min(plane):.4f}, {np.max(plane):.4f}]")
-    a, b, d, c = params
-    print(f"  Plane equation: signal = {a:.6e} * x + {b:.6e} * y + {d:.6e} * x*y + {c:.6f}")
+    
+    # Print plane equation based on degree
+    num_params = get_plane_params_count(degree)
+    non_const_params = params[:num_params]
+    c = params[-1]
+    
+    eq_parts = []
+    if degree == 1.0:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y"]
+    elif degree == 1.5:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y", f"{non_const_params[2]:.6e} * x*y"]
+    elif degree == 2.0:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y", 
+                   f"{non_const_params[2]:.6e} * x^2", f"{non_const_params[3]:.6e} * y^2", f"{non_const_params[4]:.6e} * x*y"]
+    elif degree == 2.5:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y",
+                   f"{non_const_params[2]:.6e} * x^2", f"{non_const_params[3]:.6e} * y^2", 
+                   f"{non_const_params[4]:.6e} * x*y", f"{non_const_params[5]:.6e} * x^2*y^2"]
+    elif degree == 3.0:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y",
+                   f"{non_const_params[2]:.6e} * x^2", f"{non_const_params[3]:.6e} * y^2",
+                   f"{non_const_params[4]:.6e} * x^3", f"{non_const_params[5]:.6e} * y^3",
+                   f"{non_const_params[6]:.6e} * x^2*y^2"]
+    print(f"  Plane equation: signal = {' + '.join(eq_parts)} + {c:.6f}")
     
     # Set up affine matrix with proper spacing
     affine = np.eye(4)
@@ -1274,18 +1385,28 @@ def plot_plane_cross_sections(
     Parameters
     ----------
     params : np.ndarray
-        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+        Plane parameters (non-constant params + c). Length depends on degree:
+        - degree 1.0: [a, b, c]
+        - degree 1.5: [a, b, d, c]
+        - degree 2.0: [a, b, d, e, f, c]
+        - degree 2.5: [a, b, d, e, f, g, c]
+        - degree 3.0: [a, b, d, e, f, g, h, c]
         The plane is a function of local tile coordinates (0 to width-1, 0 to height-1)
     tile_size : tuple
         (width, height) = (x_size, y_size) in pixels
     output_path : str, optional
         Path to save the plot. If None, displays interactively.
+    degree : float
+        Polynomial degree (1.0, 1.5, 2.0, 2.5, 3.0)
     """
     if not HAS_MATPLOTLIB:
         print("Warning: matplotlib not available, skipping plane plots")
         return
     
-    a, b, d, c = params
+    # Extract parameters based on degree
+    num_params = get_plane_params_count(degree)
+    non_const_params = params[:num_params]
+    c = params[-1]
     
     # tile_size is (width, height) = (x_size, y_size)
     w, h = tile_size  # w = width (x dimension), h = height (y dimension)
@@ -1299,11 +1420,13 @@ def plot_plane_cross_sections(
     y_local = np.linspace(0, h - 1, 200)  # y coordinates: 0 to h-1
     
     # Compute plane values using local tile coordinates
-    # At fixed x_local = x_mid: plane = a*x_mid + b*y_local + d*x_mid*y_local + c
-    plane_at_x_mid = (a * x_mid + c) + (b + d * x_mid) * y_local
+    # At fixed x_local = x_mid
+    x_mid_array = np.full_like(y_local, x_mid)
+    plane_at_x_mid = compute_plane_value(non_const_params, x_mid_array, y_local, degree) + c
     
-    # At fixed y_local = y_mid: plane = a*x_local + b*y_mid + d*x_local*y_mid + c
-    plane_at_y_mid = (b * y_mid + c) + (a + d * y_mid) * x_local
+    # At fixed y_local = y_mid
+    y_mid_array = np.full_like(x_local, y_mid)
+    plane_at_y_mid = compute_plane_value(non_const_params, x_local, y_mid_array, degree) + c
     
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
@@ -1452,7 +1575,8 @@ def main():
         metadata,
         resolution=resolution,
         normalize_min=args.normalize_min,
-        degree=degree
+        degree=degree,
+        crop_x=args.crop_x
     )
     
     # Verify plane correction if requested
