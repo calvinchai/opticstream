@@ -385,23 +385,98 @@ def filter_overlap_outliers(
     return filtered_list
 
 
-def compute_residuals(params: np.ndarray, overlap_data_list: List[Dict]) -> np.ndarray:
+def get_plane_params_count(degree: float) -> int:
+    """
+    Get the number of non-constant parameters for a given degree.
+    
+    Parameters
+    ----------
+    degree : float
+        Polynomial degree:
+        - 1.0: linear (a*x + b*y) -> 2 params
+        - 1.5: linear with cross term (a*x + b*y + d*x*y) -> 3 params
+        - 2.0: quadratic with xy term (a*x + b*y + d*x^2 + e*y^2 + f*x*y) -> 5 params
+        - 2.5: quadratic with xy and x^2y^2 terms (a*x + b*y + d*x^2 + e*y^2 + f*x*y + g*x^2*y^2) -> 6 params
+        - 3.0: cubic with x^2y^2 term (a*x + b*y + d*x^2 + e*y^2 + f*x^3 + g*y^3 + h*x^2*y^2) -> 7 params
+    
+    Returns
+    -------
+    int
+        Number of non-constant parameters (excluding c)
+    """
+    if degree == 1.0:
+        return 2  # a, b
+    elif degree == 1.5:
+        return 3  # a, b, d
+    elif degree == 2.0:
+        return 5  # a, b, d, e, f (x, y, x^2, y^2, xy)
+    elif degree == 2.5:
+        return 6  # a, b, d, e, f, g (x, y, x^2, y^2, xy, x^2y^2)
+    elif degree == 3.0:
+        return 7  # a, b, d, e, f, g, h (x, y, x^2, y^2, x^3, y^3, x^2y^2)
+    else:
+        raise ValueError(f"Unsupported degree: {degree}. Supported values: 1.0, 1.5, 2.0, 2.5, 3.0")
+
+
+def compute_plane_value(params: np.ndarray, x: np.ndarray, y: np.ndarray, degree: float) -> np.ndarray:
+    """
+    Compute plane value at given coordinates.
+    
+    Parameters
+    ----------
+    params : np.ndarray
+        Plane parameters (excluding constant c)
+    x : np.ndarray
+        X coordinates
+    y : np.ndarray
+        Y coordinates
+    degree : float
+        Polynomial degree
+    
+    Returns
+    -------
+    np.ndarray
+        Plane values (without constant term c)
+    """
+    if degree == 1.0:
+        a, b = params
+        return a * x + b * y
+    elif degree == 1.5:
+        a, b, d = params
+        return a * x + b * y + d * x * y
+    elif degree == 2.0:
+        a, b, d, e, f = params
+        return a * x + b * y + d * x**2 + e * y**2 + f * x * y
+    elif degree == 2.5:
+        a, b, d, e, f, g = params
+        return a * x + b * y + d * x**2 + e * y**2 + f * x * y + g * x**2 * y**2
+    elif degree == 3.0:
+        a, b, d, e, f, g, h = params
+        return a * x + b * y + d * x**2 + e * y**2 + f * x**3 + g * y**3 + h * x**2 * y**2
+    else:
+        raise ValueError(f"Unsupported degree: {degree}")
+
+
+def compute_residuals(params: np.ndarray, overlap_data_list: List[Dict], degree: float = 1.5) -> np.ndarray:
     """
     Compute residuals for plane fitting from overlapping regions.
     
-    The plane is a function of local tile coordinates: plane(x_local, y_local) = a*x_local + b*y_local + d*x_local*y_local + c
-    
+    The plane is a function of local tile coordinates with the specified degree.
     For overlapping pixels at the same physical location:
     - surf1(x1_local, y1_local) - surf2(x2_local, y2_local) = plane(x1_local, y1_local) - plane(x2_local, y2_local)
-    - surf1 - surf2 = a*(x1_local-x2_local) + b*(y1_local-y2_local) + d*(x1_local*y1_local - x2_local*y2_local)
     
-    Note: The constant term c cancels out, so we can only fit a, b, and d from overlaps.
+    Note: The constant term c cancels out, so we only fit non-constant parameters from overlaps.
+    
+    Parameters
+    ----------
+    params : np.ndarray
+        Non-constant plane parameters (excluding c)
+    overlap_data_list : List[Dict]
+        List of overlap data dictionaries
+    degree : float
+        Polynomial degree (1.0, 1.5, 2.0, 2.5, 3.0)
     """
     residuals = []
-    
-    # Extract coefficients: a (x), b (y), d (xy interaction)
-    # c cancels out in differences, so we only fit a, b, d from overlaps
-    a, b, d = params[:3]
     
     for overlap_data in overlap_data_list:
         surf1 = overlap_data['surf1']
@@ -426,12 +501,10 @@ def compute_residuals(params: np.ndarray, overlap_data_list: List[Dict]) -> np.n
         y2_valid = y2[valid_mask]
         
         # Compute plane difference: plane(x1_local, y1_local) - plane(x2_local, y2_local)
-        # The plane is a function of local tile coordinates
-        # Note: c cancels out, so we only use a, b, and d
-        # plane(x1_local,y1_local) - plane(x2_local,y2_local) = a*(x1_local-x2_local) + b*(y1_local-y2_local) + d*(x1_local*y1_local - x2_local*y2_local)
-        plane_diff = (a * (x1_valid - x2_valid) + 
-                     b * (y1_valid - y2_valid) + 
-                     d * (x1_valid * y1_valid - x2_valid * y2_valid))
+        # Note: c cancels out, so we only use non-constant parameters
+        plane1 = compute_plane_value(params, x1_valid, y1_valid, degree)
+        plane2 = compute_plane_value(params, x2_valid, y2_valid, degree)
+        plane_diff = plane1 - plane2
         
         # Residual: (surf1 - surf2) - (plane(x1_local,y1_local) - plane(x2_local,y2_local))
         residual = (surf1_valid - surf2_valid) - plane_diff
@@ -449,7 +522,8 @@ def fit_plane_from_overlaps(
     outlier_method: Optional[str] = 'iqr',
     outlier_iqr_factor: float = 1.5,
     outlier_z_threshold: float = 3.0,
-    crop_x: int = 0
+    crop_x: int = 0,
+    degree: float = 1.5
 ) -> Tuple[np.ndarray, Dict]:
     """
     Fit a plane to surface values by comparing overlapping regions.
@@ -568,24 +642,40 @@ def fit_plane_from_overlaps(
         print(f"  Max difference: {np.max(all_diffs_before):.4f}")
     
     # Fit plane using least squares
-    print("Fitting plane to overlapping regions...")
-    print("  Note: Overlapping regions can only determine coefficients a, b, and d (x, y gradients, and xy interaction).")
+    print(f"Fitting plane (degree {degree}) to overlapping regions...")
+    num_params = get_plane_params_count(degree)
+    print(f"  Note: Overlapping regions can only determine {num_params} non-constant coefficients.")
     print("  The constant term c cancels out in differences and must be determined separately.")
     
     def residual_func(params):
-        return compute_residuals(params, overlap_data_list)
+        return compute_residuals(params, overlap_data_list, degree=degree)
     
-    # Initial guess: small plane (a, b, d; c will be determined separately)
-    # This is because: surf1 - surf2 = plane(x2,y2) - plane(x1,y1) 
-    #                 = a*(x2-x1) + b*(y2-y1) + d*(x2*y2 - x1*y1)
-    # The constant c cancels out, so we can only fit a, b, d from overlaps
-    initial_params = np.array([0.0, 0.0, 0.0])  # [a, b, d]
+    # Initial guess: zeros for all non-constant parameters
+    # The constant c cancels out, so we only fit non-constant parameters from overlaps
+    initial_params = np.zeros(num_params)
     
-    # Use least squares optimization to fit a, b, and d
+    # Use least squares optimization to fit non-constant parameters
     result = least_squares(residual_func, initial_params, method='lm')
-    a, b, d = result.x
+    non_const_params = result.x
     
-    print(f"  Fitted coefficients: a = {a:.6e}, b = {b:.6e}, d = {d:.6e}")
+    # Extract parameters based on degree
+    if degree == 1.0:
+        a, b = non_const_params
+        params_dict = {'a': a, 'b': b}
+    elif degree == 1.5:
+        a, b, d = non_const_params
+        params_dict = {'a': a, 'b': b, 'd': d}
+    elif degree == 2.0:
+        a, b, d, e, f = non_const_params
+        params_dict = {'a': a, 'b': b, 'd': d, 'e': e, 'f': f}
+    elif degree == 2.5:
+        a, b, d, e, f, g = non_const_params
+        params_dict = {'a': a, 'b': b, 'd': d, 'e': e, 'f': f, 'g': g}
+    elif degree == 3.0:
+        a, b, d, e, f, g, h = non_const_params
+        params_dict = {'a': a, 'b': b, 'd': d, 'e': e, 'f': f, 'g': g, 'h': h}
+    
+    print(f"  Fitted coefficients: {', '.join([f'{k} = {v:.6e}' for k, v in params_dict.items()])}")
     
     # Now determine c by using all surface values
     # Since overlaps can't determine c, we use the mean difference between actual
@@ -633,17 +723,15 @@ def fit_plane_from_overlaps(
         all_x_coords = np.concatenate(all_x_coords)
         all_y_coords = np.concatenate(all_y_coords)
         
-        # Compute plane component (a*x_local + b*y_local + d*x_local*y_local) for all points
+        # Compute plane component (without constant c) for all points
         # Note: This uses local tile coordinates (0 to w-1, 0 to h-1), not mosaic coordinates
         # The plane is a function of local coordinates, identical for each tile
         # Note: This doesn't include c, which we're trying to determine
-        plane_component = (a * all_x_coords + 
-                          b * all_y_coords + 
-                          d * all_x_coords * all_y_coords)
+        plane_component = compute_plane_value(non_const_params, all_x_coords, all_y_coords, degree)
         
         # Determine c such that the mean of (surface - plane_component) is minimized
         # This centers the plane around the mean surface value
-        # c = mean(surface - (a*x_local + b*y_local + d*x_local*y_local)) ensures that the plane passes through
+        # c = mean(surface - plane_component) ensures that the plane passes through
         # the mean surface value at the mean local coordinates
         residuals_without_c = all_surfaces - plane_component
         c = np.mean(residuals_without_c)
@@ -655,10 +743,11 @@ def fit_plane_from_overlaps(
         print("  Warning: Could not determine c from surface values, setting to 0")
         print("  This means the plane will pass through the origin in signal space")
     
-    params = np.array([a, b, d, c])  # [a, b, d, c]
+    # Combine non-constant parameters with constant c
+    params = np.concatenate([non_const_params, [c]])
     
-    # Compute statistics (use a, b, d for residuals, c doesn't affect overlap differences)
-    residuals = compute_residuals(params[:3], overlap_data_list)
+    # Compute statistics (use non-constant params for residuals, c doesn't affect overlap differences)
+    residuals = compute_residuals(non_const_params, overlap_data_list, degree=degree)
     rmse = np.sqrt(np.mean(residuals ** 2))
     mae = np.mean(np.abs(residuals))
     
@@ -687,7 +776,8 @@ def create_tile_plane(
     tile_size: Tuple[int, int],
     tile_x: float = 0.0,
     tile_y: float = 0.0,
-    normalize_min: Optional[float] = None
+    normalize_min: Optional[float] = None,
+    degree: float = 1.5
 ) -> np.ndarray:
     """
     Create a plane array with the same size as a tile.
@@ -695,7 +785,12 @@ def create_tile_plane(
     Parameters
     ----------
     params : np.ndarray
-        Plane parameters [a, b, d, c] where surface = a*x + b*y + d*x*y + c
+        Plane parameters (non-constant params + c). Length depends on degree:
+        - degree 1.0: [a, b, c]
+        - degree 1.5: [a, b, d, c]
+        - degree 2.0: [a, b, d, e, c]
+        - degree 2.5: [a, b, d, e, f, c]
+        - degree 3.0: [a, b, d, e, f, g, c]
     tile_size : tuple
         (width, height) = (x_size, y_size) in pixels
         e.g., (200, 350) means width=200 (added to x), height=350 (added to y)
@@ -708,13 +803,19 @@ def create_tile_plane(
     normalize_min : float, optional
         If specified, normalize the plane so its minimum value becomes this value.
         If None, the plane is not normalized (default: None)
+    degree : float
+        Polynomial degree (1.0, 1.5, 2.0, 2.5, 3.0)
     
     Returns
     -------
     plane : np.ndarray
         2D array with plane values, shape (width, height) = (x_size, y_size) to match surface array indexing [x, y]
     """
-    a, b, d, c = params
+    # Extract non-constant parameters and constant c
+    num_params = get_plane_params_count(degree)
+    non_const_params = params[:num_params]
+    c = params[-1]
+    
     # tile_size is (width, height) = (x_size, y_size)
     w, h = tile_size  # w = width (x dimension), h = height (y dimension)
     
@@ -730,9 +831,8 @@ def create_tile_plane(
     # Result shape: (w, h) = (width, height)
     x_local_grid, y_local_grid = np.meshgrid(x_local, y_local, indexing='ij')
     
-    # Compute plane values: plane = a*x_local + b*y_local + d*x_local*y_local + c
-    # The plane is computed using local coordinates, not mosaic coordinates
-    plane = a * x_local_grid + b * y_local_grid + d * x_local_grid * y_local_grid + c
+    # Compute plane values using the appropriate degree
+    plane = compute_plane_value(non_const_params, x_local_grid, y_local_grid, degree) + c
     
     # Normalize plane if requested
     if normalize_min is not None:
@@ -751,7 +851,8 @@ def verify_plane_correction(
     tile_size: Optional[Tuple[int, int]] = None,
     subsample: int = 1,
     avg_signal_threshold: Optional[float] = None,
-    crop_x: int = 0
+    crop_x: int = 0,
+    degree: float = 1.5
 ) -> Dict:
     """
     Verify that after subtracting the plane from each tile, overlapping regions have similar values.
@@ -863,9 +964,11 @@ def verify_plane_correction(
             
             # Compute plane values at local tile coordinates
             # The plane is a function of local tile coordinates, not mosaic coordinates
-            a, b, d, c = params
-            plane1 = a * x1_valid + b * y1_valid + d * x1_valid * y1_valid + c  # plane at tile1 local coords
-            plane2 = a * x2_valid + b * y2_valid + d * x2_valid * y2_valid + c  # plane at tile2 local coords
+            num_params = get_plane_params_count(degree)
+            non_const_params = params[:num_params]
+            c = params[-1]
+            plane1 = compute_plane_value(non_const_params, x1_valid, y1_valid, degree) + c  # plane at tile1 local coords
+            plane2 = compute_plane_value(non_const_params, x2_valid, y2_valid, degree) + c  # plane at tile2 local coords
             
             # Corrected surface values (after subtracting plane)
             surf1_corrected = surf1_valid - plane1
@@ -970,7 +1073,8 @@ def export_plane_to_nifti(
     resolution: Optional[Tuple[float, float]] = None,
     tile_x: float = 0.0,
     tile_y: float = 0.0,
-    normalize_min: Optional[float] = None
+    normalize_min: Optional[float] = None,
+    degree: float = 1.5
 ):
     """
     Export the fitted plane as a NIfTI volume with the same size as a tile.
@@ -1007,7 +1111,7 @@ def export_plane_to_nifti(
     print(f"  Tile size: {w} x {h} pixels")
     
     # Create plane array
-    plane = create_tile_plane(params, tile_size, tile_x, tile_y, normalize_min=normalize_min)
+    plane = create_tile_plane(params, tile_size, tile_x, tile_y, normalize_min=normalize_min, degree=degree)
     
     print(f"  Plane shape: {plane.shape}")
     if normalize_min is not None:
@@ -1044,7 +1148,8 @@ def save_corrected_surfaces(
     base_dir: Optional[str] = None,
     avg_signal_threshold: Optional[float] = None,
     crop_x: int = 0,
-    normalize_min: Optional[float] = None
+    normalize_min: Optional[float] = None,
+    degree: float = 1.5
 ):
     """
     Save corrected surface maps (with plane subtracted) to output directory.
@@ -1087,7 +1192,7 @@ def save_corrected_surfaces(
     print(f"Processing all {len(tiles)} tiles for corrected surface output")
     
     # Create plane array (same for all tiles, using local coordinates)
-    plane = create_tile_plane(params, tile_size, normalize_min=normalize_min)
+    plane = create_tile_plane(params, tile_size, normalize_min=normalize_min, degree=degree)
     
     # Process each tile
     saved_count = 0
@@ -1160,7 +1265,8 @@ def save_corrected_surfaces(
 def plot_plane_cross_sections(
     params: np.ndarray,
     tile_size: Tuple[int, int],
-    output_path: Optional[str] = None
+    output_path: Optional[str] = None,
+    degree: float = 1.5
 ):
     """
     Plot the fitted plane at middle x and middle y coordinates in tile space.
@@ -1262,7 +1368,14 @@ def main():
                        help='Number of pixels to crop from the start of x dimension. When set, surface maps are cropped as surface[crop_x:, :] and tile x coordinates are adjusted by adding crop_x (default: 0)')
     parser.add_argument('--normalize-min', type=float, default=None,
                        help='Normalize the plane so its minimum value becomes this value. If not specified, the plane is not normalized (default: None)')
+    parser.add_argument('--degree', type=float, default=1.5,
+                       help='Polynomial degree for plane fitting: 1.0 (linear), 1.5 (linear with cross term), 2.0 (quadratic), 2.5 (quadratic with cross term), 3.0 (cubic) (default: 1.5)')
     args = parser.parse_args()
+    
+    # Validate degree
+    valid_degrees = [1.0, 1.5, 2.0, 2.5, 3.0]
+    if args.degree not in valid_degrees:
+        raise ValueError(f"Invalid degree: {args.degree}. Must be one of {valid_degrees}")
     
     # Default verification to True unless --no-verify is set
     args.verify = not args.no_verify
@@ -1276,7 +1389,7 @@ def main():
     # Fit plane
     tile_size = tuple(args.tile_size) if args.tile_size else None
     
-    print("\nFitting plane from overlapping regions in surface maps...")
+    print(f"\nFitting plane (degree {args.degree}) from overlapping regions in surface maps...")
     params, info = fit_plane_from_overlaps(
         args.yaml_path,
         base_dir=args.base_dir,
@@ -1286,17 +1399,41 @@ def main():
         outlier_method=args.outlier_method,
         outlier_iqr_factor=args.outlier_iqr_factor,
         outlier_z_threshold=args.outlier_z_threshold,
-        crop_x=args.crop_x
+        crop_x=args.crop_x,
+        degree=args.degree
     )
     
-    print(f"\nFitted plane parameters:")
-    a, b, d, c = params
-    print(f"  a (x coefficient): {a:.6e}  [determined from overlaps]")
-    print(f"  b (y coefficient): {b:.6e}  [determined from overlaps]")
-    print(f"  d (xy coefficient): {d:.6e}  [determined from overlaps]")
-    print(f"  c (constant):      {c:.6f}  [determined from all surface values]")
-    print(f"\nPlane equation: signal = {a:.6e} * x + {b:.6e} * y + {d:.6e} * x*y + {c:.6f}")
-    print(f"\nNote: Coefficients a, b, and d are determined from overlapping regions.")
+    degree = info.get('degree', args.degree)
+    num_params = get_plane_params_count(degree)
+    non_const_params = params[:num_params]
+    c = params[-1]
+    
+    print(f"\nFitted plane parameters (degree {degree}):")
+    param_names = ['a', 'b', 'd', 'e', 'f', 'g', 'h'][:num_params]
+    for i, name in enumerate(param_names):
+        print(f"  {name}: {non_const_params[i]:.6e}  [determined from overlaps]")
+    print(f"  c (constant): {c:.6f}  [determined from all surface values]")
+    
+    # Print plane equation based on degree
+    eq_parts = []
+    if degree == 1.0:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y"]
+    elif degree == 1.5:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y", f"{non_const_params[2]:.6e} * x*y"]
+    elif degree == 2.0:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y", 
+                   f"{non_const_params[2]:.6e} * x^2", f"{non_const_params[3]:.6e} * y^2", f"{non_const_params[4]:.6e} * x*y"]
+    elif degree == 2.5:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y",
+                   f"{non_const_params[2]:.6e} * x^2", f"{non_const_params[3]:.6e} * y^2", 
+                   f"{non_const_params[4]:.6e} * x*y", f"{non_const_params[5]:.6e} * x^2*y^2"]
+    elif degree == 3.0:
+        eq_parts = [f"{non_const_params[0]:.6e} * x", f"{non_const_params[1]:.6e} * y",
+                   f"{non_const_params[2]:.6e} * x^2", f"{non_const_params[3]:.6e} * y^2",
+                   f"{non_const_params[4]:.6e} * x^3", f"{non_const_params[5]:.6e} * y^3",
+                   f"{non_const_params[6]:.6e} * x^2*y^2"]
+    print(f"\nPlane equation: signal = {' + '.join(eq_parts)} + {c:.6f}")
+    print(f"\nNote: Non-constant coefficients are determined from overlapping regions.")
     print(f"      Constant c is determined separately from all surface values.")
     print(f"\nFit statistics:")
     print(f"  RMSE: {info['rmse']:.4f}")
@@ -1313,19 +1450,22 @@ def main():
         tile_size,
         args.output,
         metadata,
-        resolution=resolution
+        resolution=resolution,
+        normalize_min=args.normalize_min,
+        degree=degree
     )
     
     # Verify plane correction if requested
     if args.verify:
         verify_stats = verify_plane_correction(
-            args.yaml_path,
+        args.yaml_path,
             params,
-            base_dir=args.base_dir,
-            tile_size=tile_size,
+        base_dir=args.base_dir,
+        tile_size=tile_size,
             subsample=args.subsample,
             avg_signal_threshold=args.avg_signal_threshold,
-            crop_x=args.crop_x
+            crop_x=args.crop_x,
+            degree=degree
         )
         
         # Exit with error code if verification failed
@@ -1334,7 +1474,7 @@ def main():
     
     # Plot plane cross-sections if requested
     if args.plot:
-        plot_plane_cross_sections(params, tile_size, args.plot)
+        plot_plane_cross_sections(params, tile_size, args.plot, degree=degree)
     
     # Save corrected surfaces if requested
     if args.output_corrected_dir:
@@ -1347,7 +1487,7 @@ def main():
             avg_signal_threshold=args.avg_signal_threshold,
             crop_x=args.crop_x,
             normalize_min=args.normalize_min
-        )
+    )
     
     print("\nDone!")
 
