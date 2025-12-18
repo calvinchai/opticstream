@@ -686,7 +686,8 @@ def create_tile_plane(
     params: np.ndarray,
     tile_size: Tuple[int, int],
     tile_x: float = 0.0,
-    tile_y: float = 0.0
+    tile_y: float = 0.0,
+    normalize_min: Optional[float] = None
 ) -> np.ndarray:
     """
     Create a plane array with the same size as a tile.
@@ -704,6 +705,9 @@ def create_tile_plane(
     tile_y : float
         Y coordinate of tile origin in mosaic space (for NIfTI affine, default: 0.0)
         Note: The plane itself is computed using local coordinates (0 to w-1, 0 to h-1)
+    normalize_min : float, optional
+        If specified, normalize the plane so its minimum value becomes this value.
+        If None, the plane is not normalized (default: None)
     
     Returns
     -------
@@ -729,6 +733,11 @@ def create_tile_plane(
     # Compute plane values: plane = a*x_local + b*y_local + d*x_local*y_local + c
     # The plane is computed using local coordinates, not mosaic coordinates
     plane = a * x_local_grid + b * y_local_grid + d * x_local_grid * y_local_grid + c
+    
+    # Normalize plane if requested
+    if normalize_min is not None:
+        plane_min = np.min(plane)
+        plane = plane - plane_min + normalize_min
     
     # Plane has shape (w, h) = (width, height) = (x_size, y_size)
     # which matches surface array indexing [x, y]
@@ -960,7 +969,8 @@ def export_plane_to_nifti(
     metadata: Dict,
     resolution: Optional[Tuple[float, float]] = None,
     tile_x: float = 0.0,
-    tile_y: float = 0.0
+    tile_y: float = 0.0,
+    normalize_min: Optional[float] = None
 ):
     """
     Export the fitted plane as a NIfTI volume with the same size as a tile.
@@ -997,9 +1007,11 @@ def export_plane_to_nifti(
     print(f"  Tile size: {w} x {h} pixels")
     
     # Create plane array
-    plane = create_tile_plane(params, tile_size, tile_x, tile_y)
+    plane = create_tile_plane(params, tile_size, tile_x, tile_y, normalize_min=normalize_min)
     
     print(f"  Plane shape: {plane.shape}")
+    if normalize_min is not None:
+        print(f"  Plane normalized: minimum value = {normalize_min:.4f}")
     print(f"  Plane value range: [{np.min(plane):.4f}, {np.max(plane):.4f}]")
     a, b, d, c = params
     print(f"  Plane equation: signal = {a:.6e} * x + {b:.6e} * y + {d:.6e} * x*y + {c:.6f}")
@@ -1031,7 +1043,8 @@ def save_corrected_surfaces(
     output_dir: str,
     base_dir: Optional[str] = None,
     avg_signal_threshold: Optional[float] = None,
-    crop_x: int = 0
+    crop_x: int = 0,
+    normalize_min: Optional[float] = None
 ):
     """
     Save corrected surface maps (with plane subtracted) to output directory.
@@ -1074,7 +1087,7 @@ def save_corrected_surfaces(
     print(f"Processing all {len(tiles)} tiles for corrected surface output")
     
     # Create plane array (same for all tiles, using local coordinates)
-    plane = create_tile_plane(params, tile_size)
+    plane = create_tile_plane(params, tile_size, normalize_min=normalize_min)
     
     # Process each tile
     saved_count = 0
@@ -1247,6 +1260,8 @@ def main():
                        help='Directory to save corrected surface maps (with plane subtracted). If not specified, corrected surfaces are not saved.')
     parser.add_argument('--crop-x', type=int, default=0,
                        help='Number of pixels to crop from the start of x dimension. When set, surface maps are cropped as surface[crop_x:, :] and tile x coordinates are adjusted by adding crop_x (default: 0)')
+    parser.add_argument('--normalize-min', type=float, default=None,
+                       help='Normalize the plane so its minimum value becomes this value. If not specified, the plane is not normalized (default: None)')
     args = parser.parse_args()
     
     # Default verification to True unless --no-verify is set
@@ -1330,7 +1345,8 @@ def main():
             args.output_corrected_dir,
             base_dir=args.base_dir,
             avg_signal_threshold=args.avg_signal_threshold,
-            crop_x=args.crop_x
+            crop_x=args.crop_x,
+            normalize_min=args.normalize_min
         )
     
     print("\nDone!")
