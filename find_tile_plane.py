@@ -38,7 +38,7 @@ from typing import Dict, List, Optional, Tuple
 import nibabel as nib
 import numpy as np
 import yaml
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize
 
 try:
     import matplotlib.pyplot as plt
@@ -847,12 +847,40 @@ def fit_plane_from_overlaps(
     
     def residual_func(params):
         return compute_residuals(params, overlap_data_list, degree=degree)
-    
-    # Initial guess: zeros for all non-constant parameters
     initial_params = np.zeros(num_params)
     
-    # Use least squares optimization to fit non-constant parameters
-    result = least_squares(residual_func, initial_params, method='lm')
+    # For L1 norm: minimize sum of absolute residuals
+    def l1_objective(params):
+        residuals = residual_func(params)
+        return np.sum(np.abs(residuals))
+    def trimmed_mean_objective(params, trim_percent=10):
+        """Minimize mean after trimming worst residuals."""
+        residuals = residual_func(params)
+        # abs_residuals = np.abs(residuals)
+        squared_residuals = residuals ** 2
+        abs_residuals = np.abs(squared_residuals)
+        # Remove top trim_percent% of residuals
+        threshold = np.percentile(abs_residuals, 100 - trim_percent)
+        trimmed = abs_residuals[abs_residuals <= threshold]
+        return np.mean(trimmed) if len(trimmed) > 0 else np.mean(abs_residuals)
+    # Use minimize with L-BFGS-B (works well for L1)
+    # result = minimize(
+    #     trimmed_mean_objective,
+    #     initial_params,
+    #     method='L-BFGS-B',
+    #     options={'maxiter': 1000, 'ftol': 1e-9}
+    # )
+    result = minimize(
+        trimmed_mean_objective,
+        initial_params,
+    )
+    # Initial guess: zeros for all non-constant parameters
+    # initial_params = np.zeros(num_params)
+    
+    # # Use least squares optimization to fit non-constant parameters
+    # result = least_squares(residual_func, initial_params, method='lm')
+    # alternatively use scipy.optimize.minimize
+    # result = minimize(residual_func, initial_params, method='lm')
     non_const_params = result.x
     
     # Create parameter dictionary for printing
