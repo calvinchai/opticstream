@@ -1,15 +1,13 @@
-import logging
 from typing import Any, Dict, List
 
 import prefect
 from prefect import flow
 from prefect.events import DeploymentEventTrigger
+from prefect.logging import get_run_logger
 
 from workflow.tasks.upload import (upload_to_dandi_task, upload_to_linc_batch_task,
                                    upload_to_linc_task)
 from workflow.tasks.utils import get_mosaic_paths
-
-logger = logging.getLogger(__name__)
 
 
 @flow(name="upload_flow")
@@ -42,6 +40,7 @@ def upload_to_linc_batch_flow(
     Runs upload_to_linc_batch_task with the list of archived files from the event
     payload.
     """
+    logger = get_run_logger()
     # Use slice-based structure
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)

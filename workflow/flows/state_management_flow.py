@@ -5,11 +5,11 @@ These flows monitor flag files and update Prefect Artifacts to track progress
 at different levels: batch, mosaic, and slice.
 """
 
-import logging
 from typing import Any, Dict
 
 from prefect import flow
 from prefect.events import DeploymentEventTrigger, emit_event
+from prefect.logging import get_run_logger
 
 from workflow.tasks.state_management import (check_batch_state_task,
                                              check_mosaic_completion_task,
@@ -17,8 +17,6 @@ from workflow.tasks.state_management import (check_batch_state_task,
                                              check_slice_state_task,
                                              update_mosaic_artifact_task,
                                              update_slice_artifact_task)
-
-logger = logging.getLogger(__name__)
 
 
 @flow(name="manage_mosaic_batch_state_flow")
@@ -49,6 +47,7 @@ def manage_mosaic_batch_state_flow(
     Dict[str, Any]
         Dictionary with batch state and completion status
     """
+    logger = get_run_logger()
     logger.info(f"Managing batch state for mosaic {mosaic_id}")
 
     # Check batch state from flag files
@@ -173,6 +172,7 @@ def manage_slice_state_flow(
     Dict[str, Any]
         Dictionary with slice state and completion status
     """
+    logger = get_run_logger()
     logger.info(f"Managing state for slice {slice_number}")
 
     # Check state of both mosaics

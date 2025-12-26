@@ -2,11 +2,11 @@
 Flow for processing a single tile.
 """
 
-import logging
 import os.path as op
 from typing import Any, Dict, Union
 
 from prefect import flow
+from prefect.logging import get_run_logger
 
 from workflow.tasks.tile_processing import (
     archive_tile_task
@@ -14,8 +14,6 @@ from workflow.tasks.tile_processing import (
 from workflow.tasks.upload import (
     submit_upload_to_linc_task,
 )
-
-logger = logging.getLogger(__name__)
 
 "sub-I80_voi-slab1_sample-slice{slice_num:03d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii"
 
@@ -62,6 +60,7 @@ def process_tile_flow(
     Dict[str, Any]
         Dictionary with processed volumes and enface images
     """
+    logger = get_run_logger()
     titled_illumination = mosaic_id % 2 == 0
     acq = "tilted" if titled_illumination else "normal"
     slice_id = (mosaic_id + 1) // 2

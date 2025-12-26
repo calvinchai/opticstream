@@ -5,17 +5,15 @@ This flow sends notifications to Slack when 2D enface images are stitched,
 including uploading JPEG preview images.
 """
 
-import logging
 import os
 from typing import Dict
 
-from prefect import flow, get_run_logger
+from prefect import flow
 from prefect.events import DeploymentEventTrigger
+from prefect.logging import get_run_logger
 
 from workflow.tasks.slack_notifications import (send_slack_message_task,
                                                 upload_image_to_slack_task)
-
-logger = logging.getLogger(__name__)
 
 # Default Slack configuration (can be overridden via environment variables)
 DEFAULT_SLACK_BOT_TOKEN = os.getenv(

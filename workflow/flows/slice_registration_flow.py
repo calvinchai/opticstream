@@ -7,16 +7,14 @@ This flow is triggered by the 'slice.ready' event when both mosaics
 2. RGB_3Daxis visualization (generates 3D axis images)
 """
 
-import logging
 from typing import Any, Dict
 
 from prefect import flow
 from prefect.events import DeploymentEventTrigger, emit_event
+from prefect.logging import get_run_logger
 
 from workflow.tasks.slice_registration import (rgb_3daxis_task,
                                                thruplane_registration_task)
-
-logger = logging.getLogger(__name__)
 
 
 @flow(name="register_slice_flow")
@@ -60,6 +58,7 @@ def register_slice_flow(
     Dict[str, Any]
         Dictionary with registration results and output paths
     """
+    logger = get_run_logger()
     logger.info(
         f"Starting slice registration for slice {slice_number} "
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"

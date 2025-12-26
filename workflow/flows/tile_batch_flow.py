@@ -1,4 +1,3 @@
-import logging
 import os
 import os.path as op
 import subprocess
@@ -9,10 +8,9 @@ import prefect
 from prefect import flow, task
 from prefect.blocks.core import Block
 from prefect.events import DeploymentEventTrigger, emit_event
+from prefect.logging import get_run_logger
 
 from workflow.tasks.utils import get_mosaic_paths
-
-logger = logging.getLogger(__name__)
 import sys
 
 sys.path.append(
@@ -31,6 +29,7 @@ def spectral_to_complex_batch_task(
     mosaic_id: int,
     batch_id: int,
     file_list: List[str], ):
+    logger = get_run_logger()
     args = []
     disp_comp_file = ('/autofs/cluster/octdata2/users/Hui/tools/dg_utils'
                       '/spectralprocess/dispComp/mineraloil_LSM03'
@@ -108,6 +107,7 @@ def complex_to_processed_batch_task(
     mosaic_id: int,
     batch_id: int,
     file_list: List[str], ):
+    logger = get_run_logger()
     processed_path, _, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
     processed_path.mkdir(parents=True, exist_ok=True)
     file_list_str = []
@@ -153,6 +153,7 @@ def archive_tile_batch_task(
     compressed_base_path : str, optional
         Base path for compressed files. If None, uses project_base_path.
     """
+    logger = get_run_logger()
     if compressed_base_path is None:
         compressed_base_path = str(Path(project_base_path) / "archived")
 
@@ -216,6 +217,7 @@ def process_tile_batch_flow(
     archive: bool = True,
     convert: bool = True
 ):
+    logger = get_run_logger()
     # Use slice-based structure
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)
@@ -315,6 +317,7 @@ def complex_to_processed_batch_flow(
     Event-driven flow triggered by 'tile_batch.complex2processed.ready' event.
     Runs complex_to_processed_batch_task and checks if all batches are processed.
     """
+    logger = get_run_logger()
     # Use slice-based structure
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)

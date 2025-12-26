@@ -8,12 +8,12 @@ in a mosaic are processed. It handles:
 3. Stitching for all modalities (using template)
 """
 
-import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from prefect import flow
 from prefect.events import DeploymentEventTrigger, emit_event
+from prefect.logging import get_run_logger
 
 from workflow.tasks.mosaic_processing import (fiji_stitch_task,
                                               generate_coord_template_task,
@@ -22,8 +22,6 @@ from workflow.tasks.mosaic_processing import (fiji_stitch_task,
                                               process_tile_coord_task,
                                               stitch_mosaic2d_task)
 from workflow.tasks.utils import get_mosaic_paths, mosaic_id_to_slice_number
-
-logger = logging.getLogger(__name__)
 
 # Modality configurations
 ENFACE_MODALITIES = ["ret", "ori", "biref", "mip", "surf"]
@@ -74,6 +72,7 @@ def process_first_slice_coordinates(
     tuple[Path, Path]
         Tuple of (template_path, tile_coords_export_path)
     """
+    logger = get_run_logger()
     # Use slice-based structure
     slice_number = mosaic_id_to_slice_number(mosaic_id)
     base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(project_base_path,
@@ -187,6 +186,7 @@ def stitch_enface_modalities_flow(
     Dict[str, Dict[str, str]]
         Dictionary mapping modality to output file paths
     """
+    logger = get_run_logger()
     logger.info(f"Stitching enface modalities for mosaic {mosaic_id}")
 
     # Stitch all enface modalities asynchronously (using template)
@@ -284,6 +284,7 @@ def process_mosaic_flow(
     Dict[str, Any]
         Dictionary with output paths and status
     """
+    logger = get_run_logger()
     # Use slice-based structure
     slice_number = mosaic_id_to_slice_number(mosaic_id)
     processed_path, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
