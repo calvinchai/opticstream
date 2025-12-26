@@ -264,18 +264,19 @@ def stitch_volume_modalities_flow(
         "crop_focus_plane_offset": 30,
         "voxel_size_xyz": scan_resolution_3d,
         "driver": "tensorstore",
-        "shard" : 1024,
-        "chunk" : 128,
+        "shard" : (1024,),
+        "chunk" : (128,),
+        "overwrite": True
         
     }
     for modality in VOLUME_MODALITIES:
         kwargs["circular_mean"] = True if modality == "O3D" else False
         modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
-        output_path = processed_path / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.nii"
+        output_path = processed_path / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.nii.zarr"
         future = stitch_mosaic3d_task.submit(
-            tile_info_file=str(modality_tile_info),
-            output_path=str(output_path),
-            kwargs=kwargs,
+            str(modality_tile_info),
+            str(output_path),
+            kwargs,
         )
         volume_futures[modality] = future
         volume_outputs[modality] = output_path

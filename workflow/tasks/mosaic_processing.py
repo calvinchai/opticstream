@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import jinja2
 import yaml
-from linc_convert.modalities.psoct.mosaic import mosaic
+from linc_convert.modalities.psoct.mosaic import mosaic2d
 from prefect import get_run_logger, task
 
 from data_processing.stitch import fiji_stitch, fit_coord_files, generate_mask
@@ -338,7 +338,7 @@ def stitch_mosaic2d_task(
     logger = get_run_logger()
     logger.info(f"Stitching mosaic from {tile_info_file}")
 
-    mosaic(
+    mosaic2d(
         tile_info_file=tile_info_file,
         nifti_output=nifti_output,
         jpeg_output=jpeg_output,
@@ -411,7 +411,7 @@ def stitch_mosaic3d_task(
     """
     logger = get_run_logger()
     logger.info(f"Stitching mosaic 3D from {tile_info_file}")
-    mosaic(
+    mosaic2d(
         tile_info_file=tile_info_file,
         out=output_path,
         **kwargs
