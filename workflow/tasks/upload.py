@@ -2,14 +2,11 @@
 Tasks for uploading files to cloud storage.
 """
 
-import logging
 import os
 from typing import List
 
-from prefect import task
+from prefect import get_run_logger, task
 from prefect.blocks.system import Secret
-
-logger = logging.getLogger(__name__)
 
 from prefect_shell import ShellOperation, shell_run_command
 
@@ -27,6 +24,7 @@ def upload_to_linc_task(file_path: str) -> None:
     """
     Upload the file to LINC.
     """
+    logger = get_run_logger()
     with ShellOperation(
         commands=[
             f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin"
@@ -50,6 +48,7 @@ def upload_to_linc_batch_task(file_list: List[str]) -> None:
     """
     Upload the file to LINC.
     """
+    logger = get_run_logger()
     # TODO: use realpath only for debugging; remove this once paths are confirmed
     # Join file paths with spaces, each enclosed in single quotes
     file_paths_str = " ".join(

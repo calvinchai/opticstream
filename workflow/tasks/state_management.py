@@ -5,14 +5,11 @@ These tasks check flag files and update Artifacts to track progress
 at different levels: batch, mosaic, and slice.
 """
 
-import logging
 from datetime import datetime
 from typing import Any, Dict
 
-from prefect import task
+from prefect import get_run_logger, task
 from prefect.artifacts import create_markdown_artifact
-
-logger = logging.getLogger(__name__)
 
 
 @task(name="check_batch_state")
@@ -40,6 +37,7 @@ def check_batch_state_task(
         - processed_batches: Number of batches processed
         - uploaded_batches: Number of batches uploaded
     """
+    logger = get_run_logger()
     # Use slice-based structure
     from workflow.tasks.utils import get_mosaic_paths
 
@@ -98,6 +96,7 @@ def update_mosaic_artifact_task(
     str
         Artifact key
     """
+    logger = get_run_logger()
     total_batches = batch_state["total_batches"]
     processed_batches = batch_state["processed_batches"]
     archived_batches = batch_state["archived_batches"]
@@ -177,6 +176,7 @@ def check_mosaic_completion_task(
     bool
         True if all batches are processed, False otherwise
     """
+    logger = get_run_logger()
     total_batches = batch_state["total_batches"]
     processed_batches = batch_state["processed_batches"]
 
@@ -289,6 +289,7 @@ def update_slice_artifact_task(
     str
         Artifact key
     """
+    logger = get_run_logger()
     normal_mosaic_id = slice_state["normal_mosaic_id"]
     tilted_mosaic_id = slice_state["tilted_mosaic_id"]
     normal_state = slice_state["normal_mosaic_state"]
@@ -371,6 +372,7 @@ def check_mosaic_stitched_task(
     bool
         True if mosaic is stitched, False otherwise
     """
+    logger = get_run_logger()
     # Use slice-based structure
     from workflow.tasks.utils import get_mosaic_paths
 

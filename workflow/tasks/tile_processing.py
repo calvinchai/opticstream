@@ -3,13 +3,10 @@ Tasks for processing individual tiles.
 """
 
 import gzip
-import logging
 import shutil
 
-from prefect import task
+from prefect import get_run_logger, task
 from prefect_shell import ShellOperation
-
-logger = logging.getLogger(__name__)
 
 
 @task(tags=["psoct-data-conversion"])
@@ -17,6 +14,7 @@ def spectral_to_complex_task(
     spectral_data_path: str, output_path: str, align_length: int = 200,
     bline_length: int = 350
 ):
+    logger = get_run_logger()
     # /space/megaera/1/users/kchai/code/psoct-renew/spectral2complex
     # /for_redistribution_files_only/run_spectral2complex.sh
     # /autofs/cluster/matlab/R2024b /mnt/sas/I55_spectralraw_slice1zircon[
@@ -48,6 +46,7 @@ def complex_to_processed_task(
     complex_data_path: str, output_path: str, surface_method: str = "find",
     depth: int = 80, wavelength_um: float = 0.013, voxel_size_z_um: float = 2.5
 ):
+    logger = get_run_logger()
     with ShellOperation(
         commands=[
             f"/space/megaera/1/users/kchai/code/psoct-renew/complex2processed"
@@ -65,6 +64,7 @@ def complex_to_processed_task(
 @task(tags=["psoct-data-archive"])
 def archive_tile_task(input_path: str, output_path: str):
     """gzip the file"""
+    logger = get_run_logger()
     if not output_path.endswith('.gz'):
         output_path += '.gz'
     with gzip.open(output_path, 'wb', compresslevel=3) as f:

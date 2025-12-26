@@ -3,20 +3,17 @@ Tasks for mosaic processing including coordinate determination,
 template generation, and stitching.
 """
 
-import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import jinja2
 import yaml
 from linc_convert.modalities.psoct.mosaic import mosaic
-from prefect import task
+from prefect import get_run_logger, task
 
 from data_processing.stitch import fiji_stitch, fit_coord_files, generate_mask
 from data_processing.stitch.process_tile_coord import process_tile_coord
-
-logger = logging.getLogger(__name__)
 
 
 @task(name="fiji_stitch_task")
@@ -54,6 +51,7 @@ def fiji_stitch_task(
     str
         Path to generated TileConfiguration file
     """
+    logger = get_run_logger()
     directory_path = Path(directory)
     output_file = directory_path / output_textfile_name
 
@@ -105,6 +103,7 @@ def process_tile_coord_task(
     str
         Path to exported YAML file
     """
+    logger = get_run_logger()
     logger.info(f"Processing tile coordinates from {ideal_coord_file}")
 
     grid, tiles = process_tile_coord(
@@ -151,6 +150,7 @@ def generate_coord_template_task(
     str
         Path to generated template file
     """
+    logger = get_run_logger()
     logger.info(f"Generating coordinate template from {tile_coords_export_path}")
 
     # Create a temporary output file first
@@ -264,6 +264,7 @@ def generate_tile_info_file_task(
     str
         Path to generated tile_info_file
     """
+    logger = get_run_logger()
     logger.info(
         f"Generating tile_info_file for mosaic {mosaic_id}, modality {modality}")
 
@@ -334,6 +335,7 @@ def stitch_mosaic2d_task(
     Dict[str, str]
         Dictionary with output file paths
     """
+    logger = get_run_logger()
     logger.info(f"Stitching mosaic from {tile_info_file}")
 
     mosaic(
@@ -377,6 +379,7 @@ def generate_mask_task(
     str
         Path to generated mask file
     """
+    logger = get_run_logger()
     logger.info(f"Generating mask from {input_image} with threshold {threshold}")
 
     generate_mask.main(

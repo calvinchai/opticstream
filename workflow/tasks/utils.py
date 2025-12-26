@@ -2,13 +2,10 @@
 Utility functions and tasks used across multiple flows.
 """
 
-import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from prefect import task
-
-logger = logging.getLogger(__name__)
+from prefect import get_run_logger, task
 
 
 def mosaic_id_to_slice_number(mosaic_id: int) -> int:
@@ -94,6 +91,7 @@ def discover_slices_task(
     List[int]
         List of slice numbers
     """
+    logger = get_run_logger()
     if slice_numbers is not None:
         return slice_numbers
 

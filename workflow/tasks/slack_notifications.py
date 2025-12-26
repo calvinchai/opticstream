@@ -2,15 +2,12 @@
 Slack notification tasks for workflow events.
 """
 
-import logging
 import os
 from typing import Optional
 
 from prefect import get_run_logger, task
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
-
-logger = logging.getLogger(__name__)
 
 
 @task(name="upload_image_to_slack", retries=2, retry_delay_seconds=5)

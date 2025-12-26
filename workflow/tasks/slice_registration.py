@@ -9,16 +9,13 @@ These tasks adapt the new mosaic-based structure to work with the existing
 MATLAB functions that expect the old slice-based structure.
 """
 
-import logging
 import subprocess
 from pathlib import Path
 from typing import Dict, Optional
 
-from prefect import task
+from prefect import get_run_logger, task
 
 from workflow.tasks.utils import get_slice_paths
-
-logger = logging.getLogger(__name__)
 
 
 def _get_matlab_engine():
@@ -37,6 +34,7 @@ def _get_matlab_engine():
     RuntimeError
         If MATLAB engine cannot be started
     """
+    logger = get_run_logger()
     try:
         import matlab.engine
     except ImportError:
@@ -83,6 +81,7 @@ def _setup_processed_directory(
     Path
         Path to processed directory
     """
+    logger = get_run_logger()
     # Get slice paths using new structure
     processed_path, stitched_path, _, _ = get_slice_paths(
         project_base_path, slice_number
@@ -173,6 +172,7 @@ def thruplane_registration_task(
     - gamma: Tilt angle parameter
     - slice_number: Slice number
     """
+    logger = get_run_logger()
     logger.info(
         f"Starting thruplane registration for slice {slice_number} "
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"
@@ -282,6 +282,7 @@ def rgb_3daxis_task(
     - processed_dir: Path to processed directory
     - slice_number: Slice number
     """
+    logger = get_run_logger()
     logger.info(
         f"Starting RGB_3Daxis visualization for slice {slice_number} "
         f"in {processed_dir}"
@@ -408,6 +409,7 @@ def _call_matlab_via_cli(
     matlab_script_path : str, optional
         Path to MATLAB script directory
     """
+    logger = get_run_logger()
     # Build MATLAB command
     # Format: matlab -batch "function_name(arg1, arg2, ...)"
 
