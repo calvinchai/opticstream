@@ -6,17 +6,15 @@ with actual processing functions.
 """
 
 import gzip
-import logging
 import os
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from prefect import task
+from prefect.logging import get_run_logger
 from prefect.results import MaterializationResult
 from prefect.tasks import task_input_hash
-
-logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -77,6 +75,7 @@ def load_spectral_raw_task(tile_path: str) -> Any:
     Any
         Spectral raw data (placeholder - implement with actual loader)
     """
+    logger = get_run_logger()
     logger.info(f"Loading spectral raw from {tile_path}")
     # TODO: Implement actual spectral raw loading
     # from oct_pipe.spectral_raw import load_spectral_file
@@ -99,6 +98,7 @@ def spectral_to_complex_task(spectral_data: Any) -> Any:
     Any
         Complex data (placeholder - implement with actual conversion)
     """
+    logger = get_run_logger()
     logger.info("Converting spectral raw to complex data")
     # TODO: Implement actual conversion
     # from oct_pipe.spectral_raw.spectral2complex import spectral2complex
@@ -121,6 +121,7 @@ def complex_to_volumes_task(complex_data: Any) -> Dict[str, Any]:
     Dict[str, Any]
         Dictionary with keys: dBI, O3D, R3D
     """
+    logger = get_run_logger()
     logger.info("Converting complex to 3D volumes")
     # TODO: Implement actual conversion
     # from oct_pipe.volume_3d.complex2vol import process_complex3d
@@ -149,6 +150,7 @@ def find_surface_task(
     Any
         Surface data (placeholder - implement with actual algorithm)
     """
+    logger = get_run_logger()
     logger.info(f"Finding surface using method: {method}")
     # TODO: Implement actual surface finding
     # from oct_pipe.enface import find_surface
@@ -179,6 +181,7 @@ def volumes_to_enface_task(
     Dict[str, Any]
         Dictionary with keys: aip, mip, orientation, retardance, birefringence
     """
+    logger = get_run_logger()
     logger.info(f"Generating enface images with depth={depth}")
     # TODO: Implement actual enface generation
     # from oct_pipe.enface.vol2enface import EnfaceVolume
@@ -231,6 +234,7 @@ def save_volumes_task(
     Dict[str, MaterializationResult]
         Dictionary with MaterializationResult assets for each volume file
     """
+    logger = get_run_logger()
     logger.info(f"Saving volumes for {mosaic_id} tile {tile_index}")
 
     output_dir = Path(output_base_path) / "processed"
@@ -283,6 +287,7 @@ def save_enface_task(
     Dict[str, MaterializationResult]
         Dictionary with MaterializationResult assets for each enface file
     """
+    logger = get_run_logger()
     logger.info(f"Saving enface images for {mosaic_id} tile {tile_index}")
 
     output_dir = Path(output_base_path) / "processed"
@@ -337,6 +342,7 @@ def collect_tile_aip_images_task(
     List[str]
         List of paths to AIP images
     """
+    logger = get_run_logger()
     logger.info(f"Collecting AIP images for {mosaic_id}")
 
     output_dir = Path(output_base_path) / "processed"
@@ -375,6 +381,7 @@ def determine_tile_coordinates_task(
     Dict[str, Tuple[int, int]]
         Dictionary mapping tile paths to coordinates
     """
+    logger = get_run_logger()
     logger.info(f"Determining coordinates for {mosaic_id}")
     # TODO: Implement actual coordinate determination
     # from oct_pipe.stitch.process_tile_coord import determine_coordinates
@@ -405,6 +412,7 @@ def save_coordinates_task(
     MaterializationResult
         Asset for the coordinates file
     """
+    logger = get_run_logger()
     logger.info(f"Saving coordinates to {output_coord_file}")
 
     output_path = Path(output_coord_file)
@@ -447,6 +455,7 @@ def load_coordinates_task(coordinate_file: str) -> Dict[str, Tuple[int, int]]:
     Dict[str, Tuple[int, int]]
         Dictionary mapping tile paths to coordinates
     """
+    logger = get_run_logger()
     logger.info(f"Loading coordinates from {coordinate_file}")
     # TODO: Implement actual loading
     # import yaml
@@ -475,6 +484,7 @@ def create_mask_from_aip_task(
     Any
         Mask array
     """
+    logger = get_run_logger()
     logger.info(f"Creating mask with threshold={mask_threshold}")
     # TODO: Implement actual mask creation
     # mask = stitched_aip > mask_threshold
@@ -505,6 +515,7 @@ def stitch_enface_images_task(
     Dict[str, Any]
         Dictionary with stitched enface images
     """
+    logger = get_run_logger()
     logger.info(f"Stitching enface images with overlap={overlap}")
     # TODO: Implement actual stitching
     # from oct_pipe.stitch.stitch2d import stitch_2d
@@ -538,6 +549,7 @@ def stitch_3d_volumes_task(
     Dict[str, Any]
         Dictionary with stitched 3D volumes
     """
+    logger = get_run_logger()
     logger.info(f"Stitching 3D volumes with overlap={overlap}")
     # TODO: Implement actual stitching
     # from oct_pipe.stitch import stitch_3d
@@ -568,6 +580,7 @@ def apply_mask_task(
     Union[Dict[str, Any], Any]
         Masked data
     """
+    logger = get_run_logger()
     logger.info("Applying mask to data")
     # TODO: Implement actual masking
     # if isinstance(data, dict):
@@ -600,6 +613,7 @@ def save_stitched_enface_task(
     Dict[str, MaterializationResult]
         Dictionary with MaterializationResult assets for each stitched enface file
     """
+    logger = get_run_logger()
     logger.info(f"Saving stitched enface images for {mosaic_id}")
 
     output_dir = Path(output_base_path) / "stitched"
@@ -647,6 +661,7 @@ def save_stitched_volumes_task(
     Dict[str, MaterializationResult]
         Dictionary with MaterializationResult assets for each stitched volume file
     """
+    logger = get_run_logger()
     logger.info(f"Saving stitched volumes for {mosaic_id}")
 
     output_dir = Path(output_base_path) / "stitched"
@@ -695,6 +710,7 @@ def load_normal_mosaic_task(
     Dict[str, Any]
         Normal mosaic data
     """
+    logger = get_run_logger()
     logger.info(f"Loading normal mosaic {normal_mosaic_id}")
     # TODO: Implement actual loading
     return {}  # Placeholder
@@ -720,6 +736,7 @@ def load_tilted_mosaic_task(
     Dict[str, Any]
         Tilted mosaic data
     """
+    logger = get_run_logger()
     logger.info(f"Loading tilted mosaic {tilted_mosaic_id}")
     # TODO: Implement actual loading
     return {}  # Placeholder
@@ -754,6 +771,7 @@ def register_orientations_task(
     Dict[str, Any]
         Registered orientation data
     """
+    logger = get_run_logger()
     logger.info(f"Registering orientations with gamma={gamma}")
     # TODO: Implement actual registration
     # from oct_pipe.registration import register_orientations
@@ -778,6 +796,7 @@ def compute_3d_orientation_task(
     Dict[str, Any]
         Dictionary with 3D orientation data
     """
+    logger = get_run_logger()
     logger.info("Computing 3D orientation")
     # TODO: Implement actual computation
     # from oct_pipe.registration import compute_3d_orientation
@@ -811,6 +830,7 @@ def save_registered_data_task(
     Dict[str, MaterializationResult]
         Dictionary with MaterializationResult assets for registered files
     """
+    logger = get_run_logger()
     logger.info(f"Saving registered data for slice {slice_number}")
 
     output_dir = Path(output_base_path) / "registered"
@@ -865,6 +885,7 @@ def collect_slice_data_task(
     Dict[str, List[str]]
         Dictionary with lists of paths for each modality
     """
+    logger = get_run_logger()
     logger.info(f"Collecting slice data for {len(slice_numbers)} slices")
 
     output_dir = Path(output_base_path) / "registered"
@@ -902,6 +923,7 @@ def stack_2d_images_task(
     Dict[str, Any]
         Dictionary with stacked 2D images
     """
+    logger = get_run_logger()
     logger.info("Stacking 2D images")
     # TODO: Implement actual stacking
     # from oct_pipe.stack import stack_2d
@@ -926,6 +948,7 @@ def stack_3d_volumes_task(
     Dict[str, Any]
         Dictionary with stacked 3D volumes
     """
+    logger = get_run_logger()
     logger.info("Stacking 3D volumes")
     # TODO: Implement actual stacking
     # from oct_pipe.stack import stack_3d
@@ -956,6 +979,7 @@ def save_stacked_data_task(
     Dict[str, MaterializationResult]
         Dictionary with MaterializationResult assets for stacked files
     """
+    logger = get_run_logger()
     logger.info("Saving stacked data")
 
     output_dir = Path(output_base_path) / "stacked"
@@ -1016,6 +1040,7 @@ def compress_spectral_task(
     MaterializationResult
         Asset for the compressed file
     """
+    logger = get_run_logger()
     logger.info(f"Compressing spectral raw for {mosaic_id} tile {tile_index}")
 
     # Create output directory if it doesn't exist
@@ -1064,6 +1089,7 @@ def queue_upload_spectral_task(
     upload_queue : Any
         Upload queue manager instance
     """
+    logger = get_run_logger()
     logger.info(f"Queueing upload: {compressed_file_path} -> {destination}")
     upload_queue.enqueue(compressed_file_path, destination)
 
@@ -1086,6 +1112,7 @@ def queue_upload_stitched_volumes_task(
     upload_queue : Any
         Upload queue manager instance
     """
+    logger = get_run_logger()
     logger.info(f"Queueing uploads for {len(volume_paths)} volumes")
     for modality, path in volume_paths.items():
         destination = f"{destination_base}/{os.path.basename(path)}"
@@ -1115,6 +1142,7 @@ def notify_slack_task(
     bool
         True if notification sent successfully
     """
+    logger = get_run_logger()
     if not slack_config or not slack_config.get("enabled", False):
         return False
 
@@ -1276,6 +1304,7 @@ def discover_slices_task(
     List[int]
         List of slice numbers
     """
+    logger = get_run_logger()
     if slice_numbers is not None:
         return slice_numbers
 
