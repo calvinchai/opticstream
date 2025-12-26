@@ -391,3 +391,30 @@ def generate_mask_task(
     logger.info(f"Generated mask: {output_mask}")
     return output_mask
 
+@task
+def stitch_mosaic3d_task(
+    tile_info_file: str,
+    output_path: str,
+    kwargs: Dict[str, Any],
+) -> str:
+    """
+    Stitch mosaic using mosaic3d.
+    
+    Parameters
+    ----------
+    tile_info_file: str
+        Path to tile_info_file YAML
+    output_path: str
+        Path to output NIfTI file
+    kwargs: Dict[str, Any]
+        Keyword arguments for mosaic3d
+    """
+    logger = get_run_logger()
+    logger.info(f"Stitching mosaic 3D from {tile_info_file}")
+    mosaic(
+        tile_info_file=tile_info_file,
+        out=output_path,
+        **kwargs
+    )
+    logger.info(f"Stitched mosaic 3D saved to {output_path}")
+    return output_path
