@@ -261,18 +261,18 @@ def stitch_volume_modalities_flow(
         "focus_plane": "/autofs/space/zircon_005/users/data/sub-I80_voi-slab2/focus_normal.nii" if acq == "normal" else "/autofs/space/zircon_005/users/data/sub-I80_voi-slab2/focus_tilted.nii",
         "normalize_focus_plane": True,
         "crop_focus_plane_depth": 500,
-        "crop_focus_plane_offset": 30,
+        "crop_focus_plane_offset": 0,
         "voxel_size_xyz": scan_resolution_3d,
         "driver": "tensorstore",
         "shard" : (1024,),
         "chunk" : (128,),
-        "overwrite": True
-        
+        "overwrite": True,
+        "nii": False
     }
     for modality in VOLUME_MODALITIES:
         kwargs["circular_mean"] = True if modality == "O3D" else False
         modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
-        output_path = processed_path / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.nii.zarr"
+        output_path = processed_path / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
         future = stitch_mosaic3d_task.submit(
             str(modality_tile_info),
             str(output_path),
@@ -294,7 +294,7 @@ def stitch_volume_modalities_flow(
             "project_base_path": project_base_path,
             "mosaic_id": mosaic_id,
             "batch_id": 0,
-            "archived_file_paths": volume_outputs,
+            "archived_file_paths": list(volume_outputs.values()),
         }
     )
 @flow(name="process_mosaic_flow")
