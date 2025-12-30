@@ -1,7 +1,7 @@
 """
 Event-driven mosaic processing flow.
 
-This flow is triggered by the 'mosaic.processed' event when all batches
+This flow is triggered by the 'mosaic.ready' event when all batches
 in a mosaic are processed. It handles:
 1. Coordinate determination (Fiji stitch + process_tile_coord)
 2. Template generation (once, using Jinja2)
@@ -21,7 +21,7 @@ from workflow.tasks.mosaic_processing import (fiji_stitch_task,
                                               generate_tile_info_file_task,
                                               process_tile_coord_task,
                                               stitch_mosaic2d_task, stitch_mosaic3d_task)
-from workflow.tasks.utils import get_mosaic_paths, mosaic_id_to_slice_number
+from workflow.tasks.utils import get_illumination, get_mosaic_paths, mosaic_id_to_slice_number
 
 # Modality configurations
 ENFACE_MODALITIES = ["ret", "ori", "biref", "mip", "surf"]
@@ -30,17 +30,15 @@ VOLUME_MODALITIES = ["dBI", "R3D", "O3D"]
 # Default scan resolution (3D: [x, y, z], 2D uses first 2 elements)
 DEFAULT_SCAN_RESOLUTION_3D = [0.01, 0.01, 0.0025]
 
-
-def process_first_slice_coordinates(
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
+def process_stitching_coordinates(
     project_name: str,
-    project_base_path: str,
     mosaic_id: int,
+    project_base_path: str,
     grid_size_x: int,
     grid_size_y: int,
     tile_overlap: float,
     mask_threshold: float,
-    scan_resolution_2d: List[float],
-    illumination: str,
 ) -> tuple[Path, Path]:
     """
     Process coordinate determination for first slice (mosaic_001 or mosaic_002).
@@ -74,7 +72,7 @@ def process_first_slice_coordinates(
     """
     logger = get_run_logger()
     # Use slice-based structure
-    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    illumination = get_illumination(mosaic_id)
     base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(project_base_path,
                                                                      mosaic_id)
 
@@ -130,7 +128,6 @@ def process_first_slice_coordinates(
         tile_coords_export_path=str(tile_coords_export),
         template_output_path=str(template_path),
         base_dir=str(base_processed_path),
-        scan_resolution=scan_resolution_2d,
         mosaic_id=mosaic_id,
     )
 
@@ -141,7 +138,7 @@ def process_first_slice_coordinates(
     return template_path, tile_coords_export
 
 
-@flow(name="stitch_enface_modalities_flow")
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
 def stitch_enface_modalities_flow(
     project_name: str,
     project_base_path: str,
@@ -232,11 +229,11 @@ def stitch_enface_modalities_flow(
     return enface_outputs
 
 
-@flow(name="stitch_volume_modalities_flow")
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
 def stitch_volume_modalities_flow(
     project_name: str,
-    project_base_path: str,
     mosaic_id: int,
+    project_base_path: str,
     template_path: Path,
     tiles_data_path: Path,
     processed_path: Path,
@@ -270,8 +267,20 @@ def stitch_volume_modalities_flow(
         "nii": False
     }
     for modality in VOLUME_MODALITIES:
-        kwargs["circular_mean"] = True if modality == "O3D" else False
+
         modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
+
+        kwargs["circular_mean"] = True if modality == "O3D" else False
+        
+        generate_tile_info_file_task(
+            template_path=str(template_path),
+            output_path=str(modality_tile_info),
+            base_dir=str(processed_path),
+            modality=modality,
+            mosaic_id=mosaic_id,
+            scan_resolution=scan_resolution_3d,
+        )
+
         output_path = processed_path / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
         future = stitch_mosaic3d_task.submit(
             str(modality_tile_info),
@@ -297,11 +306,11 @@ def stitch_volume_modalities_flow(
             "archived_file_paths": list(volume_outputs.values()),
         }
     )
-@flow(name="process_mosaic_flow")
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
 def process_mosaic_flow(
     project_name: str,
-    project_base_path: str,
     mosaic_id: int,
+    project_base_path: str,
     grid_size_x: int,
     grid_size_y: int,
     tile_overlap: float = 20.0,
@@ -388,7 +397,7 @@ def process_mosaic_flow(
 
     if should_run_coords:
         # Process first slice coordinates (Fiji stitch, coordinate processing, template generation)
-        template_path, tile_coords_export = process_first_slice_coordinates(
+        template_path, tile_coords_export = process_stitching_coordinates(
             project_name=project_name,
             project_base_path=project_base_path,
             mosaic_id=mosaic_id,
@@ -493,14 +502,7 @@ def process_mosaic_flow(
         modality_nifti = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii"
 
         # Generate tile_info_file using template
-        generate_tile_info_file_task(
-            template_path=str(template_path),
-            output_path=str(modality_tile_info),
-            base_dir=str(processed_path),
-            modality=modality,
-            mosaic_id=mosaic_id,
-            scan_resolution=scan_resolution_3d,
-        )
+        
 
         # Submit stitch task asynchronously (volumes don't need JPEG/TIFF)
         # future = stitch_mosaic2d_task.submit(
@@ -618,18 +620,7 @@ if __name__ == "__main__":
         name="process_mosaic_event_flow",
         tags=["event-driven", "mosaic-processing", "stitching"],
         triggers=[
-            DeploymentEventTrigger(
-                expect={"mosaic.processed"},
-                parameters={
-                    "payload": {
-                        "__prefect_kind": "json",
-                        "value": {
-                            "__prefect_kind": "jinja",
-                            "template": "{{ event.payload | tojson }}",
-                        }
-                    }
-                },
-            )
+            get_event_trigger("mosaic.ready"),
         ],
     )
     

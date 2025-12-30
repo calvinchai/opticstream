@@ -129,3 +129,20 @@ def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[
     """
     slice_number = mosaic_id_to_slice_number(mosaic_id)
     return get_slice_paths(project_base_path, slice_number)
+
+
+def get_illumination(mosaic_id: int) -> str:
+    """
+    Get illumination type for a mosaic.
+    
+    Parameters
+    ----------
+    mosaic_id : int
+        Mosaic identifier
+        
+    Returns
+    -------
+    str
+        Illumination type ("normal" or "tilted")
+    """
+    return "tilted" if mosaic_id % 2 == 0 else "normal"
