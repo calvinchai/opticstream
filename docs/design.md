@@ -240,8 +240,7 @@ Currently manual:
 
 ```
 project/
-├─ slice-N/
-│  ├─ mosaicN (acq-normal/titled)/
+│  ├─ mosaicN/
 │  │  ├─ complex/      # complex tiles (symlinked if needed)
 │  │  ├─ processed/    # intermediate processed data (SSD)
 │  │  ├─ stitched/     # outputs (symlinked to dandiset)
@@ -252,8 +251,10 @@ project/
 │  │  │  ├─ batch-0.uploaded
 │  │  │  └─ ...
 │  │  └─ archived/     # raw data (symlinked to dandiset raw)
-│  ├─ focus.nii        # focus finding results (first slice)
-│  └─ tile-map.nii     # tile coordinate map
+│  ├─ focus-normal.nii        # focus finding results (first slice)
+│  ├─ focus-tilted.nii        # focus finding results (first slice)
+│  └─ tilemap-normal.j2     # tile coordinate map
+│  └─ tilemap-tilted.j2     # tile coordinate map
 ```
 
 ### 4.2 DANDI/LINC Storage Structure
@@ -288,7 +289,7 @@ Symlinks are created:
 
 ### 5.1 Flow Granularity
 
-Flows operate at the fundamental data hierarchy levels: **Tile** and **Mosaic** (see Section 3.1 for data hierarchy details). Batch processing is an implementation detail for MATLAB efficiency - flows process batches of tiles when calling MATLAB, but the logical unit is still the tile.
+Flows operate at the fundamental data hierarchy levels: **Tile** and **Mosaic** (see Section 3.1 for data hierarchy details). 
 
 * **Tile-Level Flows**: Handle ingestion, conversion, QC, upload triggers. When MATLAB processing is required, tiles are grouped into batches for efficiency, but tiles remain the atomic processing unit.
 * **Mosaic-Level Flows**: Handle stitching, coordinate determination, focus finding, mosaic uploads. Operate on complete mosaics once all tiles are processed.
@@ -309,188 +310,17 @@ The system uses an event-driven architecture where downstream flows are started 
 
 Synchronous processing is only used when direct I/O dependencies exist (e.g., reading source files, writing intermediate results).
 
-#### Event Flow Examples
+Downstream flows are automatically triggered when upstream flows emit completion events. See Section 6 for detailed event naming conventions, payload structure, and deployment triggers.
 
-* `linc.oct.batch.processed` → triggers complex-to-processed conversion flow
-* `linc.oct.batch.archived` → triggers upload flow and state management updates
-* `linc.oct.mosaic.processed` → triggers mosaic stitching flow (when all tiles in mosaic are processed)
-* `linc.oct.mosaic.stitched` → triggers slice state management and slice registration flow
-* `linc.oct.slice.ready` → triggers slice registration flow (when both mosaics in slice are stitched)
-* `linc.oct.batch.uploaded` → triggers upload flow
 
-#### Event Payload Structure
-
-Events carry contextual information in their payloads:
-* Project identifiers (project_name, project_base_path)
-* Entity identifiers (mosaic_id, slice_number, batch_id)
-* Processing metadata (total_batches, file paths)
-* Resource IDs for hierarchical tracking
-
-Events use resource IDs following hierarchical patterns:
-* Batch: `batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}`
-* Mosaic: `mosaic:{project_name}:mosaic-{mosaic_id}`
-* Slice: `slice:{project_name}:slice-{slice_number}`
-
-This prevents long-running uploads or QC tasks from blocking compute pipelines and enables independent retry and scaling of different processing stages.
-
-### 5.3 MATLAB Batch Processing Strategy
-
-Batch processing exists as an implementation optimization for MATLAB efficiency, not as a data hierarchy level. The data hierarchy remains **Tile → Mosaic**.
-
-#### Why Batches Are Used
-
-* **MATLAB Startup Overhead**: Starting MATLAB for each individual tile is inefficient. Processing multiple tiles in a single MATLAB session reduces overhead.
-* **Vectorization**: MATLAB can process multiple tiles more efficiently when given as a batch, enabling better use of MATLAB's vectorized operations.
-* **Resource Efficiency**: Batching reduces the number of MATLAB processes and improves resource utilization.
-
-#### Batch Organization
-
-* **grid_size_x**: Number of batches (columns) per mosaic
-* **grid_size_y**: Number of tiles per batch (rows)
-* Tiles are organized into batches based on their position in the acquisition grid
-* Normal and tilted illuminations share the same `grid_size_y` (rows)
-
-#### Batch State Tracking
-
-Flag files track batch completion for MATLAB processing efficiency:
-* `batch-{id}.started` - Batch processing initiated
-* `batch-{id}.archived` - Batch archived
-* `batch-{id}.processed` - Batch processed by MATLAB
-* `batch-{id}.uploaded` - Batch uploaded
-
-Once MATLAB processing completes, the system operates on individual tiles again for downstream processing (stitching, QC, etc.).
-#### Future Considerations
-
-When MATLAB steps are migrated to Python-native implementations:
-* Batch processing may no longer be necessary (Python can process tiles individually more efficiently)
-* Data hierarchy remains Tile → Mosaic (no change to fundamental structure)
-* Processing efficiency may improve (no MATLAB startup overhead)
 
 ---
 
-## 6. Progress Monitoring & Observability
+## 6. Event Design
 
-### 6.1 Flag Files
-
-Flag files serve as the authoritative source of truth for processing state. They enable idempotent operations, crash recovery, and efficient state checking without database queries.
-
-#### Flag File Location and Structure
-
-Flag files are stored in a `state/` directory at `{project_base_path}/mosaic-{mosaic_id}/state/`. The directory structure is shown in Section 4.1.
-
-**Batch-Level Flag Files** (for MATLAB batch processing tracking):
-* `batch-{batch_id}.started` - Batch processing initiated
-* `batch-{batch_id}.archived` - Batch archived and compressed
-* `batch-{batch_id}.processed` - Batch processed by MATLAB (complex-to-processed conversion complete)
-* `batch-{batch_id}.uploaded` - Batch uploaded to cloud storage
-
-Flag files follow the naming pattern: `{hierarchy}-{id}.{state}` (e.g., `batch-0.started`). Note that flag files do not include the `linc.oct` prefix used in event names.
-
-These batch-level flag files track MATLAB batch processing efficiency and enable:
-* Progress tracking (count files to determine mosaic completion)
-* Idempotency (check before processing to avoid duplicate work)
-* Crash recovery (resume from last completed batch)
-
-**Mosaic-Level Flag Files**:
-* Mosaic completion determined by checking if all batches have `.processed` flag files
-* No explicit `mosaic_done.flag` - completion inferred from batch states
-
-**Slice-Level Flag Files**:
-* Slice completion determined by checking both mosaic states
-* No explicit `slice_registered.flag` - completion inferred from mosaic states
-
-#### Flag File Lifecycle
-
-1. **Creation**: Flag files are created at key processing milestones
-2. **Checking**: Flows check flag files before processing to avoid duplicate work (idempotency)
-3. **Counting**: Mosaic and slice flows count flag files to determine completion status
-4. **Persistence**: Flag files persist across flow runs, enabling recovery after crashes
-
-#### Benefits and Characteristics
-
-* **Fast Access**: File system operations are fast, no database queries needed
-* **Persistence**: Flag files persist across flow runs, enabling recovery
-* **Reliability**: File system is more reliable than in-memory state for long-running processes
-* **Crash Recovery**: Flag files persist, allowing flows to resume from last completed state
-* **Idempotency**: Flows can safely be rerun - flag files prevent duplicate processing. If a flag file exists, the work is already done
-* **Resumability**: System can recover from failures by checking flag file state. After a crash, flows can check flag files to determine what work has been completed
-* **Safety**: Multiple flows can safely check the same flag files without conflicts
-
-### 6.2 Prefect Artifacts
-
-Prefect Artifacts provide human-readable progress reports visible in the Prefect UI. They complement flag files by providing formatted, visual progress tracking.
-
-#### Artifact Structure
-
-**Mosaic Progress Artifacts** (`{project_name}_mosaic_{mosaic_id}_progress`):
-* Progress table showing batch state counts (started, archived, processed, uploaded)
-* Progress percentage calculation
-* Milestone tracking (25%, 50%, 75%, 100% completion)
-* Timestamp of last update
-
-**Slice Progress Artifacts** (`{project_name}_slice_{slice_number}_progress`):
-* Progress table for normal illumination mosaic
-* Progress table for tilted illumination mosaic
-* Overall slice status (both mosaics complete or not)
-
-#### Artifact Updates
-
-Artifacts are updated automatically by event-driven state management flows as processing progresses:
-* **Markdown Tables**: Progress tables showing batch state counts
-* **Progress Percentages**: Calculated from flag file counts
-* **Milestone Tracking**: 25%, 50%, 75%, 100% completion markers
-* **Links**: Links to QC images and uploaded assets
-* Visible in Prefect UI under flow run artifacts
-
-See Section 6.4 for details on how event-driven state management flows update artifacts.
-
-### 6.3 Notifications (Slack)
-
-Milestone-based notifications provide real-time updates on processing progress.
-
-#### Notification Milestones
-
-* **25% Tile Completion**: When 25% of tiles in a mosaic are processed
-* **50% Tile Completion**: When 50% of tiles in a mosaic are processed
-* **75% Tile Completion**: When 75% of tiles in a mosaic are processed
-* **100% Tile Completion**: When all tiles in a mosaic are processed
-* **Mosaic Stitching Complete**: When mosaic stitching is complete (includes stitched image preview)
-* **Slice Registration Complete**: When slice registration is complete
-
-#### Notification Content
-
-* Processing milestone information (percentage, counts)
-* QC image previews (stitched mosaics, registration results)
-* Links to uploaded dandiset assets
-* Error notifications for failures requiring attention
-
-Notifications are sent asynchronously and don't block processing flows.
-
-### 6.4 Event-Driven State Management Flows
-
-State management flows are triggered by events, not called as subflows. This decoupled approach ensures state management doesn't block processing flows:
-
-* **Batch State Flow**: Triggered by `linc.oct.batch.processed` and `linc.oct.batch.archived`
-  * Scans flag files to count batch states
-  * Updates Prefect Artifacts with progress (see Section 6.2)
-  * Checks if all batches are processed
-  * Emits `linc.oct.mosaic.processed` event if all batches complete
-
-* **Slice State Flow**: Triggered by `linc.oct.mosaic.stitched`
-  * Checks state of both mosaics in slice
-  * Updates Prefect Artifacts with slice progress (see Section 6.2)
-  * Checks if both mosaics are stitched
-  * Emits `linc.oct.slice.ready` event if both mosaics complete
-
----
-
-## 7. Task, Event, and Flow Design
-
-### 7.1 Event Naming Convention
+### 6.1 Event Naming Convention
 
 Events follow a consistent hierarchical naming pattern: `linc.oct.{hierarchy}.{state}`
-
-#### Naming Pattern
 
 * **Format**: `linc.oct.{hierarchy}.{state}`
 * **Hierarchy levels**: `tile`, `batch`, `mosaic`, `slice`
@@ -498,31 +328,32 @@ Events follow a consistent hierarchical naming pattern: `linc.oct.{hierarchy}.{s
 
 This consistent naming convention enables clear identification of event hierarchy and state, making event routing and filtering straightforward.
 
-#### Event Examples
+### 6.2 Event Catalog
 
-* **Batch-Level Events**:
-  * `linc.oct.batch.processed` - Batch of tiles processed (complex-to-processed conversion complete)
-  * `linc.oct.batch.archived` - Batch of tiles archived and compressed
-  * `linc.oct.batch.uploaded` - Batch uploaded to LINC storage
+#### Batch-Level Events
+* `linc.oct.batch.ready` - Batch of tiles detected (to start converting to complex data)
+* `linc.oct.batch.complexed` - Batch of tiles processed (complex-to-processed conversion complete)
+* `linc.oct.batch.processed` - Batch of tiles processed (complex-to-processed conversion complete)
+  * Triggers: state management updates (emit mosaic.ready when all batches are done)
+* `linc.oct.batch.archived` - Batch of tiles archived and compressed
+  * Triggers: upload flow, state management updates
+* `linc.oct.batch.uploaded` - Batch uploaded to LINC storage
+  * Triggers: upload completion handlers
 
-* **Mosaic-Level Events**:
-  * `linc.oct.mosaic.processed` - All tiles in mosaic processed (all batches complete)
-  * `linc.oct.mosaic.stitched` - All modalities (enface and volume) stitched
+#### Mosaic-Level Events
 
-* **Slice-Level Events**:
-  * `linc.oct.slice.ready` - Both mosaics in slice are stitched, ready for registration
-  * `linc.oct.slice.registered` - Slice registration complete
+* `linc.oct.mosaic.ready` - All tiles in mosaic processed (all batches complete)
+  * Triggers: mosaic stitching flow 
+* `linc.oct.mosaic.stitched` - All modalities (enface or volume) stitched
+  * Triggers: mosaic state management (emit slice.ready when all mosaics are done for 2d), upload flow
+#### Slice-Level Events
 
-#### Resource IDs
+* `linc.oct.slice.ready` - Both mosaics in slice are stitched, ready for registration
+  * Triggers: slice registration flow
+* `linc.oct.slice.registered` - Slice registration complete
+  * Triggers: slice state management flow, upload flow
 
-Events include resource IDs for hierarchical tracking:
-* Batch: `batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}`
-* Mosaic: `mosaic:{project_name}:mosaic-{mosaic_id}`
-* Slice: `slice:{project_name}:slice-{slice_number}`
-
-Resource IDs enable event filtering and routing to appropriate flows.
-
-### 7.2 Event Payload Structure
+### 6.3 Event Payload Structure
 
 Event payloads carry contextual information needed by downstream flows:
 
@@ -534,15 +365,108 @@ Event payloads carry contextual information needed by downstream flows:
 
 Payloads are automatically extracted by event-driven deployments using Jinja2 templates, enabling parameter passing from events to flows.
 
-### 7.3 Deployment Triggers
+### 6.4 Deployment Triggers
 
 Flows are deployed with event triggers that automatically start flows when matching events are emitted:
 
 * **Event Matching**: Deployments listen for specific event names
-* **Parameter Extraction**: Event payloads are automatically mapped to flow parameters using Jinja2 templates
+* **Parameter Extraction**: Event payloads are automatically mapped to flow parameters
 * **Automatic Triggering**: No manual intervention needed - flows start automatically when events are emitted
 
-This enables fully event-driven processing where flows are triggered by upstream completion events.
+
+---
+
+## 7. State Management & Observability
+
+The system uses multiple complementary mechanisms for tracking processing state and providing observability: flag files (authoritative state), Prefect Artifacts (human-readable progress), Slack notifications (real-time updates), and event-driven state management flows (automatic state updates).
+
+### 7.1 Flag Files
+
+Flag files serve as the authoritative source of truth for processing state. They enable idempotent operations, crash recovery, and efficient state checking without database queries.
+
+#### Flag File Location and Naming
+
+Flag files are stored in a `state/` directory at `{project_base_path}/mosaic-{mosaic_id}/state/`. The directory structure is shown in Section 4.1.
+
+Flag files follow the naming pattern: `{hierarchy}-{id}.{state}` (e.g., `batch-0.started`). Note that flag files do not include the `linc.oct` prefix used in event names (see Section 6.1).
+
+**Batch-Level Flag Files** (for MATLAB batch processing tracking):
+* `batch-{batch_id}.started` - Batch processing initiated
+* `batch-{batch_id}.archived` - Batch archived and compressed
+* `batch-{batch_id}.processed` - Batch processed by MATLAB (complex-to-processed conversion complete)
+* `batch-{batch_id}.uploaded` - Batch uploaded to cloud storage
+
+**Mosaic-Level State**:
+* Mosaic completion determined by checking if all batches have `.processed` flag files
+* mosaic-{mosaic_id.started}
+* mosaic-{mosaic_id.stitched}
+* mosaic-{mosaic_id.volume_stitched}
+* mosaic-{mosaic_id.volume_uploaded}
+
+**Slice-Level State**:
+* Slice read determined by checking both mosaic states
+* slice-{slice_id}.started 
+* slice-{slice_id}.registered
+* slice-{slice_id}.uploaded
+
+#### Flag File Lifecycle and Benefits
+
+1. **Creation**: Flag files are created at key processing milestones
+2. **Checking**: Flows check flag files before processing to avoid duplicate work (idempotency)
+3. **Counting**: Mosaic and slice flows count flag files to determine completion status
+4. **Persistence**: Flag files persist across flow runs, enabling recovery after crashes
+
+### 7.2 Prefect Artifacts
+
+Prefect Artifacts provide human-readable progress reports visible in the Prefect UI. They complement flag files by providing formatted, visual progress tracking.
+
+**Mosaic Progress Artifacts** (`{project_name}_mosaic_{mosaic_id}_progress`):
+* Progress table showing batch state counts (started, archived, processed, uploaded)
+* Progress percentage calculation
+* Milestone tracking (25%, 50%, 75%, 100% completion)
+* Timestamp of last update
+
+**Slice Progress Artifacts** (`{project_name}_progress`):
+* Progress table for mosaics
+* Overall slice status
+
+Artifacts are updated automatically by state management flows (see Section 7.4) and are visible in Prefect UI under flow run artifacts.
+
+### 7.3 Notifications (Slack)
+
+Milestone-based notifications provide real-time updates on processing progress.
+
+**Notification Milestones**:
+* **25% Tile Completion**: When 25% of tiles in a mosaic are processed
+* **50% Tile Completion**: When 50% of tiles in a mosaic are processed
+* **75% Tile Completion**: When 75% of tiles in a mosaic are processed
+* **100% Tile Completion**: When all tiles in a mosaic are processed
+* **Mosaic Stitching Complete**: When mosaic stitching is complete (includes stitched image preview)
+* **Slice Registration Complete**: When slice registration is complete
+
+**Notification Content**:
+* Processing milestone information (percentage, counts)
+* QC image previews (stitched mosaics, registration results)
+* Links to uploaded dandiset assets
+* Error notifications for failures requiring attention
+
+Notifications are sent asynchronously and don't block processing flows.
+
+### 7.4 State Management Flows
+
+State management flows are triggered by events (see Section 6 for event details), not called as subflows. This decoupled approach ensures state management doesn't block processing flows:
+
+* **Batch State Flow**: 
+  * Scans flag files to count batch states
+  * Updates Prefect Artifacts with progress
+  * Checks if all batches are processed
+  * Emits mosaic completion event when all batches complete
+
+* **Slice State Flow**: 
+  * Checks state of both mosaics in slice
+  * Updates Prefect Artifacts with slice progress
+  * Checks if both mosaics are stitched
+  * Emits slice ready event when both mosaics complete
 
 ---
 
@@ -554,23 +478,21 @@ Secrets are managed via **Prefect Blocks** to ensure secure, centralized credent
 
 * **DANDI Credentials**: API keys and authentication tokens for DANDI archive access
 * **Slack Webhooks**: Webhook URLs for Slack notifications
-* **Cloud Storage Credentials**: AWS/GCS/Azure credentials for cloud storage access
-* **MATLAB License**: MATLAB license information (if required)
+
 
 Secrets are stored securely in Prefect and accessed by flows at runtime. They are never hardcoded in flow definitions or committed to version control.
 
 ### 8.2 Project-Level Parameters
 
-Project-level parameters define the structure and configuration of a processing run:
+Project-level parameters define the structure and configuration of a processing run. they should be accesed with prefect variable. see https://docs.prefect.io/v3/concepts/variables. they should be retrieved with project_name as key, and be used as default parameter to the flow.
 
 * **`project_name`**: Project identifier used throughout processing
 * **`project_base_path`**: Base filesystem path for project data
-* **`grid_size_x`**: Number of batches (columns) per mosaic - determines how tiles are organized for MATLAB batch processing
+* **`grid_size_x_normal/grid_size_x_tilted`**: Number of batches (columns) per mosaic - determines how tiles are organized for MATLAB batch processing
 * **`grid_size_y`**: Number of tiles per batch (rows) - determines batch size for MATLAB processing
 * **`tile_overlap`**: Overlap between tiles in pixels (default: 20.0)
 * **`mask_threshold`**: Threshold for mask generation and coordinate processing (default: 50.0)
 * **`scan_resolution_3d`**: Scan resolution for 3D volumes [x, y, z] in millimeters (default: [0.01, 0.01, 0.0025])
-* **`compressed_base_path`**: Separate directory/disk for compressed files to avoid I/O contention
 
 Parameters are resolved dynamically based on project context. They can be:
 * Specified in event payloads
@@ -650,13 +572,11 @@ Agents automatically pull work from their assigned pools and execute flows on th
 
 ## 10. MATLAB Batch Processing (Implementation Detail)
 
-**IMPORTANT**: This section describes an implementation optimization, NOT a data hierarchy level. The fundamental data hierarchy is **Tile → Mosaic → Slice → All-Slices**. Batch processing exists solely to optimize MATLAB processing efficiency.
-
 **Note**: See section 3.2 for a high-level overview of batch-level processing. This section provides additional implementation details.
 
 ### 10.1 Data Hierarchy vs Batch Processing
 
-Batches are a temporary grouping used only during MATLAB processing for efficiency. The data hierarchy remains **Tile → Mosaic** (not Tile → Batch → Mosaic). See Section 3.1 for details on the data hierarchy.
+Batches are a temporary grouping used only during MATLAB processing for efficiency.
 
 ### 10.2 Grid Configuration
 
@@ -676,9 +596,11 @@ The grid configuration defines how tiles are organized for MATLAB batch processi
 
 Batch processing is used specifically because MATLAB processing is more efficient when processing multiple tiles together:
 
-* **MATLAB Startup Overhead**: Starting MATLAB for each individual tile incurs significant overhead. Processing multiple tiles in a single MATLAB session reduces this overhead.
-* **Vectorization**: MATLAB can process multiple tiles more efficiently when given as a batch, enabling better use of MATLAB's vectorized operations and optimized libraries.
-* **Resource Efficiency**: Batching reduces the number of MATLAB processes, improving resource utilization and reducing system overhead.
+
+* **MATLAB Startup Overhead**: Starting MATLAB for each individual tile is inefficient. Processing multiple tiles in a single MATLAB session reduces overhead.
+* **Parallization**: MATLAB can process multiple tiles more efficiently when given as a batch, enabling better use of MATLAB's parallel operations.
+* **Resource Efficiency**: Batching reduces the number of MATLAB processes and improves resource utilization.
+
 
 ### 10.4 Batch Organization
 
@@ -690,7 +612,7 @@ Tiles are organized into batches based on their position in the acquisition grid
 
 ### 10.5 Batch State Tracking
 
-Batch completion is tracked using flag files stored in the `state/` directory. See Section 6.1 for comprehensive details on flag file structure, lifecycle, and benefits. The batch-level flag files (`batch-{batch_id}.started`, `.archived`, `.processed`, `.uploaded`) enable progress tracking, idempotency, and crash recovery for MATLAB batch processing.
+Batch completion is tracked using flag files stored in the `state/` directory. See Section 7.1 for comprehensive details on flag file structure, lifecycle, and benefits. The batch-level flag files (`batch-{batch_id}.started`, `.archived`, `.processed`, `.uploaded`) enable progress tracking, idempotency, and crash recovery for MATLAB batch processing.
 
 ### 10.6 Post-MATLAB Processing
 
@@ -700,6 +622,30 @@ Once MATLAB batch processing completes, the system operates on individual tiles 
 * Coordinate determination uses individual tile enface images
 * The batch grouping is only relevant during MATLAB processing
 
+
+Batch processing exists as an implementation optimization for MATLAB efficiency, not as a data hierarchy level.
+
+#### Why Batches Are Used
+
+* **MATLAB Startup Overhead**: Starting MATLAB for each individual tile is inefficient. Processing multiple tiles in a single MATLAB session reduces overhead.
+* **Parallization**: MATLAB can process multiple tiles more efficiently when given as a batch, enabling better use of MATLAB's parallel operations.
+* **Resource Efficiency**: Batching reduces the number of MATLAB processes and improves resource utilization.
+
+#### Batch Organization
+
+* **grid_size_x**: Number of batches (columns) per mosaic
+* **grid_size_y**: Number of tiles per batch (rows)
+* Tiles are organized into batches based on their position in the acquisition grid
+* Normal and tilted illuminations share the same `grid_size_y` (rows)
+
+Once MATLAB processing completes, the system operates on individual tiles again for downstream processing (stitching, QC, etc.).
+
+#### Future Considerations
+
+When MATLAB steps are migrated to Python-native implementations:
+* Batch processing may no longer be necessary (Python can process tiles individually more efficiently)
+* Data hierarchy remains Tile → Mosaic (no change to fundamental structure)
+* Processing efficiency may improve (no MATLAB startup overhead)
 ---
 
 ## 11. Upload Strategy
@@ -860,7 +806,7 @@ The system uses retry strategies at different levels:
 
 ### 17.2 Flag File-Based Recovery
 
-Flag files enable recovery after crashes or failures. See Section 6.1 for comprehensive details on flag file structure and lifecycle. Key recovery mechanisms:
+Flag files enable recovery after crashes or failures. See Section 7.1 for comprehensive details on flag file structure and lifecycle. Key recovery mechanisms:
 
 * **State Persistence**: Flag files persist across flow runs
 * **State Checking**: Flows check flag files to determine what work has been completed
