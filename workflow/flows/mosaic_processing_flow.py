@@ -582,8 +582,8 @@ def process_mosaic_flow(
     )
 
     # Wait for both AIP and MIP stitching to complete
-    aip_future.wait()
-    mip_future.wait()
+    aip_outputs = aip_future.wait()
+    mip_outputs = mip_future.wait()
 
     # Step 5: Generate mask from MIP (asynchronous, depends on MIP stitching)
     mask_path = stitched_path / f"mosaic_{mosaic_id:03d}_mask.nii"
@@ -610,8 +610,8 @@ def process_mosaic_flow(
         scan_resolution_2d=scan_resolution_2d,
         enface_modalities=enface_modalities,
     )
-    enface_outputs["aip"] = aip_nifti
-    enface_outputs["mip"] = mip_nifti
+    enface_outputs["aip"] = {"nifti": aip_outputs["nifti"], "jpeg": aip_outputs["jpeg"]}
+    enface_outputs["mip"] = {"nifti": mip_outputs["nifti"], "jpeg": mip_outputs["jpeg"]}
     emit_event(
         event=MOSAIC_STITCHED,
         payload={
@@ -681,14 +681,6 @@ def process_mosaic_flow(
             )
         elif not volume_modalities:
             logger.info(f"No volume modalities to stitch for mosaic {mosaic_id}")
-
-    # Emit event that mosaic stitching is complete (per Section 6.2)
-    # Convert volume_outputs Path objects to strings for serialization
-    (
-        {mod: str(path) for mod, path in volume_outputs.items()}
-        if volume_outputs
-        else {}
-    )
 
     logger.info(f"Mosaic {mosaic_id} processing complete")
 

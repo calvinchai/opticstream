@@ -8,7 +8,7 @@ at different levels: batch, mosaic, and slice.
 from typing import Any, Dict
 
 from prefect import flow
-from prefect.events import emit_event
+from prefect.events import DeploymentEventTrigger, emit_event
 from prefect.logging import get_run_logger
 
 from workflow.events import (
@@ -98,11 +98,6 @@ def manage_mosaic_batch_state_flow(
             )
             emit_event(
                 event=MOSAIC_READY,
-                resource={
-                    "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
-                    "project_name": project_name,
-                    "mosaic_id": str(mosaic_id),
-                },
                 payload={
                     "project_name": project_name,
                     "project_base_path": project_base_path,
@@ -221,11 +216,6 @@ def manage_slice_state_flow(
         )
         emit_event(
             event=SLICE_READY,
-            resource={
-                "prefect.resource.id": f"slice:{project_name}:slice-{slice_number}",
-                "project_name": project_name,
-                "slice_number": str(slice_number),
-            },
             payload={
                 "project_name": project_name,
                 "project_base_path": project_base_path,
@@ -288,13 +278,136 @@ def manage_slice_state_event_flow(
     )
 
 
+@flow(name="unified_state_management_event_flow")
+def unified_state_management_event_flow(
+    event: str,
+    payload: dict,
+) -> Dict[str, Any]:
+    """
+    Unified event flow to handle all state management events with a single concurrency limit.
+
+    This flow routes events to the appropriate handler based on event type:
+    - BATCH_PROCESSED, BATCH_ARCHIVED -> manage_mosaic_batch_state_event_flow
+    - MOSAIC_STITCHED -> manage_slice_state_event_flow
+
+    By using a single flow with concurrency_limit=1, we ensure that all state
+    management operations are serialized, preventing race conditions when multiple
+    events arrive simultaneously.
+
+    Parameters
+    ----------
+    event : str
+        The event name that triggered this flow
+    payload : dict
+        Event payload containing:
+        - project_name: str
+        - project_base_path: str
+        - mosaic_id: int (for batch events)
+        - slice_number: int (optional, for slice events)
+
+    Returns
+    -------
+    Dict[str, Any]
+        Result from the appropriate state management flow
+    """
+    logger = get_run_logger()
+    logger.info(f"Unified state management flow triggered by event: {event}")
+
+    # Route to batch state management for batch events
+    if event in (BATCH_PROCESSED, BATCH_ARCHIVED):
+        logger.info(f"Routing to batch state management for mosaic {payload.get('mosaic_id')}")
+        return manage_mosaic_batch_state_event_flow(payload)
+
+    # Route to slice state management for mosaic stitched events
+    elif event == MOSAIC_STITCHED:
+        logger.info(f"Routing to slice state management for mosaic {payload.get('mosaic_id')}")
+        return manage_slice_state_event_flow(payload)
+
+    else:
+        error_msg = f"Unknown event type for state management: {event}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+
 # Deployment configurations
 if __name__ == "__main__":
-    # Deployment for batch state management (triggered by batch completion events)
+    # Unified deployment for all state management events with concurrency_limit=1
+    # This ensures all state management operations are serialized to avoid race conditions
+    unified_state_management_event_flow_deployment = (
+        unified_state_management_event_flow.to_deployment(
+            name="unified_state_management_event_flow",
+            tags=["event-driven", "state-management", "unified"],
+            triggers=[
+                # Trigger when a batch completes processing
+                DeploymentEventTrigger(
+                    expect={BATCH_PROCESSED},
+                    parameters={
+                        "event": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.event }}",
+                            },
+                        },
+                        "payload": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.payload | tojson }}",
+                            },
+                        },
+                    },
+                ),
+                # Trigger when a batch is archived (for early progress tracking)
+                DeploymentEventTrigger(
+                    expect={BATCH_ARCHIVED},
+                    parameters={
+                        "event": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.event }}",
+                            },
+                        },
+                        "payload": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.payload | tojson }}",
+                            },
+                        },
+                    },
+                ),
+                # Trigger when a mosaic is stitched
+                DeploymentEventTrigger(
+                    expect={MOSAIC_STITCHED},
+                    parameters={
+                        "event": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.event }}",
+                            },
+                        },
+                        "payload": {
+                            "__prefect_kind": "json",
+                            "value": {
+                                "__prefect_kind": "jinja",
+                                "template": "{{ event.payload | tojson }}",
+                            },
+                        },
+                    },
+                ),
+            ],
+            concurrency_limit=1,
+        )
+    )
+
+    # Legacy deployments (kept for backward compatibility, but unified flow is recommended)
     manage_mosaic_batch_state_event_flow_deployment = (
         manage_mosaic_batch_state_event_flow.to_deployment(
             name="manage_mosaic_batch_state_event_flow",
-            tags=["event-driven", "state-management", "mosaic"],
+            tags=["event-driven", "state-management", "mosaic", "legacy"],
             triggers=[
                 # Trigger when a batch completes processing
                 get_event_trigger(BATCH_PROCESSED),
@@ -309,7 +422,7 @@ if __name__ == "__main__":
     manage_slice_state_event_flow_deployment = (
         manage_slice_state_event_flow.to_deployment(
             name="manage_slice_state_event_flow",
-            tags=["event-driven", "state-management", "slice"],
+            tags=["event-driven", "state-management", "slice", "legacy"],
             triggers=[
                 get_event_trigger(MOSAIC_STITCHED),
             ],
@@ -318,5 +431,6 @@ if __name__ == "__main__":
     )
 
     # Deployments are created but not served here
-    # Use: prefect deploy workflow/flows/state_management_flow.py:manage_mosaic_batch_state_event_flow_deployment
-    #      prefect deploy workflow/flows/state_management_flow.py:manage_slice_state_event_flow_deployment
+    # Recommended: prefect deploy workflow/flows/state_management_flow.py:unified_state_management_event_flow_deployment
+    # Legacy: prefect deploy workflow/flows/state_management_flow.py:manage_mosaic_batch_state_event_flow_deployment
+    #         prefect deploy workflow/flows/state_management_flow.py:manage_slice_state_event_flow_deployment

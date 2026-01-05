@@ -6,8 +6,6 @@ This module provides utilities for creating event triggers and emitting events
 
 from prefect.events import DeploymentEventTrigger
 
-from workflow.events.constants import get_event_name
-
 
 def get_event_trigger(event_name: str) -> DeploymentEventTrigger:
     """
@@ -25,9 +23,8 @@ def get_event_trigger(event_name: str) -> DeploymentEventTrigger:
     DeploymentEventTrigger
         Configured event trigger with Jinja2 parameter extraction
     """
-    canonical_name = get_event_name(event_name)
     return DeploymentEventTrigger(
-        expect={canonical_name},
+        expect={event_name},
         parameters={
             "payload": {
                 "__prefect_kind": "json",

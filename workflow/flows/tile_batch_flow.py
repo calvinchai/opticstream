@@ -92,22 +92,7 @@ def spectral_to_complex_batch_task(
             new_base = name_no_ext + op.splitext(new_base)[1]
         complex_file_list.append(str(Path(complex_path) / new_base))
 
-    emit_event(
-        event=BATCH_READY,
-        resource={
-            "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
-            "project_name": project_name,
-            "mosaic_id": str(mosaic_id),
-            "batch_id": str(batch_id),
-        },
-        payload={
-            "project_name": project_name,
-            "project_base_path": project_base_path,
-            "mosaic_id": mosaic_id,
-            "batch_id": batch_id,
-            "file_list": complex_file_list,
-        },
-    )
+
     emit_event(
         event=BATCH_COMPLEXED,
         payload={
@@ -149,7 +134,7 @@ def complex_to_complex_batch_task(
         image_str = f"{image_idx:04d}"
         raw_file = f"mosaic_{mosaic_str}_image_{image_str}_complex.nii"
         raw_file_path = str(Path(complex_path) / raw_file)
-        os.symlink(raw_file_path, complex_file)
+        os.symlink(complex_file, raw_file_path)
         complex_file_list.append(raw_file_path)
 
     emit_event(

@@ -4,9 +4,13 @@ Event-driven slice registration flow.
 This flow is triggered by the 'slice.ready' event when both mosaics
 (normal and tilted) for a slice are stitched. It performs:
 1. Thruplane registration (aligns normal and tilted illuminations)
-2. RGB_3Daxis visualization (generates 3D axis images)
+2. 3D axis generation (generates normalized 3D axis vectors and visualizations)
+
+This flow uses the unified thruplane_from_files function that combines
+registration and 3D axis generation in a single call.
 """
 
+from pathlib import Path
 from typing import Any, Dict
 
 from prefect import flow
@@ -14,10 +18,8 @@ from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
 from workflow.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
-from workflow.tasks.slice_registration import (
-    rgb_3daxis_task,
-    thruplane_registration_task,
-)
+from workflow.tasks.slice_registration import thruplane_from_files_task
+from workflow.tasks.utils import get_slice_paths
 
 
 @flow(name="register_slice_flow")
@@ -28,14 +30,14 @@ def register_slice_flow(
     normal_mosaic_id: int,
     tilted_mosaic_id: int,
     gamma: float = -15.0,
-    mask_file: str = "",
-    mask_threshold: float = 55.0,
+    matlab_script_path: str = "/space/megaera/1/users/kchai/code/psoct-renew",
 ) -> Dict[str, Any]:
     """
     Register a slice after both mosaics are stitched.
 
     This flow performs registration of normal and tilted illumination mosaics
-    to combine orientations and generate 3D axis visualizations.
+    to combine orientations and generate 3D axis visualizations using the
+    unified thruplane_from_files function.
 
     Parameters
     ----------
@@ -51,10 +53,8 @@ def register_slice_flow(
         Tilted illumination mosaic ID (2n)
     gamma : float
         Tilt angle parameter for registration (default: -15.0)
-    mask_file : str
-        Mask file type ("aip", "mip", or "" for no mask)
-    mask_threshold : float
-        Threshold for mask generation (default: 55.0)
+    matlab_script_path : str
+        Path to MATLAB script directory (default: psoct-renew path)
 
     Returns
     -------
@@ -67,26 +67,46 @@ def register_slice_flow(
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"
     )
 
-    # Step 1: Run thruplane registration
-    processed_dir = thruplane_registration_task(
-        project_base_path=project_base_path,
-        slice_number=slice_number,
-        normal_mosaic_id=normal_mosaic_id,
-        tilted_mosaic_id=tilted_mosaic_id,
+    # Get slice paths
+    processed_path, stitched_path, _, _ = get_slice_paths(
+        project_base_path, slice_number
+    )
+
+    # Construct input file paths (stitched mosaics)
+    fixed_ori_path = stitched_path / f"mosaic_{normal_mosaic_id:03d}_ori.nii"
+    moving_ori_path = stitched_path / f"mosaic_{tilted_mosaic_id:03d}_ori.nii"
+    fixed_biref_path = stitched_path / f"mosaic_{normal_mosaic_id:03d}_biref.nii"
+    moving_biref_path = stitched_path / f"mosaic_{tilted_mosaic_id:03d}_biref.nii"
+
+    # Check if input files exist
+    input_files = [fixed_ori_path, moving_ori_path, fixed_biref_path, moving_biref_path]
+    missing_files = [f for f in input_files if not f.exists()]
+    if missing_files:
+        raise FileNotFoundError(
+            f"Missing input files for slice {slice_number}:\n"
+            + "\n".join(f"  - {f}" for f in missing_files)
+        )
+
+    logger.info(
+        f"Input files:\n"
+        f"  Fixed orientation: {fixed_ori_path}\n"
+        f"  Moving orientation: {moving_ori_path}\n"
+        f"  Fixed birefringence: {fixed_biref_path}\n"
+        f"  Moving birefringence: {moving_biref_path}"
+    )
+
+    # Run unified registration and 3D axis generation
+    outputs = thruplane_from_files_task(
+        fixed_ori_path=str(fixed_ori_path),
+        moving_ori_path=str(moving_ori_path),
+        fixed_biref_path=str(fixed_biref_path),
+        moving_biref_path=str(moving_biref_path),
+        output_dir=str(processed_path),
         gamma=gamma,
-        mask_file=mask_file,
-        mask_threshold=mask_threshold,
-        matlab_script_path="/space/megaera/1/users/kchai/code/psoct-renew",
+        matlab_script_path=matlab_script_path,
     )
 
-    # Step 2: Run RGB_3Daxis visualization
-    axis_outputs = rgb_3daxis_task(
-        processed_dir=processed_dir,
-        slice_number=slice_number,
-        matlab_script_path="/space/megaera/1/users/kchai/code/psoct-renew",
-    )
-
-    # Emit event that slice registration is complete (per Section 6.2)
+    # Emit event that slice registration is complete
     emit_event(
         event=SLICE_REGISTERED,
         payload={
@@ -95,8 +115,8 @@ def register_slice_flow(
             "slice_number": slice_number,
             "normal_mosaic_id": normal_mosaic_id,
             "tilted_mosaic_id": tilted_mosaic_id,
-            "processed_dir": str(processed_dir),
-            "axis_outputs": {k: str(v) for k, v in axis_outputs.items()},
+            "processed_dir": str(processed_path),
+            "outputs": {k: str(v) for k, v in outputs.items()},
         },
     )
 
@@ -106,8 +126,8 @@ def register_slice_flow(
         "slice_number": slice_number,
         "normal_mosaic_id": normal_mosaic_id,
         "tilted_mosaic_id": tilted_mosaic_id,
-        "processed_dir": str(processed_dir),
-        "axis_outputs": axis_outputs,
+        "processed_dir": str(processed_path),
+        "outputs": outputs,
     }
 
 
@@ -130,8 +150,7 @@ def register_slice_event_flow(
         - normal_mosaic_id: int
         - tilted_mosaic_id: int
         - gamma: float (optional, default: -15.0)
-        - mask_file: str (optional, default: "")
-        - mask_threshold: float (optional, default: 55.0)
+        - matlab_script_path: str (optional, default: psoct-renew path)
 
     Returns
     -------
@@ -143,8 +162,10 @@ def register_slice_event_flow(
     normal_mosaic_id = int(payload["normal_mosaic_id"])
     tilted_mosaic_id = int(payload["tilted_mosaic_id"])
     gamma = float(payload.get("gamma", -15.0))
-    mask_file = payload.get("mask_file", "")
-    mask_threshold = float(payload.get("mask_threshold", 55.0))
+    matlab_script_path = payload.get(
+        "matlab_script_path",
+        "/space/megaera/1/users/kchai/code/psoct-renew",
+    )
 
     return register_slice_flow(
         project_name=payload["project_name"],
@@ -153,8 +174,7 @@ def register_slice_event_flow(
         normal_mosaic_id=normal_mosaic_id,
         tilted_mosaic_id=tilted_mosaic_id,
         gamma=gamma,
-        mask_file=mask_file,
-        mask_threshold=mask_threshold,
+        matlab_script_path=matlab_script_path,
     )
 
 
