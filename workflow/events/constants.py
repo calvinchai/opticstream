@@ -6,7 +6,9 @@ All events follow the pattern: linc.oct.{hierarchy}.{state}
 
 # Batch-Level Events
 BATCH_READY = "linc.oct.batch.ready"  # Batch of tiles detected (to start converting to complex data)
-BATCH_COMPLEXED = "linc.oct.batch.complexed"  # Batch complexed (triggers complex to processed flow)
+BATCH_COMPLEXED = (
+    "linc.oct.batch.complexed"  # Batch complexed (triggers complex to processed flow)
+)
 BATCH_PROCESSED = "linc.oct.batch.processed"  # Batch processed (triggers state management, emits mosaic.ready when all batches done)
 BATCH_ARCHIVED = "linc.oct.batch.archived"  # Batch archived and compressed (triggers upload flow, state management)
 BATCH_UPLOADED = "linc.oct.batch.uploaded"  # Batch uploaded to LINC storage (triggers upload completion handlers)

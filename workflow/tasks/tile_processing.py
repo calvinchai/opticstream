@@ -11,8 +11,10 @@ from prefect_shell import ShellOperation
 
 @task(tags=["psoct-data-conversion"])
 def spectral_to_complex_task(
-    spectral_data_path: str, output_path: str, align_length: int = 200,
-    bline_length: int = 350
+    spectral_data_path: str,
+    output_path: str,
+    align_length: int = 200,
+    bline_length: int = 350,
 ):
     logger = get_run_logger()
     # /space/megaera/1/users/kchai/code/psoct-renew/spectral2complex
@@ -27,7 +29,8 @@ def spectral_to_complex_task(
             f"/space/megaera/1/users/kchai/code/psoct-renew/spectral2complex"
             f"/for_redistribution_files_only/run_spectral2complex.sh "
             f"/autofs/cluster/matlab/R2024b '{spectral_data_path}' {align_length} "
-            f"{bline_length} '{output_path}'"]
+            f"{bline_length} '{output_path}'"
+        ]
     ) as spectral_to_complex_operation:
         spectral_to_complex_process = spectral_to_complex_operation.trigger()
         spectral_to_complex_process.wait_for_completion()
@@ -43,8 +46,12 @@ def spectral_to_complex_task(
 # 0.013 new ""
 @task(tags=["psoct-data-conversion"])
 def complex_to_processed_task(
-    complex_data_path: str, output_path: str, surface_method: str = "find",
-    depth: int = 80, wavelength_um: float = 0.013, voxel_size_z_um: float = 2.5
+    complex_data_path: str,
+    output_path: str,
+    surface_method: str = "find",
+    depth: int = 80,
+    wavelength_um: float = 0.013,
+    voxel_size_z_um: float = 2.5,
 ):
     logger = get_run_logger()
     with ShellOperation(
@@ -52,7 +59,8 @@ def complex_to_processed_task(
             f"/space/megaera/1/users/kchai/code/psoct-renew/complex2processed"
             f"/for_redistribution_files_only/run_complex2processed.sh "
             f"/autofs/cluster/matlab/R2024b '{complex_data_path}' '{output_path}' "
-            f"{surface_method} {depth} {wavelength_um} {voxel_size_z_um} new ''"]
+            f"{surface_method} {depth} {wavelength_um} {voxel_size_z_um} new ''"
+        ]
     ) as complex_to_processed_operation:
         complex_to_processed_process = complex_to_processed_operation.trigger()
         complex_to_processed_process.wait_for_completion()
@@ -65,12 +73,13 @@ def complex_to_processed_task(
 def archive_tile_task(input_path: str, output_path: str):
     """gzip the file"""
     logger = get_run_logger()
-    if not output_path.endswith('.gz'):
-        output_path += '.gz'
-    with gzip.open(output_path, 'wb', compresslevel=3) as f:
-        with open(input_path, 'rb') as f_in:
+    if not output_path.endswith(".gz"):
+        output_path += ".gz"
+    with gzip.open(output_path, "wb", compresslevel=3) as f:
+        with open(input_path, "rb") as f_in:
             shutil.copyfileobj(f_in, f)
     logger.info(f"Archived tile {input_path} to {output_path}")
+
 
 # @task(name="load_spectral_file_raw", cache_key_fn=task_input_hash)
 # def load_spectral_file_raw_task(

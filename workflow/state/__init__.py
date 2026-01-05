@@ -8,7 +8,11 @@ This module contains classes for managing state at different levels:
 - ProjectState: Project-level state (contains all slices)
 """
 
-from workflow.state.state_classes import BatchState, MosaicState, ProjectState, SliceState
+from workflow.state.state_classes import (
+    BatchState,
+    MosaicState,
+    ProjectState,
+    SliceState,
+)
 
 __all__ = ["BatchState", "MosaicState", "SliceState", "ProjectState"]
-

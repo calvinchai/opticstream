@@ -29,13 +29,14 @@ def upload_to_linc_task(file_path: str) -> None:
         commands=[
             f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin"
             f"/dandi upload -i linc '{file_path}' -J 10:10 --allow-any-path "
-            f"--existing overwrite --validation skip"],
+            f"--existing overwrite --validation skip"
+        ],
         env={
             "LINC_API_KEY": Secret.load("linc-api-key", validate=False).get(),
             "DANDI_API_KEY": Secret.load("linc-api-key", validate=False).get(),
-            "DANDI_DEVEL": "1"
+            "DANDI_DEVEL": "1",
         },
-        working_dir=os.path.dirname(file_path)
+        working_dir=os.path.dirname(file_path),
     ) as upload_operation:
         upload_process = upload_operation.trigger()
         upload_process.wait_for_completion()
@@ -52,18 +53,20 @@ def upload_to_linc_batch_task(file_list: List[str]) -> None:
     # TODO: use realpath only for debugging; remove this once paths are confirmed
     # Join file paths with spaces, each enclosed in single quotes
     file_paths_str = " ".join(
-        f"'{os.path.realpath(file_path)}'" for file_path in file_list)
+        f"'{os.path.realpath(file_path)}'" for file_path in file_list
+    )
     with ShellOperation(
         commands=[
             f"/autofs/space/aspasia_002/users/code/miniforge3/envs/dandi-linc/bin"
             f"/dandi upload -i linc -J 15:15 --allow-any-path --existing overwrite "
-            f"--validation skip {file_paths_str}"],
+            f"--validation skip {file_paths_str}"
+        ],
         env={
             "LINC_API_KEY": Secret.load("linc-api-key", validate=False).get(),
             "DANDI_API_KEY": Secret.load("linc-api-key", validate=False).get(),
-            "DANDI_DEVEL": "1"
+            "DANDI_DEVEL": "1",
         },
-        working_dir=os.path.dirname(file_list[0]) if file_list else os.getcwd()
+        working_dir=os.path.dirname(file_list[0]) if file_list else os.getcwd(),
     ) as upload_operation:
         upload_process = upload_operation.trigger()
         upload_process.wait_for_completion()
@@ -85,8 +88,11 @@ def submit_upload_to_linc_task(file_path: str) -> None:
     # )
     os.system(
         f"prefect deployment run 'upload_flow/upload' --param file_path='{file_path}' "
-        f"--param instance=linc")
+        f"--param instance=linc"
+    )
     # return flow_run
+
+
 #
 # @task(name="compress_spectral", allow_failure=True)
 # def compress_spectral_task(

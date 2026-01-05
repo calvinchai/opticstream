@@ -1,5 +1,5 @@
 """
-Tasks for mosaic processing including coordinate determination, 
+Tasks for mosaic processing including coordinate determination,
 template generation, and stitching.
 """
 
@@ -28,7 +28,7 @@ def fiji_stitch_task(
 ) -> str:
     """
     Run Fiji stitching to generate TileConfiguration files.
-    
+
     Parameters
     ----------
     directory : str
@@ -45,7 +45,7 @@ def fiji_stitch_task(
         First file index (usually 0 or 1)
     output_textfile_name : str
         Name of output TileConfiguration file
-        
+
     Returns
     -------
     str
@@ -56,8 +56,7 @@ def fiji_stitch_task(
     output_file = directory_path / output_textfile_name
 
     logger.info(
-        f"Running Fiji stitch for {file_template} "
-        f"with grid {grid_size_x}x{grid_size_y}"
+        f"Running Fiji stitch for {file_template} with grid {grid_size_x}x{grid_size_y}"
     )
 
     fiji_stitch.main(
@@ -84,7 +83,7 @@ def process_tile_coord_task(
 ) -> str:
     """
     Process tile coordinates and export to YAML.
-    
+
     Parameters
     ----------
     ideal_coord_file : str
@@ -97,7 +96,7 @@ def process_tile_coord_task(
         Path to export YAML file
     threshold : float
         Signal threshold for reliable tiles
-        
+
     Returns
     -------
     str
@@ -131,7 +130,7 @@ def generate_coord_template_task(
     Generate a Jinja2 template from tile coordinates using fit_coord_files.
     This template can be reused for all modalities and mosaics of the same
     illumination type.
-    
+
     Parameters
     ----------
     tile_coords_export_path : str
@@ -144,7 +143,7 @@ def generate_coord_template_task(
         Scan resolution [x, y] or [x, y, z]
     mosaic_id : int
         Base mosaic ID (1 for normal, 2 for tilted) used in template
-        
+
     Returns
     -------
     str
@@ -154,7 +153,7 @@ def generate_coord_template_task(
     logger.info(f"Generating coordinate template from {tile_coords_export_path}")
 
     # Create a temporary output file first
-    temp_output = Path(template_output_path).with_suffix('.temp.yaml')
+    temp_output = Path(template_output_path).with_suffix(".temp.yaml")
     temp_output.parent.mkdir(parents=True, exist_ok=True)
 
     # Use fit_coord_files to generate the initial structure
@@ -165,21 +164,20 @@ def generate_coord_template_task(
         base_dir=base_dir,
         scan_resolution=scan_resolution,
         replace=[
-            f"aip:{{{{ modality }}}}",  # Replace aip with Jinja2 template variable
+            "aip:{{ modality }}",  # Replace aip with Jinja2 template variable
             f"mosaic_{mosaic_id:03d}:{{{{ mosaic_id_str }}}}",
             # Replace mosaic ID with template variable
         ],
     )
 
     # Load the generated YAML
-    with open(temp_output, 'r') as f:
+    with open(temp_output, "r") as f:
         template_yaml = f.read()
 
     # Convert to Jinja2 template by replacing hardcoded values with template variables
     # 1. Replace base_dir with Jinja2 variable
     template_yaml = template_yaml.replace(
-        f"base_dir: {base_dir}",
-        "base_dir: {{ base_dir }}"
+        f"base_dir: {base_dir}", "base_dir: {{ base_dir }}"
     )
 
     # 2. Replace scan_resolution with Jinja2 variable
@@ -187,29 +185,30 @@ def generate_coord_template_task(
     template_yaml = template_yaml.replace(
         f"scan_resolution: {scan_res_str}",
         "{% if scan_resolution %}\n  scan_resolution: {{ scan_resolution }}\n{% endif "
-        "%}"
+        "%}",
     )
 
     # 3. Add mask as optional Jinja2 variable (insert after base_dir)
     if "mask:" not in template_yaml:
         template_yaml = template_yaml.replace(
             "base_dir: {{ base_dir }}",
-            "base_dir: {{ base_dir }}\n{% if mask %}\n  mask: {{ mask }}\n{% endif %}"
+            "base_dir: {{ base_dir }}\n{% if mask %}\n  mask: {{ mask }}\n{% endif %}",
         )
 
     # 4. The filepath replacements from fit_coord_files should already have the template variables
     # But ensure mosaic ID pattern is correct (handle any remaining instances)
     mosaic_pattern = f"mosaic_{mosaic_id:03d}"
-    if mosaic_pattern in template_yaml and "{{{{ mosaic_id_str }}}}" not in template_yaml:
+    if (
+        mosaic_pattern in template_yaml
+        and "{{{{ mosaic_id_str }}}}" not in template_yaml
+    ):
         template_yaml = re.sub(
-            rf"\b{mosaic_pattern}\b",
-            r"{{{{ mosaic_id_str }}}}",
-            template_yaml
+            rf"\b{mosaic_pattern}\b", r"{{{{ mosaic_id_str }}}}", template_yaml
         )
 
     # Save as Jinja2 template
     template_path = Path(template_output_path)
-    with open(template_path, 'w') as f:
+    with open(template_path, "w") as f:
         f.write(template_yaml)
 
     # Clean up temp file
@@ -232,14 +231,14 @@ def generate_tile_info_file_task(
 ) -> str:
     """
     Generate a tile_info_file for a specific modality using the Jinja2 template.
-    
+
     The template contains Jinja2 variables that are replaced with actual values:
     - {{ modality }} -> target modality (e.g., "aip", "ret", "ori")
     - {{ mosaic_id_str }} -> mosaic ID string (e.g., "mosaic_001")
     - {{ base_dir }} -> base directory for tile files
     - {{ scan_resolution }} -> scan resolution array
     - {{ mask }} -> mask file path (optional)
-    
+
     Parameters
     ----------
     template_path : str
@@ -258,7 +257,7 @@ def generate_tile_info_file_task(
         Path to mask file
     scan_resolution : List[float], optional
         Scan resolution [x, y] or [x, y, z]
-        
+
     Returns
     -------
     str
@@ -266,10 +265,11 @@ def generate_tile_info_file_task(
     """
     logger = get_run_logger()
     logger.info(
-        f"Generating tile_info_file for mosaic {mosaic_id}, modality {modality}")
+        f"Generating tile_info_file for mosaic {mosaic_id}, modality {modality}"
+    )
 
     # Load template
-    with open(template_path, 'r') as f:
+    with open(template_path, "r") as f:
         template_content = f.read()
 
     template = jinja2.Template(template_content)
@@ -278,16 +278,16 @@ def generate_tile_info_file_task(
     mosaic_id_str = f"mosaic_{mosaic_id:03d}"
 
     template_vars = {
-        'modality': modality,
-        'mosaic_id_str': mosaic_id_str,
-        'base_dir': base_dir,
+        "modality": modality,
+        "mosaic_id_str": mosaic_id_str,
+        "base_dir": base_dir,
     }
 
     if scan_resolution is not None:
-        template_vars['scan_resolution'] = scan_resolution
+        template_vars["scan_resolution"] = scan_resolution
 
     if mask is not None:
-        template_vars['mask'] = mask
+        template_vars["mask"] = mask
 
     # Render template - Jinja2 will replace all {{ variable }} with actual values
     rendered = template.render(**template_vars)
@@ -299,7 +299,7 @@ def generate_tile_info_file_task(
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path_obj, 'w') as f:
+    with open(output_path_obj, "w") as f:
         yaml.dump(rendered_data, f, default_flow_style=False, sort_keys=False)
 
     logger.info(f"Generated tile_info_file: {output_path}")
@@ -316,7 +316,7 @@ def stitch_mosaic2d_task(
 ) -> Dict[str, str]:
     """
     Stitch mosaic using mosaic2d.
-    
+
     Parameters
     ----------
     tile_info_file : str
@@ -329,7 +329,7 @@ def stitch_mosaic2d_task(
         Path to output TIFF file
     circular_mean : bool
         Whether to use circular mean for orientation data
-        
+
     Returns
     -------
     Dict[str, str]
@@ -346,11 +346,11 @@ def stitch_mosaic2d_task(
         circular_mean=circular_mean,
     )
 
-    outputs = {'nifti': nifti_output}
+    outputs = {"nifti": nifti_output}
     if jpeg_output:
-        outputs['jpeg'] = jpeg_output
+        outputs["jpeg"] = jpeg_output
     if tiff_output:
-        outputs['tiff'] = tiff_output
+        outputs["tiff"] = tiff_output
 
     logger.info(f"Stitched mosaic saved to {nifti_output}")
     return outputs
@@ -364,7 +364,7 @@ def generate_mask_task(
 ) -> str:
     """
     Generate mask from input image.
-    
+
     Parameters
     ----------
     input_image : str
@@ -373,7 +373,7 @@ def generate_mask_task(
         Path to output mask file
     threshold : float
         Threshold for mask generation
-        
+
     Returns
     -------
     str
@@ -391,6 +391,7 @@ def generate_mask_task(
     logger.info(f"Generated mask: {output_mask}")
     return output_mask
 
+
 @task
 def stitch_mosaic3d_task(
     tile_info_file: str,
@@ -399,7 +400,7 @@ def stitch_mosaic3d_task(
 ) -> str:
     """
     Stitch mosaic using mosaic3d.
-    
+
     Parameters
     ----------
     tile_info_file: str
@@ -411,11 +412,7 @@ def stitch_mosaic3d_task(
     """
     logger = get_run_logger()
     logger.info(f"Stitching mosaic 3D from {tile_info_file}")
-    mosaic2d(
-        tile_info_file=tile_info_file,
-        out=output_path,
-        **kwargs
-    )
+    mosaic2d(tile_info_file=tile_info_file, out=output_path, **kwargs)
     logger.info(f"Stitched mosaic 3D saved to {output_path}")
     return output_path
 
@@ -429,13 +426,13 @@ def find_focus_plane_task(
 ) -> str:
     """
     Find optimal focus plane for 3D volume stitching (Section 3.3).
-    
+
     Per design document Section 3.3, focus finding:
     - Determines optimal focus plane for 3D volume stitching
     - Uses unfiltered surface data
     - Generates QC validation: verify focus finding overlap with intensity images
     - Output saved as focus-{illumination}.nii in project base path
-    
+
     Parameters
     ----------
     project_base_path : str
@@ -446,12 +443,12 @@ def find_focus_plane_task(
         Path to stitched surface map (unfiltered version)
     illumination : str
         Illumination type ("normal" or "tilted")
-        
+
     Returns
     -------
     str
         Path to generated focus plane file (focus-{illumination}.nii)
-        
+
     Notes
     -----
     Detailed algorithms are described in Section 15 of design document.
@@ -460,44 +457,43 @@ def find_focus_plane_task(
     """
     logger = get_run_logger()
     logger.info(
-        f"Finding focus plane for {illumination} illumination "
-        f"(mosaic {mosaic_id})"
+        f"Finding focus plane for {illumination} illumination (mosaic {mosaic_id})"
     )
-    
+
     # Output path per Section 4.1: {project_base_path}/focus-{illumination}.nii
     focus_output_path = Path(project_base_path) / f"focus-{illumination}.nii"
     focus_output_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # TODO: Implement actual focus finding algorithm (Section 15)
     # For now, this is a placeholder that:
     # 1. Loads the stitched surface map
     # 2. Processes it to determine optimal focus plane
     # 3. Saves the focus plane as a NIfTI file
-    
+
     # Placeholder: Copy surface map as focus plane (to be replaced with actual algorithm)
     import nibabel as nib
-    
+
     try:
         # Load stitched surface
         surface_img = nib.load(stitched_surface_path)
         surface_data = surface_img.get_fdata()
-        
+
         # TODO: Apply focus finding algorithm here
         # For now, use surface data directly (this should be replaced with actual algorithm)
         focus_data = surface_data.copy()
-        
+
         # Save focus plane
         focus_img = nib.Nifti1Image(focus_data, surface_img.affine, surface_img.header)
         nib.save(focus_img, str(focus_output_path))
-        
+
         logger.info(f"Focus plane saved to {focus_output_path}")
         logger.warning(
             "Focus finding using placeholder implementation. "
             "Actual algorithm from Section 15 should be implemented."
         )
-        
+
     except Exception as e:
         logger.error(f"Error in focus finding: {e}")
         raise
-    
+
     return str(focus_output_path)

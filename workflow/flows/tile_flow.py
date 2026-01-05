@@ -8,9 +8,7 @@ from typing import Any, Dict, Union
 from prefect import flow
 from prefect.logging import get_run_logger
 
-from workflow.tasks.tile_processing import (
-    archive_tile_task
-)
+from workflow.tasks.tile_processing import archive_tile_task
 from workflow.tasks.upload import (
     submit_upload_to_linc_task,
 )
@@ -33,7 +31,7 @@ def process_tile_flow(
 ) -> Dict[str, Any]:
     """
     Process a single tile from spectral raw data to 3D volumes and enface images.
-    
+
     Parameters
     ----------
     tile_path : str
@@ -54,7 +52,7 @@ def process_tile_flow(
         Upload queue manager instance
     slack_config : dict, optional
         Slack notification configuration
-    
+
     Returns
     -------
     Dict[str, Any]
@@ -64,16 +62,17 @@ def process_tile_flow(
     titled_illumination = mosaic_id % 2 == 0
     acq = "tilted" if titled_illumination else "normal"
     slice_id = (mosaic_id + 1) // 2
-    archived_tile_name = (f"{project_name}_sample-slice-{slice_id:03d}_chunk-"
-                          f"{tile_index:04d}_acq-{acq}_OCT.nii.gz")
+    archived_tile_name = (
+        f"{project_name}_sample-slice-{slice_id:03d}_chunk-"
+        f"{tile_index:04d}_acq-{acq}_OCT.nii.gz"
+    )
     archived_tile_path = op.join(compressed_base_path, archived_tile_name)
-    aline = 200 if titled_illumination else 350
 
     logger.info(f"Processing tile {tile_index:04d} in mosaic {mosaic_id:03d}")
     archive_tile_future = archive_tile_task.submit(tile_path, archived_tile_path)
-    upload_to_linc_future = submit_upload_to_linc_task.submit(archived_tile_path,
-                                                              wait_for=[
-                                                                  archive_tile_future])
+    upload_to_linc_future = submit_upload_to_linc_task.submit(
+        archived_tile_path, wait_for=[archive_tile_future]
+    )
 
     # intermediate_tile_path_prefix = op.join(intermediate_base_path, f"mosaic_{
     # mosaic_id:03d}_tile_{tile_index:04d}")
@@ -148,6 +147,7 @@ def process_tile_flow(
     #     "volume_paths": volume_paths,
     #     "enface_paths": enface_paths
     # }
+
 
 # def start_project():
 # project_name

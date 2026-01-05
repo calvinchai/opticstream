@@ -19,12 +19,14 @@ from workflow.events import (
     SLICE_READY,
     get_event_trigger,
 )
-from workflow.tasks.state_management import (check_batch_state_task,
-                                             check_mosaic_completion_task,
-                                             check_mosaic_stitched_task,
-                                             check_slice_state_task,
-                                             update_mosaic_artifact_task,
-                                             update_slice_artifact_task)
+from workflow.tasks.state_management import (
+    check_batch_state_task,
+    check_mosaic_completion_task,
+    check_mosaic_stitched_task,
+    check_slice_state_task,
+    update_mosaic_artifact_task,
+    update_slice_artifact_task,
+)
 
 
 @flow(name="manage_mosaic_batch_state_flow")
@@ -35,12 +37,12 @@ def manage_mosaic_batch_state_flow(
 ) -> Dict[str, Any]:
     """
     Event-driven flow to manage batch state for a mosaic.
-    
+
     This flow is triggered by batch completion events and:
     1. Checks batch state via flag files
     2. Updates Prefect Artifact with progress
     3. Emits mosaic.processed event if all batches complete
-    
+
     Parameters
     ----------
     project_name : str
@@ -49,7 +51,7 @@ def manage_mosaic_batch_state_flow(
         Base path for the project
     mosaic_id : int
         Mosaic identifier
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -107,12 +109,10 @@ def manage_mosaic_batch_state_flow(
                     "mosaic_id": mosaic_id,
                     "total_batches": batch_state["total_batches"],
                     "triggered_by": "state_management_flow",
-                }
+                },
             )
         else:
-            logger.info(
-                f"Mosaic {mosaic_id} already stitched, skipping event emission"
-            )
+            logger.info(f"Mosaic {mosaic_id} already stitched, skipping event emission")
 
     return {
         "mosaic_id": mosaic_id,
@@ -128,11 +128,11 @@ def manage_mosaic_batch_state_event_flow(
 ) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering of batch state management.
-    
+
     Triggered by:
     - linc.oct.batch.processed (after each batch completes)
     - linc.oct.batch.archived (after each batch is archived)
-    
+
     Parameters
     ----------
     payload : dict
@@ -141,7 +141,7 @@ def manage_mosaic_batch_state_event_flow(
         - project_base_path: str
         - mosaic_id: int
         - batch_id: int (optional, not used but included in event)
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -162,12 +162,12 @@ def manage_slice_state_flow(
 ) -> Dict[str, Any]:
     """
     Event-driven flow to manage state for a slice (both mosaics).
-    
+
     This flow:
     1. Checks state of both mosaics in the slice
     2. Updates Prefect Artifact with slice progress
     3. Emits slice.ready event if both mosaics are stitched
-    
+
     Parameters
     ----------
     project_name : str
@@ -176,7 +176,7 @@ def manage_slice_state_flow(
         Base path for the project
     slice_number : int
         Slice number (1-indexed)
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -233,7 +233,7 @@ def manage_slice_state_flow(
                 "normal_mosaic_id": slice_state["normal_mosaic_id"],
                 "tilted_mosaic_id": slice_state["tilted_mosaic_id"],
                 "triggered_by": "state_management_flow",
-            }
+            },
         )
 
     return {
@@ -252,10 +252,10 @@ def manage_slice_state_event_flow(
 ) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering of slice state management.
-    
+
     Triggered by:
     - linc.oct.mosaic.stitched (after each mosaic is stitched)
-    
+
     Parameters
     ----------
     payload : dict
@@ -263,7 +263,7 @@ def manage_slice_state_event_flow(
         - project_name: str
         - project_base_path: str
         - mosaic_id: int
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -301,21 +301,22 @@ if __name__ == "__main__":
                 # Also trigger when a batch is archived (for early progress tracking)
                 get_event_trigger(BATCH_ARCHIVED),
             ],
-            concurrency_limit=1
-        ))
+            concurrency_limit=1,
+        )
+    )
 
     # Deployment for slice state management (triggered by mosaic stitching events)
     manage_slice_state_event_flow_deployment = (
-    manage_slice_state_event_flow.to_deployment(
-        name="manage_slice_state_event_flow",
-        tags=["event-driven", "state-management", "slice"],
-        triggers=[
-            get_event_trigger(MOSAIC_STITCHED),
-        ],
-        concurrency_limit=1
-    ))
+        manage_slice_state_event_flow.to_deployment(
+            name="manage_slice_state_event_flow",
+            tags=["event-driven", "state-management", "slice"],
+            triggers=[
+                get_event_trigger(MOSAIC_STITCHED),
+            ],
+            concurrency_limit=1,
+        )
+    )
 
     # Deployments are created but not served here
     # Use: prefect deploy workflow/flows/state_management_flow.py:manage_mosaic_batch_state_event_flow_deployment
     #      prefect deploy workflow/flows/state_management_flow.py:manage_slice_state_event_flow_deployment
-

@@ -13,18 +13,16 @@ from prefect import flow
 from prefect.logging import get_run_logger
 
 from workflow.events import MOSAIC_STITCHED, get_event_trigger
-from workflow.tasks.slack_notifications import (send_slack_message_task,
-                                               upload_image_to_slack_task)
+from workflow.tasks.slack_notifications import (
+    send_slack_message_task,
+    upload_image_to_slack_task,
+)
 
 # Default Slack configuration (can be overridden via environment variables)
 DEFAULT_SLACK_BOT_TOKEN = os.getenv(
-    "SLACK_BOT_TOKEN",
-    "xoxb-5890633520343-9932310181297-biQaPdHnAP3jlE0uxhkB2RSF"
+    "SLACK_BOT_TOKEN", "xoxb-5890633520343-9932310181297-biQaPdHnAP3jlE0uxhkB2RSF"
 )
-DEFAULT_SLACK_CHANNEL_ID = os.getenv(
-    "SLACK_CHANNEL_ID",
-    "C09SA78A8QJ"
-)
+DEFAULT_SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "C09SA78A8QJ")
 
 
 @flow(name="slack_enface_notification_flow")
@@ -32,60 +30,60 @@ def slack_enface_notification_flow(
     payload: dict,
 ) -> Dict[str, bool]:
     """
-    Flow triggered by linc.oct.mosaic.stitched event to send Slack notifications.
-    
-    This flow:
-    1. Extracts enface output paths from the event payload
-    2. Sends a text message to Slack about the completion
-    3. Uploads JPEG preview images for each stitched enface modality
-    
-    Per Section 7.3 of design document.
-    
-    logger = get_run_logger()
-    
-    # Recover state from flag files
-    # Note: project_name not available in this task, will use fallback method
-    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name=None)
-    
-    # Check flag file first (authoritative source)
-    if mosaic_state.stitched:
-        logger.info(f"Mosaic {mosaic_id} is stitched (flag file exists)")
-        return True
-    
-    # Fallback: Check for AIP file as indicator of stitching completion
-    _, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
-    aip_file = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"
-    is_stitched = aip_file.exists()
+        Flow triggered by linc.oct.mosaic.stitched event to send Slack notifications.
 
-    if is_stitched:
-        logger.info(f"Mosaic {mosaic_id} is stitched (found {aip_file})")
-    else:
-        logger.debug(f"Mosaic {mosaic_id} not yet stitched (missing flag file and {aip_file})")
+        This flow:
+        1. Extracts enface output paths from the event payload
+        2. Sends a text message to Slack about the completion
+        3. Uploads JPEG preview images for each stitched enface modality
 
-    return is_stitched
+        Per Section 7.3 of design document.
+
+        logger = get_run_logger()
+
+        # Recover state from flag files
+        # Note: project_name not available in this task, will use fallback method
+        mosaic_state = MosaicState(project_base_path, mosaic_id, project_name=None)
+
+        # Check flag file first (authoritative source)
+        if mosaic_state.stitched:
+            logger.info(f"Mosaic {mosaic_id} is stitched (flag file exists)")
+            return True
+
+        # Fallback: Check for AIP file as indicator of stitching completion
+        _, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
+        aip_file = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"
+        is_stitched = aip_file.exists()
+
+        if is_stitched:
+            logger.info(f"Mosaic {mosaic_id} is stitched (found {aip_file})")
+        else:
+            logger.debug(f"Mosaic {mosaic_id} not yet stitched (missing flag file and {aip_file})")
+
+        return is_stitched
 
 
-@task(name="refresh_and_save_mosaic_state")
-def refresh_and_save_mosaic_state_task(
-    Parameters
-    ----------
-    payload : dict
-        Event payload containing:
-        - project_name: str
-        - project_base_path: str
-        - mosaic_id: int
-        - enface_outputs: Dict[str, Dict[str, str]] - mapping modality to output paths
-        
-    Returns
-    -------
-    Dict[str, bool]
-        Dictionary mapping modality to upload success status
+    @task(name="refresh_and_save_mosaic_state")
+    def refresh_and_save_mosaic_state_task(
+        Parameters
+        ----------
+        payload : dict
+            Event payload containing:
+            - project_name: str
+            - project_base_path: str
+            - mosaic_id: int
+            - enface_outputs: Dict[str, Dict[str, str]] - mapping modality to output paths
+
+        Returns
+        -------
+        Dict[str, bool]
+            Dictionary mapping modality to upload success status
     """
     logger_instance = get_run_logger()
 
     # Extract payload data
     project_name = payload.get("project_name", "unknown")
-    project_base_path = payload.get("project_base_path", "")
+    payload.get("project_base_path", "")
     mosaic_id = payload.get("mosaic_id", 0)
     enface_outputs = payload.get("enface_outputs", {})
 
@@ -132,13 +130,9 @@ def refresh_and_save_mosaic_state_task(
                     initial_comment=initial_comment,
                 )
                 upload_results[modality] = success
-                logger_instance.info(
-                    f"Uploaded {modality} JPEG to Slack: {success}"
-                )
+                logger_instance.info(f"Uploaded {modality} JPEG to Slack: {success}")
             except Exception as e:
-                logger_instance.error(
-                    f"Failed to upload {modality} JPEG to Slack: {e}"
-                )
+                logger_instance.error(f"Failed to upload {modality} JPEG to Slack: {e}")
                 upload_results[modality] = False
         else:
             logger_instance.warning(

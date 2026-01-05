@@ -15,30 +15,43 @@ from prefect import flow
 from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
-from workflow.events import MOSAIC_READY, MOSAIC_STITCHED, MOSAIC_VOLUME_STITCHED, get_event_trigger
-from workflow.tasks.mosaic_processing import (fiji_stitch_task,
-                                              find_focus_plane_task,
-                                              generate_coord_template_task,
-                                              generate_mask_task,
-                                              generate_tile_info_file_task,
-                                              process_tile_coord_task,
-                                              stitch_mosaic2d_task, stitch_mosaic3d_task)
-from workflow.tasks.utils import get_illumination, get_mosaic_paths, mosaic_id_to_slice_number
+from workflow.events import (
+    MOSAIC_READY,
+    MOSAIC_STITCHED,
+    MOSAIC_VOLUME_STITCHED,
+    get_event_trigger,
+)
+from workflow.tasks.mosaic_processing import (
+    fiji_stitch_task,
+    find_focus_plane_task,
+    generate_coord_template_task,
+    generate_mask_task,
+    generate_tile_info_file_task,
+    process_tile_coord_task,
+    stitch_mosaic2d_task,
+    stitch_mosaic3d_task,
+)
+from workflow.tasks.utils import (
+    get_illumination,
+    get_mosaic_paths,
+    mosaic_id_to_slice_number,
+)
 from workflow.config.project_config import get_grid_size_x, get_project_config_block
 from workflow.config.blocks import PSOCTScanConfig
+
 
 # Helper function to get field default from Pydantic model
 def _get_field_default(model_class, field_name: str):
     """Get default value for a Pydantic model field, supporting both v1 and v2."""
     # Try Pydantic v2 first (model_fields)
-    if hasattr(model_class, 'model_fields') and field_name in model_class.model_fields:
+    if hasattr(model_class, "model_fields") and field_name in model_class.model_fields:
         field_info = model_class.model_fields[field_name]
-        if hasattr(field_info, 'default'):
+        if hasattr(field_info, "default"):
             return field_info.default
     # Try Pydantic v1 (__fields__)
-    if hasattr(model_class, '__fields__') and field_name in model_class.__fields__:
+    if hasattr(model_class, "__fields__") and field_name in model_class.__fields__:
         field_info = model_class.__fields__[field_name]
-        if hasattr(field_info, 'default'):
+        if hasattr(field_info, "default"):
             return field_info.default
     # Fallback: return None
     return None
@@ -56,13 +69,13 @@ def stitch_2d_modality(
 ) -> tuple[Any, Path, Path, Path]:
     """
     Generate tile info file and submit stitching task for a 2D modality.
-    
+
     This helper function encapsulates the common pattern of generating a tile info
     file from a template and submitting a 2D stitching task. It handles:
     - Tile info file generation with optional mask
     - Automatic circular_mean detection for "ori" modality
     - Async task submission with proper dependencies
-    
+
     Parameters
     ----------
     modality : str
@@ -82,7 +95,7 @@ def stitch_2d_modality(
     circular_mean : bool, optional
         Whether to use circular mean for orientation data.
         If None, automatically determined from modality name ("ori" -> True)
-        
+
     Returns
     -------
     tuple[Any, Path, Path, Path]
@@ -94,13 +107,13 @@ def stitch_2d_modality(
     """
     # Determine circular_mean if not provided
     if circular_mean is None:
-        circular_mean = (modality == "ori")
-    
+        circular_mean = modality == "ori"
+
     # Generate output paths
     tile_info_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
     nifti_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii"
     jpeg_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.jpeg"
-    
+
     # Generate tile_info_file using template
     tile_info_future = generate_tile_info_file_task.submit(
         template_path=str(template_path),
@@ -111,7 +124,7 @@ def stitch_2d_modality(
         mask=str(mask_path) if mask_path is not None else None,
         scan_resolution=scan_resolution_2d,
     )
-    
+
     # Submit stitch task asynchronously, waiting for tile info file generation
     stitch_future = stitch_mosaic2d_task.submit(
         tile_info_file=str(tile_info_path),
@@ -120,8 +133,9 @@ def stitch_2d_modality(
         circular_mean=circular_mean,
         wait_for=[tile_info_future],
     )
-    
+
     return stitch_future, tile_info_path, nifti_path, jpeg_path
+
 
 @flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
 def process_stitching_coordinates(
@@ -137,7 +151,7 @@ def process_stitching_coordinates(
     """
     Process coordinate determination for first slice (mosaic_001 or mosaic_002).
     This includes Fiji stitch, tile coordinate processing, and template generation.
-    
+
     Parameters
     ----------
     project_name : str
@@ -158,7 +172,7 @@ def process_stitching_coordinates(
         Scan resolution for 2D [x, y]
     illumination : str
         Illumination type ("normal" or "tilted")
-        
+
     Returns
     -------
     tuple[Path, Path]
@@ -167,8 +181,9 @@ def process_stitching_coordinates(
     logger = get_run_logger()
     # Use slice-based structure
     illumination = get_illumination(mosaic_id)
-    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(project_base_path,
-                                                                     mosaic_id)
+    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(
+        project_base_path, mosaic_id
+    )
 
     logger.info(
         f"Processing coordinate determination for {illumination} illumination "
@@ -178,7 +193,8 @@ def process_stitching_coordinates(
     # Step 1: Run Fiji stitch to generate TileConfiguration files
     file_template = f"mosaic_{mosaic_id:03d}_image_{{iiii}}_aip.nii"
     output_textfile_name = (
-        "TileConfigurationTilted.txt" if illumination == "tilted"
+        "TileConfigurationTilted.txt"
+        if illumination == "tilted"
         else "TileConfiguration.txt"
     )
 
@@ -202,9 +218,9 @@ def process_stitching_coordinates(
         )
 
     # Step 2: Process tile coordinates and export to YAML
-    tile_coords_export = base_stitched_path / (f"mosaic_"
-                                               f""
-                                               f"{mosaic_id:03d}_tile_coords_export.yaml")
+    tile_coords_export = base_stitched_path / (
+        f"mosaic_{mosaic_id:03d}_tile_coords_export.yaml"
+    )
 
     process_tile_coord_task(
         ideal_coord_file=str(ideal_coord_file),
@@ -246,11 +262,11 @@ def stitch_enface_modalities_flow(
 ) -> Dict[str, Dict[str, str]]:
     """
     Subflow to stitch all 2D enface modalities.
-    
+
     This subflow handles the stitching of all enface modalities (ret, ori, biref, surf)
     asynchronously and returns the outputs. Note: MIP is excluded as it's already
     stitched in step 4 without mask.
-    
+
     Parameters
     ----------
     project_name : str
@@ -271,7 +287,7 @@ def stitch_enface_modalities_flow(
         Path to mask file
     scan_resolution_2d : List[float]
         Scan resolution for 2D [x, y]
-        
+
     Returns
     -------
     Dict[str, Dict[str, str]]
@@ -286,7 +302,7 @@ def stitch_enface_modalities_flow(
     for modality in enface_modalities:
         if modality in ["mip", "aip"]:
             continue  # Skip MIP and AIP, already stitched
-        
+
         # Use unified helper function for tile info generation and stitching
         future, _, _, _ = stitch_2d_modality(
             modality=modality,
@@ -307,7 +323,7 @@ def stitch_enface_modalities_flow(
         enface_outputs[modality] = outputs
 
     logger.info(f"All enface modalities stitched for mosaic {mosaic_id}")
-    
+
     return enface_outputs
 
 
@@ -327,7 +343,7 @@ def stitch_volume_modalities_flow(
 ) -> Dict[str, Path]:
     """
     Subflow to stitch all 3D volume modalities.
-    
+
     Parameters
     ----------
     project_name : str
@@ -352,7 +368,7 @@ def stitch_volume_modalities_flow(
         List of volume modalities to stitch
     kwargs : Dict[str, Any], optional
         Additional keyword arguments for 3D stitching task
-        
+
     Returns
     -------
     Dict[str, Path]
@@ -364,17 +380,17 @@ def stitch_volume_modalities_flow(
     volume_outputs = {}
     slice_number = mosaic_id_to_slice_number(mosaic_id)
     acq = "tilted" if mosaic_id % 2 == 0 else "normal"
-    
+
     # Use kwargs parameter, but ensure circular_mean is set per modality
     stitching_kwargs = kwargs.copy()
     stitching_kwargs.setdefault("voxel_size_xyz", scan_resolution_3d)
-    
+
     for modality in volume_modalities:
         modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
 
         # Set circular_mean based on modality
         stitching_kwargs["circular_mean"] = True if modality == "O3D" else False
-        
+
         generate_tile_info_file_task(
             template_path=str(template_path),
             output_path=str(modality_tile_info),
@@ -384,7 +400,10 @@ def stitch_volume_modalities_flow(
             scan_resolution=scan_resolution_3d,
         )
 
-        output_path = processed_path / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+        output_path = (
+            processed_path
+            / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+        )
         future = stitch_mosaic3d_task.submit(
             str(modality_tile_info),
             str(output_path),
@@ -392,13 +411,13 @@ def stitch_volume_modalities_flow(
         )
         volume_futures[modality] = future
         volume_outputs[modality] = output_path
-    
+
     # Wait for all volume stitching to complete
     for modality, future in volume_futures.items():
         future.wait()
-    
+
     logger.info(f"All volume modalities stitched for mosaic {mosaic_id}")
-    
+
     # Emit MOSAIC_VOLUME_STITCHED event
     emit_event(
         event=MOSAIC_VOLUME_STITCHED,
@@ -407,10 +426,12 @@ def stitch_volume_modalities_flow(
             "project_base_path": project_base_path,
             "mosaic_id": mosaic_id,
             "volume_outputs": {mod: str(path) for mod, path in volume_outputs.items()},
-        }
+        },
     )
-    
+
     return volume_outputs
+
+
 @flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
 def process_mosaic_flow(
     project_name: str,
@@ -430,15 +451,15 @@ def process_mosaic_flow(
     Event-driven flow triggered by 'mosaic.processed' event.
     Processes a complete mosaic: determines coordinates, generates template,
     and stitches all modalities.
-    
-    Note: 
+
+    Note:
     - This flow expects all parameters to be provided. Event flows handle loading
       config blocks and providing defaults.
     - Coordinate determination (Fiji stitch + process_tile_coord) only runs for
       mosaic_001 (normal) and mosaic_002 (tilted) unless force_refresh_coords=True.
     - Jinja2 template is generated once per illumination type and reused for all
       mosaics of that type.
-    
+
     Parameters
     ----------
     project_name : str
@@ -448,7 +469,7 @@ def process_mosaic_flow(
     mosaic_id : int
         Mosaic identifier
     grid_size_x : int
-        Number of columns (batches) in mosaic 
+        Number of columns (batches) in mosaic
     grid_size_y : int
         Number of rows (tiles per batch) in mosaic
     tile_overlap : float
@@ -466,19 +487,19 @@ def process_mosaic_flow(
         Force coordinate determination even if not first slice. Default: False
     stitch_3d_volumes : bool, optional
         Whether to stitch 3D volume modalities. Default: True
-        
+
     Returns
     -------
     Dict[str, Any]
         Dictionary with output paths and status
     """
     logger = get_run_logger()
-    
+
     # Note: Event flows handle loading config blocks and providing all required values.
     # All parameters are required and should be provided by the caller.
-    
+
     scan_resolution_2d = scan_resolution_3d[:2]
-    
+
     processed_path, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
     stitched_path.mkdir(parents=True, exist_ok=True)
 
@@ -496,8 +517,9 @@ def process_mosaic_flow(
     # Normal: mosaic_001, Tilted: mosaic_002
     # Both belong to slice 1
     base_mosaic_id = 2 if is_tilted else 1
-    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(project_base_path,
-                                                                     base_mosaic_id)
+    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(
+        project_base_path, base_mosaic_id
+    )
 
     # Get template path and tile coordinates export path
     template_filename = f"tile_info_{illumination}.j2"
@@ -505,7 +527,7 @@ def process_mosaic_flow(
 
     # Check if we need to run coordinate determination
     # Only run for mosaic_001 (normal) or mosaic_002 (tilted) unless overridden
-    first_slice_run = (mosaic_id <=2) or force_refresh_coords
+    first_slice_run = (mosaic_id <= 2) or force_refresh_coords
     if first_slice_run:
         # Process first slice coordinates (Fiji stitch, coordinate processing, template generation)
         template_path, tile_coords_export = process_stitching_coordinates(
@@ -525,7 +547,9 @@ def process_mosaic_flow(
             f"Using template from mosaic {base_mosaic_id})"
         )
         # Construct tile_coords_export path from base mosaic
-        tile_coords_export = base_stitched_path / f"mosaic_{base_mosaic_id:03d}_tile_coords_export.yaml"
+        tile_coords_export = (
+            base_stitched_path / f"mosaic_{base_mosaic_id:03d}_tile_coords_export.yaml"
+        )
 
     if not template_path.exists():
         raise FileNotFoundError(
@@ -595,7 +619,7 @@ def process_mosaic_flow(
             "project_base_path": project_base_path,
             "mosaic_id": mosaic_id,
             "enface_outputs": enface_outputs,
-        }
+        },
     )
     # Step 6.5: Focus finding for first slice (Section 3.3)
     # Focus finding requires unfiltered surface data, so it runs after surface stitching
@@ -606,7 +630,11 @@ def process_mosaic_flow(
         surf_output = enface_outputs.get("surf")
         if surf_output:
             # surf_output is a dict with 'nifti', 'jpeg', 'tiff' keys from stitch_mosaic2d_task
-            surface_nifti = surf_output.get("nifti") if isinstance(surf_output, dict) else str(surf_output)
+            surface_nifti = (
+                surf_output.get("nifti")
+                if isinstance(surf_output, dict)
+                else str(surf_output)
+            )
             surface_path = Path(surface_nifti) if surface_nifti else None
             if surface_path and surface_path.exists():
                 focus_path = find_focus_plane_task(
@@ -631,9 +659,7 @@ def process_mosaic_flow(
     # Step 7: Stitch volume modalities if enabled
     volume_outputs = {}
     if stitch_3d_volumes and volume_modalities:
-        logger.info(
-            f"Stitching volume modalities for mosaic {mosaic_id}"
-        )
+        logger.info(f"Stitching volume modalities for mosaic {mosaic_id}")
         volume_outputs = stitch_volume_modalities_flow(
             project_name=project_name,
             mosaic_id=mosaic_id,
@@ -647,23 +673,22 @@ def process_mosaic_flow(
             volume_modalities=volume_modalities,
             kwargs={},  # Can be extended to load from config if needed
         )
-        logger.info(
-            f"All volume modalities stitched for mosaic {mosaic_id}"
-        )
+        logger.info(f"All volume modalities stitched for mosaic {mosaic_id}")
     else:
         if not stitch_3d_volumes:
             logger.info(
                 f"Volume stitching disabled for mosaic {mosaic_id} (stitch_3d_volumes=False)"
             )
         elif not volume_modalities:
-            logger.info(
-                f"No volume modalities to stitch for mosaic {mosaic_id}"
-            )
+            logger.info(f"No volume modalities to stitch for mosaic {mosaic_id}")
 
     # Emit event that mosaic stitching is complete (per Section 6.2)
     # Convert volume_outputs Path objects to strings for serialization
-    volume_outputs_str = {mod: str(path) for mod, path in volume_outputs.items()} if volume_outputs else {}
-    
+    (
+        {mod: str(path) for mod, path in volume_outputs.items()}
+        if volume_outputs
+        else {}
+    )
 
     logger.info(f"Mosaic {mosaic_id} processing complete")
 
@@ -685,14 +710,14 @@ def process_mosaic_event_flow(
     Wrapper flow for event-driven triggering.
     Loads config block and provides defaults using priority: payload → block → class defaults.
     Extracts parameters from the event payload and calls process_mosaic_flow.
-    
+
     The payload is passed as JSON from the event, so types should be preserved.
     However, we ensure proper type conversion for safety.
     """
     logger = get_run_logger()
     project_name = payload["project_name"]
     mosaic_id = int(payload["mosaic_id"])
-    
+
     # Load config block
     project_config = get_project_config_block(project_name)
     if project_config is None:
@@ -700,13 +725,13 @@ def process_mosaic_event_flow(
             f"Project config block for '{project_name}' not found. "
             f"Using defaults from payload or class defaults."
         )
-    
+
     # Build parameter dict with priority: payload → block → class defaults
     params = {
         "project_name": project_name,
         "mosaic_id": mosaic_id,
     }
-    
+
     # Required field: project_base_path (must be in payload or block)
     if "project_base_path" in payload:
         params["project_base_path"] = payload["project_base_path"]
@@ -718,43 +743,51 @@ def process_mosaic_event_flow(
             f"'{project_name}-config' is missing. Please provide project_base_path in event payload "
             f"or create the config block."
         )
-    
+
     # Required field: grid_size_x (payload → block → get_grid_size_x → error)
     if "grid_size_x" in payload or "total_batches" in payload:
-        params["grid_size_x"] = int(payload.get("grid_size_x") or payload.get("total_batches"))
+        params["grid_size_x"] = int(
+            payload.get("grid_size_x") or payload.get("total_batches")
+        )
     elif project_config:
         # Resolve from config block
         params["grid_size_x"] = get_grid_size_x(project_name, mosaic_id)
     else:
         # Try to get from config block, will raise error if not found
         params["grid_size_x"] = get_grid_size_x(project_name, mosaic_id)
-    
+
     # Optional field: grid_size_y (payload → block → class default)
     if "grid_size_y" in payload:
         params["grid_size_y"] = int(payload["grid_size_y"])
     elif project_config:
         params["grid_size_y"] = project_config.grid_size_y
     else:
-        params["grid_size_y"] = _get_field_default(PSOCTScanConfig, 'grid_size_y')
+        params["grid_size_y"] = _get_field_default(PSOCTScanConfig, "grid_size_y")
         if params["grid_size_y"] is None:
-            raise ValueError("grid_size_y is required but cannot be determined from config block or defaults")
-    
+            raise ValueError(
+                "grid_size_y is required but cannot be determined from config block or defaults"
+            )
+
     # Optional field: tile_overlap (payload → block → class default)
     if "tile_overlap" in payload:
         params["tile_overlap"] = float(payload["tile_overlap"])
     elif project_config:
         params["tile_overlap"] = project_config.tile_overlap
     else:
-        params["tile_overlap"] = _get_field_default(PSOCTScanConfig, 'tile_overlap') or 20.0
-    
+        params["tile_overlap"] = (
+            _get_field_default(PSOCTScanConfig, "tile_overlap") or 20.0
+        )
+
     # Optional field: mask_threshold (payload → block → class default)
     if "mask_threshold" in payload:
         params["mask_threshold"] = float(payload["mask_threshold"])
     elif project_config:
         params["mask_threshold"] = project_config.mask_threshold
     else:
-        params["mask_threshold"] = _get_field_default(PSOCTScanConfig, 'mask_threshold') or 50.0
-    
+        params["mask_threshold"] = (
+            _get_field_default(PSOCTScanConfig, "mask_threshold") or 50.0
+        )
+
     # Optional field: scan_resolution_3d (payload → block → class default)
     if "scan_resolution_3d" in payload:
         scan_resolution_3d = payload["scan_resolution_3d"]
@@ -763,30 +796,36 @@ def process_mosaic_event_flow(
     elif project_config:
         params["scan_resolution_3d"] = list(project_config.scan_resolution_3d)
     else:
-        params["scan_resolution_3d"] = _get_field_default(PSOCTScanConfig, 'scan_resolution_3d')
-    
+        params["scan_resolution_3d"] = _get_field_default(
+            PSOCTScanConfig, "scan_resolution_3d"
+        )
+
     # Optional field: force_refresh_coords (payload → default False)
     force_refresh_coords = payload.get("force_refresh_coords", False)
     if isinstance(force_refresh_coords, str):
         force_refresh_coords = force_refresh_coords.lower() == "true"
     params["force_refresh_coords"] = force_refresh_coords
-    
+
     # Optional field: enface_modalities (payload → block → class default)
     if "enface_modalities" in payload:
         params["enface_modalities"] = payload["enface_modalities"]
     elif project_config:
         params["enface_modalities"] = list(project_config.enface_modalities)
     else:
-        params["enface_modalities"] = _get_field_default(PSOCTScanConfig, 'enface_modalities') or ["ret", "ori", "biref", "mip", "surf"]
-    
+        params["enface_modalities"] = _get_field_default(
+            PSOCTScanConfig, "enface_modalities"
+        ) or ["ret", "ori", "biref", "mip", "surf"]
+
     # Optional field: volume_modalities (payload → block → class default)
     if "volume_modalities" in payload:
         params["volume_modalities"] = payload["volume_modalities"]
     elif project_config:
         params["volume_modalities"] = list(project_config.volume_modalities)
     else:
-        params["volume_modalities"] = _get_field_default(PSOCTScanConfig, 'volume_modalities') or ["dBI", "R3D", "O3D"]
-    
+        params["volume_modalities"] = _get_field_default(
+            PSOCTScanConfig, "volume_modalities"
+        ) or ["dBI", "R3D", "O3D"]
+
     # Optional field: stitch_3d_volumes (payload → block → default True)
     if "stitch_3d_volumes" in payload:
         stitch_3d_volumes = payload["stitch_3d_volumes"]
@@ -796,7 +835,9 @@ def process_mosaic_event_flow(
     elif project_config:
         params["stitch_3d_volumes"] = project_config.stitch_3d_volumes
     else:
-        params["stitch_3d_volumes"] = _get_field_default(PSOCTScanConfig, 'stitch_3d_volumes')
+        params["stitch_3d_volumes"] = _get_field_default(
+            PSOCTScanConfig, "stitch_3d_volumes"
+        )
         if params["stitch_3d_volumes"] is None:
             params["stitch_3d_volumes"] = True  # Default to True
 
@@ -812,4 +853,3 @@ if __name__ == "__main__":
             get_event_trigger(MOSAIC_READY),
         ],
     )
-    

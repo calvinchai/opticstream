@@ -4,7 +4,7 @@ Project-level parameter management using Prefect Blocks.
 See: https://docs.prefect.io/v3/concepts/blocks
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from workflow.config.blocks import PSOCTScanConfig
 
@@ -12,14 +12,14 @@ from workflow.config.blocks import PSOCTScanConfig
 def get_project_config_block(project_name: str) -> Optional[PSOCTScanConfig]:
     """
     Load a project configuration block.
-    
+
     Block instances are saved with name: "{project_name}-config"
-    
+
     Parameters
     ----------
     project_name : str
         Project identifier
-        
+
     Returns
     -------
     ProjectConfig, optional
@@ -32,20 +32,21 @@ def get_project_config_block(project_name: str) -> Optional[PSOCTScanConfig]:
         # Block not found or error loading - return None
         return None
 
+
 def get_grid_size_x(project_name: str, mosaic_id: int) -> int:
     """
     Get grid size x for a given project and mosaic id.
-    
+
     Parameters
     ----------
     project_name: str
     mosaic_id: int
-    
+
     Returns
     -------
     int
         Grid size x (number of columns/batches) for the mosaic
-        
+
     Raises
     ------
     ValueError
@@ -57,4 +58,8 @@ def get_grid_size_x(project_name: str, mosaic_id: int) -> int:
             f"Project config block for '{project_name}' not found. "
             f"Cannot determine grid_size_x. Please create config block '{project_name}-config' or provide grid_size_x explicitly."
         )
-    return project_config.grid_size_x_normal if mosaic_id % 2 == 0 else project_config.grid_size_x_tilted
+    return (
+        project_config.grid_size_x_normal
+        if mosaic_id % 2 == 0
+        else project_config.grid_size_x_tilted
+    )

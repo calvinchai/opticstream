@@ -14,8 +14,10 @@ from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
 from workflow.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
-from workflow.tasks.slice_registration import (rgb_3daxis_task,
-                                               thruplane_registration_task)
+from workflow.tasks.slice_registration import (
+    rgb_3daxis_task,
+    thruplane_registration_task,
+)
 
 
 @flow(name="register_slice_flow")
@@ -31,10 +33,10 @@ def register_slice_flow(
 ) -> Dict[str, Any]:
     """
     Register a slice after both mosaics are stitched.
-    
+
     This flow performs registration of normal and tilted illumination mosaics
     to combine orientations and generate 3D axis visualizations.
-    
+
     Parameters
     ----------
     project_name : str
@@ -53,7 +55,7 @@ def register_slice_flow(
         Mask file type ("aip", "mip", or "" for no mask)
     mask_threshold : float
         Threshold for mask generation (default: 55.0)
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -95,7 +97,7 @@ def register_slice_flow(
             "tilted_mosaic_id": tilted_mosaic_id,
             "processed_dir": str(processed_dir),
             "axis_outputs": {k: str(v) for k, v in axis_outputs.items()},
-        }
+        },
     )
 
     logger.info(f"Slice {slice_number} registration complete")
@@ -115,9 +117,9 @@ def register_slice_event_flow(
 ) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering of slice registration.
-    
+
     Triggered by the 'linc.oct.slice.ready' event when both mosaics are stitched.
-    
+
     Parameters
     ----------
     payload : dict
@@ -130,7 +132,7 @@ def register_slice_event_flow(
         - gamma: float (optional, default: -15.0)
         - mask_file: str (optional, default: "")
         - mask_threshold: float (optional, default: 55.0)
-        
+
     Returns
     -------
     Dict[str, Any]

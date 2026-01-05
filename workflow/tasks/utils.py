@@ -11,19 +11,19 @@ from prefect import get_run_logger, task
 def mosaic_id_to_slice_number(mosaic_id: int) -> int:
     """
     Convert mosaic ID to slice number.
-    
+
     Mapping:
     - Mosaic 1 (normal) → Slice 1
     - Mosaic 2 (tilted) → Slice 1
     - Mosaic 3 (normal) → Slice 2
     - Mosaic 4 (tilted) → Slice 2
     - etc.
-    
+
     Parameters
     ----------
     mosaic_id : int
         Mosaic identifier
-        
+
     Returns
     -------
     int
@@ -39,24 +39,25 @@ def mosaic_id_to_slice_number(mosaic_id: int) -> int:
         return (mosaic_id + 1) // 2
 
 
-def get_slice_paths(project_base_path: str, slice_number: int) -> Tuple[
-    Path, Path, Path, Path]:
+def get_slice_paths(
+    project_base_path: str, slice_number: int
+) -> Tuple[Path, Path, Path, Path]:
     """
     Get standard paths for a slice directory structure.
-    
+
     Structure:
     - {project_base_path}/slice-{slice_number:02d}/processed/
     - {project_base_path}/slice-{slice_number:02d}/stitched/
     - {project_base_path}/slice-{slice_number:02d}/complex/
     - {project_base_path}/slice-{slice_number:02d}/state/
-    
+
     Parameters
     ----------
     project_base_path : str
         Base path for the project
     slice_number : int
         Slice number (1-indexed)
-        
+
     Returns
     -------
     Tuple[Path, Path, Path, Path]
@@ -73,19 +74,18 @@ def get_slice_paths(project_base_path: str, slice_number: int) -> Tuple[
 
 @task(name="discover_slices")
 def discover_slices_task(
-    data_root_path: str,
-    slice_numbers: Optional[List[int]] = None
+    data_root_path: str, slice_numbers: Optional[List[int]] = None
 ) -> List[int]:
     """
     Discover available slices from data directory.
-    
+
     Parameters
     ----------
     data_root_path : str
         Root path to data directory
     slice_numbers : List[int], optional
         Optional list of slice numbers (if None, auto-discover)
-    
+
     Returns
     -------
     List[int]
@@ -97,7 +97,7 @@ def discover_slices_task(
 
     logger.info(f"Discovering slices in {data_root_path}")
 
-    data_path = Path(data_root_path)
+    Path(data_root_path)
     slices = []
 
     # TODO: Implement actual discovery logic
@@ -107,22 +107,23 @@ def discover_slices_task(
     return slices
 
 
-def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[
-    Path, Path, Path, Path]:
+def get_mosaic_paths(
+    project_base_path: str, mosaic_id: int
+) -> Tuple[Path, Path, Path, Path]:
     """
     Get standard paths for a mosaic.
-    
+
     Per design document Section 4.1 and 7.1:
     - Flag files (state_path) use mosaic-based structure: mosaic-{mosaic_id}/state/
     - Processed/stitched/complex data use slice-based structure for efficiency
-    
+
     Parameters
     ----------
     project_base_path : str
         Base path for the project
     mosaic_id : int
         Mosaic identifier
-        
+
     Returns
     -------
     Tuple[Path, Path, Path, Path]
@@ -141,12 +142,12 @@ def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[
 def get_illumination(mosaic_id: int) -> str:
     """
     Get illumination type for a mosaic.
-    
+
     Parameters
     ----------
     mosaic_id : int
         Mosaic identifier
-        
+
     Returns
     -------
     str

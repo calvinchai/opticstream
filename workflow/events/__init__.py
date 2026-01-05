@@ -34,4 +34,3 @@ __all__ = [
     # Utilities
     "get_event_trigger",
 ]
-

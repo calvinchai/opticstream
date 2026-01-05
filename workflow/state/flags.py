@@ -31,7 +31,7 @@ REGISTERED = "registered"
 def get_batch_flag_path(state_path: Path, batch_id: int, flag_name: str) -> Path:
     """
     Get the path to a batch-level flag file.
-    
+
     Parameters
     ----------
     state_path : Path
@@ -40,7 +40,7 @@ def get_batch_flag_path(state_path: Path, batch_id: int, flag_name: str) -> Path
         Batch identifier
     flag_name : str
         Flag name (e.g., "started", "archived", "processed", "uploaded")
-        
+
     Returns
     -------
     Path
@@ -52,7 +52,7 @@ def get_batch_flag_path(state_path: Path, batch_id: int, flag_name: str) -> Path
 def get_mosaic_flag_path(state_path: Path, mosaic_id: int, flag_name: str) -> Path:
     """
     Get the path to a mosaic-level flag file.
-    
+
     Parameters
     ----------
     state_path : Path
@@ -61,7 +61,7 @@ def get_mosaic_flag_path(state_path: Path, mosaic_id: int, flag_name: str) -> Pa
         Mosaic identifier
     flag_name : str
         Flag name (e.g., "started", "stitched", "volume_stitched", "volume_uploaded")
-        
+
     Returns
     -------
     Path
@@ -73,7 +73,7 @@ def get_mosaic_flag_path(state_path: Path, mosaic_id: int, flag_name: str) -> Pa
 def get_slice_flag_path(state_path: Path, slice_number: int, flag_name: str) -> Path:
     """
     Get the path to a slice-level flag file.
-    
+
     Parameters
     ----------
     state_path : Path
@@ -82,7 +82,7 @@ def get_slice_flag_path(state_path: Path, slice_number: int, flag_name: str) -> 
         Slice number (1-indexed)
     flag_name : str
         Flag name (e.g., "started", "registered", "uploaded")
-        
+
     Returns
     -------
     Path
@@ -92,16 +92,13 @@ def get_slice_flag_path(state_path: Path, slice_number: int, flag_name: str) -> 
 
 
 def get_batch_flag_path_from_project(
-    project_base_path: Union[str, Path],
-    mosaic_id: int,
-    batch_id: int,
-    flag_name: str
+    project_base_path: Union[str, Path], mosaic_id: int, batch_id: int, flag_name: str
 ) -> Path:
     """
     Get the path to a batch-level flag file from project parameters.
-    
+
     Convenience function that constructs the state path and flag path in one call.
-    
+
     Parameters
     ----------
     project_base_path : str or Path
@@ -112,7 +109,7 @@ def get_batch_flag_path_from_project(
         Batch identifier
     flag_name : str
         Flag name (e.g., "started", "archived", "processed", "uploaded")
-        
+
     Returns
     -------
     Path
@@ -123,15 +120,13 @@ def get_batch_flag_path_from_project(
 
 
 def get_mosaic_flag_path_from_project(
-    project_base_path: Union[str, Path],
-    mosaic_id: int,
-    flag_name: str
+    project_base_path: Union[str, Path], mosaic_id: int, flag_name: str
 ) -> Path:
     """
     Get the path to a mosaic-level flag file from project parameters.
-    
+
     Convenience function that constructs the state path and flag path in one call.
-    
+
     Parameters
     ----------
     project_base_path : str or Path
@@ -140,7 +135,7 @@ def get_mosaic_flag_path_from_project(
         Mosaic identifier
     flag_name : str
         Flag name (e.g., "started", "stitched", "volume_stitched", "volume_uploaded")
-        
+
     Returns
     -------
     Path
@@ -151,15 +146,13 @@ def get_mosaic_flag_path_from_project(
 
 
 def get_slice_flag_path_from_project(
-    project_base_path: Union[str, Path],
-    slice_number: int,
-    flag_name: str
+    project_base_path: Union[str, Path], slice_number: int, flag_name: str
 ) -> Path:
     """
     Get the path to a slice-level flag file from project parameters.
-    
+
     Convenience function that constructs the state path and flag path in one call.
-    
+
     Parameters
     ----------
     project_base_path : str or Path
@@ -168,7 +161,7 @@ def get_slice_flag_path_from_project(
         Slice number (1-indexed)
     flag_name : str
         Flag name (e.g., "started", "registered", "uploaded")
-        
+
     Returns
     -------
     Path
@@ -176,4 +169,3 @@ def get_slice_flag_path_from_project(
     """
     _, _, _, state_path = get_slice_paths(project_base_path, slice_number)
     return get_slice_flag_path(state_path, slice_number, flag_name)
-

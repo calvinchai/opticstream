@@ -21,12 +21,12 @@ from workflow.tasks.utils import get_slice_paths
 def _get_matlab_engine():
     """
     Get MATLAB engine instance.
-    
+
     Returns
     -------
     matlab.engine.MatlabEngine
         MATLAB engine instance
-        
+
     Raises
     ------
     ImportError
@@ -60,11 +60,11 @@ def _setup_processed_directory(
 ) -> Path:
     """
     Set up processed directory structure for MATLAB functions.
-    
+
     The MATLAB functions expect a processed directory with stitched mosaic files.
     This function creates/verifies the directory structure and ensures the
     necessary files are present.
-    
+
     Parameters
     ----------
     project_base_path : str
@@ -75,7 +75,7 @@ def _setup_processed_directory(
         Normal illumination mosaic ID
     tilted_mosaic_id : int
         Tilted illumination mosaic ID
-        
+
     Returns
     -------
     Path
@@ -133,10 +133,10 @@ def thruplane_registration_task(
 ) -> Path:
     """
     Perform thruplane registration of normal and tilted illumination mosaics.
-    
+
     This is a Python wrapper for the MATLAB function `thruplane()`.
     It registers the normal and tilted illuminations to combine orientations.
-    
+
     Parameters
     ----------
     project_base_path : str
@@ -156,17 +156,17 @@ def thruplane_registration_task(
     matlab_script_path : str, optional
         Path to MATLAB script directory. If None, uses current directory
         or searches for thruplane.m
-        
+
     Returns
     -------
     Path
         Path to processed directory containing registration results
-        
+
     Notes
     -----
     The MATLAB function signature is:
         thruplane(processed_dir, gamma, slice_number)
-    
+
     Where:
     - processed_dir: Path to processed directory (old structure: slice-XX/processed/)
     - gamma: Tilt angle parameter
@@ -199,7 +199,7 @@ def thruplane_registration_task(
         else:
             # Try to find MATLAB scripts in common locations
             # This assumes MATLAB scripts are in the workspace or a known location
-            current_dir = Path(__file__).parent.parent.parent
+            Path(__file__).parent.parent.parent
             possible_paths = [
                 Path("/path/to/matlab/scripts"),  # Update with actual path
             ]
@@ -214,12 +214,7 @@ def thruplane_registration_task(
             f"Calling MATLAB thruplane({processed_dir}, {gamma}, {slice_number})"
         )
 
-        eng.thruplane(
-            processed_dir,
-            float(gamma),
-            float(slice_number),
-            nargout=0
-        )
+        eng.thruplane(processed_dir, float(gamma), float(slice_number), nargout=0)
 
         logger.info("thruplane registration completed successfully")
 
@@ -228,9 +223,7 @@ def thruplane_registration_task(
 
     except ImportError:
         # Fallback: Try calling MATLAB via command line
-        logger.warning(
-            "MATLAB Engine not available, attempting command-line call"
-        )
+        logger.warning("MATLAB Engine not available, attempting command-line call")
         _call_matlab_via_cli(
             "thruplane",
             str(processed_dir) + "/",
@@ -253,10 +246,10 @@ def rgb_3daxis_task(
 ) -> Dict[str, Path]:
     """
     Generate RGB 3D axis visualization.
-    
+
     This is a Python wrapper for the MATLAB function `RGB_3Daxis()`.
     It generates 3D axis visualizations from registered orientation data.
-    
+
     Parameters
     ----------
     processed_dir : Path
@@ -266,26 +259,25 @@ def rgb_3daxis_task(
     matlab_script_path : str, optional
         Path to MATLAB script directory. If None, uses current directory
         or searches for RGB_3Daxis.m
-        
+
     Returns
     -------
     Dict[str, Path]
         Dictionary with output file paths:
         - 'axis_image': Path to 3D axis image file
-        
+
     Notes
     -----
     The MATLAB function signature is:
         RGB_3Daxis(processed_dir, slice_number)
-    
+
     Where:
     - processed_dir: Path to processed directory
     - slice_number: Slice number
     """
     logger = get_run_logger()
     logger.info(
-        f"Starting RGB_3Daxis visualization for slice {slice_number} "
-        f"in {processed_dir}"
+        f"Starting RGB_3Daxis visualization for slice {slice_number} in {processed_dir}"
     )
 
     if not processed_dir.exists():
@@ -319,15 +311,9 @@ def rgb_3daxis_task(
                     break
 
         # Call MATLAB function: RGB_3Daxis(processed_dir, slice_number)
-        logger.info(
-            f"Calling MATLAB RGB_3Daxis({processed_dir_str}, {slice_number})"
-        )
+        logger.info(f"Calling MATLAB RGB_3Daxis({processed_dir_str}, {slice_number})")
 
-        eng.RGB_3Daxis(
-            processed_dir_str,
-            float(slice_number),
-            nargout=0
-        )
+        eng.RGB_3Daxis(processed_dir_str, float(slice_number), nargout=0)
 
         logger.info("RGB_3Daxis visualization completed successfully")
 
@@ -360,9 +346,7 @@ def rgb_3daxis_task(
 
     except ImportError:
         # Fallback: Try calling MATLAB via command line
-        logger.warning(
-            "MATLAB Engine not available, attempting command-line call"
-        )
+        logger.warning("MATLAB Engine not available, attempting command-line call")
         _call_matlab_via_cli(
             "RGB_3Daxis",
             processed_dir_str,
@@ -399,7 +383,7 @@ def _call_matlab_via_cli(
 ) -> None:
     """
     Call MATLAB function via command line as fallback.
-    
+
     Parameters
     ----------
     function_name : str

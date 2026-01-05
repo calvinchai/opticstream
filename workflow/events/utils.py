@@ -12,14 +12,14 @@ from workflow.events.constants import get_event_name
 def get_event_trigger(event_name: str) -> DeploymentEventTrigger:
     """
     Get a deployment event trigger for a given event name.
-    
+
     Automatically converts legacy event names to canonical linc.oct.* format.
-    
+
     Parameters
     ----------
     event_name : str
         The name of the event to trigger on (may be legacy or canonical format)
-        
+
     Returns
     -------
     DeploymentEventTrigger
@@ -34,7 +34,7 @@ def get_event_trigger(event_name: str) -> DeploymentEventTrigger:
                 "value": {
                     "__prefect_kind": "jinja",
                     "template": "{{ event.payload | tojson }}",
-                }
+                },
             }
         },
     )

@@ -7,16 +7,16 @@ from prefect.logging import get_run_logger
 
 from workflow.events import BATCH_ARCHIVED, BATCH_UPLOADED, get_event_trigger
 from workflow.state.flags import UPLOADED, get_batch_flag_path
-from workflow.tasks.upload import (upload_to_dandi_task, upload_to_linc_batch_task,
-                                   upload_to_linc_task)
+from workflow.tasks.upload import (
+    upload_to_dandi_task,
+    upload_to_linc_batch_task,
+    upload_to_linc_task,
+)
 from workflow.tasks.utils import get_mosaic_paths
 
 
 @flow(name="upload_flow")
-def upload_flow(
-    file_path: str,
-    instance="linc"
-):
+def upload_flow(file_path: str, instance="linc"):
     if instance == "linc":
         task = upload_to_linc_task.submit(file_path)
     elif instance == "dandi":
@@ -52,12 +52,14 @@ def upload_to_linc_batch_flow(
 
     if not archived_file_paths:
         logger.warning(
-            f"No archived files provided for batch {batch_id} in mosaic {mosaic_id}")
+            f"No archived files provided for batch {batch_id} in mosaic {mosaic_id}"
+        )
         return
 
     logger.info(
         f"Uploading {len(archived_file_paths)} archived files for batch {batch_id} in "
-        f"mosaic {mosaic_id}")
+        f"mosaic {mosaic_id}"
+    )
 
     # Run upload_to_linc_batch_task with the file list from event payload
     upload_to_linc_batch_task(file_list=archived_file_paths)
@@ -65,7 +67,7 @@ def upload_to_linc_batch_flow(
     # Mark batch as uploaded
     batch_uploaded_path.touch()
     logger.info(f"Batch {batch_id} uploaded successfully")
-    
+
     # Emit upload completion event (per Section 6.2)
     emit_event(
         event=BATCH_UPLOADED,
@@ -75,7 +77,7 @@ def upload_to_linc_batch_flow(
             "mosaic_id": mosaic_id,
             "batch_id": batch_id,
             "files_uploaded": len(archived_file_paths),
-        }
+        },
     )
 
     return {
@@ -114,6 +116,8 @@ if __name__ == "__main__":
             triggers=[
                 get_event_trigger(BATCH_ARCHIVED),
             ],
-        ))
-    prefect.serve(upload_to_linc_batch_flow_deployment,
-                  upload_to_linc_batch_event_flow_deployment)
+        )
+    )
+    prefect.serve(
+        upload_to_linc_batch_flow_deployment, upload_to_linc_batch_event_flow_deployment
+    )
