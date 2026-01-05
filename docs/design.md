@@ -240,17 +240,19 @@ Currently manual:
 
 ```
 project/
-│  ├─ mosaicN/
+│  ├─ mosaic-{mosaic_id:02d}/
 │  │  ├─ complex/      # complex tiles (symlinked if needed)
 │  │  ├─ processed/    # intermediate processed data (SSD)
 │  │  ├─ stitched/     # outputs (symlinked to dandiset)
 │  │  ├─ state/        # flag files for batch tracking
-│  │  │  ├─ batch-0.started
-│  │  │  ├─ batch-0.archived
-│  │  │  ├─ batch-0.processed
-│  │  │  ├─ batch-0.uploaded
+│  │  │  ├─ batch-001.started
+│  │  │  ├─ batch-001.archived
+│  │  │  ├─ batch-001.processed
+│  │  │  ├─ batch-001.uploaded
 │  │  │  └─ ...
 │  │  └─ archived/     # raw data (symlinked to dandiset raw)
+│  ├─ registered/
+│  ├─ state/
 │  ├─ focus-normal.nii        # focus finding results (first slice)
 │  ├─ focus-tilted.nii        # focus finding results (first slice)
 │  └─ tilemap-normal.j2     # tile coordinate map
@@ -332,7 +334,6 @@ This consistent naming convention enables clear identification of event hierarch
 
 #### Batch-Level Events
 * `linc.oct.batch.ready` - Batch of tiles detected (to start converting to complex data)
-* `linc.oct.batch.complexed` - Batch of tiles processed (complex-to-processed conversion complete)
 * `linc.oct.batch.processed` - Batch of tiles processed (complex-to-processed conversion complete)
   * Triggers: state management updates (emit mosaic.ready when all batches are done)
 * `linc.oct.batch.archived` - Batch of tiles archived and compressed

@@ -2,9 +2,11 @@ from typing import Any, Dict, List
 
 import prefect
 from prefect import flow
-from prefect.events import DeploymentEventTrigger
+from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
+from workflow.events import BATCH_ARCHIVED, BATCH_UPLOADED, get_event_trigger
+from workflow.state.flags import UPLOADED, get_batch_flag_path
 from workflow.tasks.upload import (upload_to_dandi_task, upload_to_linc_batch_task,
                                    upload_to_linc_task)
 from workflow.tasks.utils import get_mosaic_paths
@@ -16,10 +18,8 @@ def upload_flow(
     instance="linc"
 ):
     if instance == "linc":
-
         task = upload_to_linc_task.submit(file_path)
     elif instance == "dandi":
-
         task = upload_to_dandi_task.submit(file_path)
     else:
         raise ValueError(f"Invalid instance: {instance}")
@@ -36,16 +36,16 @@ def upload_to_linc_batch_flow(
     archived_file_paths: List[str],
 ):
     """
-    Event-driven flow triggered by 'tile_batch.upload_to_linc.ready' event.
+    Event-driven flow triggered by 'linc.oct.batch.archived' event (Section 6.2, 11).
     Runs upload_to_linc_batch_task with the list of archived files from the event
-    payload.
+    payload. Emits 'linc.oct.batch.uploaded' event upon completion.
     """
     logger = get_run_logger()
     # Use slice-based structure
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)
 
-    batch_uploaded_path = state_path / f"batch-{batch_id}.uploaded"
+    batch_uploaded_path = get_batch_flag_path(state_path, batch_id, UPLOADED)
     if batch_uploaded_path.exists():
         logger.info(f"Batch {batch_id} already uploaded")
         return
@@ -65,6 +65,18 @@ def upload_to_linc_batch_flow(
     # Mark batch as uploaded
     batch_uploaded_path.touch()
     logger.info(f"Batch {batch_id} uploaded successfully")
+    
+    # Emit upload completion event (per Section 6.2)
+    emit_event(
+        event=BATCH_UPLOADED,
+        payload={
+            "project_name": project_name,
+            "project_base_path": project_base_path,
+            "mosaic_id": mosaic_id,
+            "batch_id": batch_id,
+            "files_uploaded": len(archived_file_paths),
+        }
+    )
 
     return {
         "mosaic_id": mosaic_id,
@@ -100,18 +112,7 @@ if __name__ == "__main__":
         upload_to_linc_batch_event_flow.to_deployment(
             name="upload_to_linc_batch_payload_flow",
             triggers=[
-                DeploymentEventTrigger(
-                    expect={"tile_batch.upload_to_linc.ready"},
-                    parameters={
-                        "payload": {
-                            "__prefect_kind": "json",
-                            "value": {
-                                "__prefect_kind": "jinja",
-                                "template": "{{ event.payload | tojson }}",
-                            }
-                        }
-                    },
-                )
+                get_event_trigger(BATCH_ARCHIVED),
             ],
         ))
     prefect.serve(upload_to_linc_batch_flow_deployment,

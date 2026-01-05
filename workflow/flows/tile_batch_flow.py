@@ -10,32 +10,34 @@ from prefect.blocks.core import Block
 from prefect.events import DeploymentEventTrigger, emit_event
 from prefect.logging import get_run_logger
 
+from workflow.config.constants import TileSavingType
+from workflow.config.project_config import get_project_config_block
+from workflow.events import BATCH_ARCHIVED, BATCH_READY, BATCH_PROCESSED, get_event_trigger
+from workflow.events.constants import BATCH_COMPLEXED
+from workflow.state.flags import ARCHIVED, PROCESSED, STARTED, get_batch_flag_path, get_batch_flag_path_from_project
 from workflow.tasks.utils import get_mosaic_paths
-import sys
+import re
 
-sys.path.append(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from workflow.tasks.tile_processing import archive_tile_task
 
 
-class Cube(Block):
-    edge_length_inches: float
 
-
-@task(name="spectral_to_complex_batch_task")
+@task(task_run_name="spectral_to_complex_batch_{project_name}_{mosaic_id:03d}_{batch_id:03d}")
 def spectral_to_complex_batch_task(
     project_name: str,
     project_base_path: str,
     mosaic_id: int,
     batch_id: int,
-    file_list: List[str], ):
+    file_list: List[str],
+    aline_length: int = 200,
+    bline_length: int = 350,
+):
     logger = get_run_logger()
     args = []
     disp_comp_file = ('/autofs/cluster/octdata2/users/Hui/tools/dg_utils'
                       '/spectralprocess/dispComp/mineraloil_LSM03'
                       '/dispersion_compensation_LSM03_mineraloil_20240829/LSM03_mineral_oil_placecorrectionmeanall2.dat')
-    aline_length = 200 if mosaic_id % 2 == 0 else 350
-    bline_length = 350
+    
     # Use slice-based structure
     _, _, complex_path, _ = get_mosaic_paths(project_base_path, mosaic_id)
     complex_path.mkdir(parents=True, exist_ok=True)
@@ -49,8 +51,6 @@ def spectral_to_complex_batch_task(
         logger.error(f"Error converting spectral to complex: {result.stderr}")
         raise ValueError(f"Error converting spectral to complex: {result.stderr}")
     complex_file_list = []
-    for spectral_file in file_list:
-        complex_filename = op.basename(spectral_file)
         # mosaic_001_image_0000_spectral_0000.nii -> mosaic_001_image_0000_complex.nii also second number alway padding to 4 digits
     for spectral_file in file_list:
         base_name = op.basename(spectral_file)
@@ -69,9 +69,7 @@ def spectral_to_complex_batch_task(
         name_no_ext = op.splitext(new_base)[0]
 
         # Attempt to match '^mosaic_(\d{3})_image_(\d{3})_complex$'
-        import re
-
-        match = re.match(r'^mosaic_(\d{3})_image_(\d{3})_complex$', name_no_ext)
+        match = re.match(r'^mosaic_(\d{3})_image_(\d{3,4})_complex$', name_no_ext)
         if match:
             mosaic_str = match.group(1)
             image_idx = int(match.group(2))
@@ -82,7 +80,7 @@ def spectral_to_complex_batch_task(
         complex_file_list.append(str(Path(complex_path) / new_base))
 
     emit_event(
-        event="tile_batch.complex2processed.ready",
+        event=BATCH_READY,
         resource={
             "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
             "project_name": project_name,
@@ -97,8 +95,58 @@ def spectral_to_complex_batch_task(
             "file_list": complex_file_list,
         }
     )
+    emit_event(
+        event=BATCH_COMPLEXED,
+        payload={
+            "project_name": project_name,
+            "project_base_path": project_base_path,
+            "mosaic_id": mosaic_id,
+            "batch_id": batch_id,
+            "file_list": complex_file_list,
+        }
+    )
     return result.stdout
 
+@task(task_run_name="spectral_to_complex_batch_{project_name}_{mosaic_id:03d}_{batch_id:03d}")
+def complex_to_complex_batch_task(
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+    batch_id: int,
+    file_list: List[str],
+):
+    """
+    Link the complex data to the raw data.
+    """
+    logger = get_run_logger()
+    _, _, complex_path, _ = get_mosaic_paths(project_base_path, mosaic_id)
+    complex_path.mkdir(parents=True, exist_ok=True)
+    complex_file_list = []
+    for complex_file in file_list:
+        name = op.basename(complex_file)
+        name_no_ext = op.splitext(name)[0]
+        match = re.match(r'^mosaic_(\d{3})_image_(\d{3,4}).*$', name_no_ext)
+        if not match:
+            raise ValueError(f"Invalid complex file name: {complex_file}")
+        mosaic_str = match.group(1)
+        image_idx = int(match.group(2))
+        image_str = f"{image_idx:04d}"
+        raw_file = f"mosaic_{mosaic_str}_image_{image_str}_complex.nii"
+        raw_file_path = str(Path(complex_path) / raw_file)
+        os.symlink(raw_file_path, complex_file)
+        complex_file_list.append(raw_file_path)
+    
+    emit_event(
+        event=BATCH_COMPLEXED,
+        payload={
+            "project_name": project_name,
+            "project_base_path": project_base_path,
+            "mosaic_id": mosaic_id,
+            "batch_id": batch_id,
+            "file_list": complex_file_list,
+        }
+    )
+    return complex_file_list
 
 @task(name="complex_to_processed_batch_task")
 def complex_to_processed_batch_task(
@@ -172,7 +220,6 @@ def archive_tile_batch_task(
     for file_path in file_list:
         # Extract tile_index from filename (similar to spectral_to_complex_batch_task)
         tile_index = int(os.path.basename(file_path).split("_")[3])
-
         # Generate archived tile name (same pattern as tile_flow.py)
         archived_tile_name = f"{project_name}_sample-slice-{slice_id:03d}_chunk-{tile_index:04d}_acq-{acq}_OCT.nii.gz"
         archived_tile_path = op.join(compressed_base_path, archived_tile_name)
@@ -191,11 +238,10 @@ def archive_tile_batch_task(
 
     logger.info(
         f"Completed archiving {len(file_list)} tiles for batch {batch_id} in mosaic {mosaic_id}")
+    batch_archived_path = get_batch_flag_path_from_project(project_base_path, mosaic_id, batch_id, ARCHIVED)
+    batch_archived_path.touch()
     emit_event(
-        event="tile_batch.upload_to_linc.ready",
-        resource={
-            "prefect.resource.id": "{{ event.resource.id }}",
-        },
+        event=BATCH_ARCHIVED,
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -215,16 +261,22 @@ def process_tile_batch_flow(
     batch_id: int,
     file_list: List[str],
     archive: bool = True,
-    convert: bool = True
+    convert: bool = True,
+    tile_saving_type: TileSavingType = TileSavingType.SPECTRAL,
 ):
+    """
+    Process a batch of tiles. 
+    For spectral data, the flow will convert the spectral data to complex data and archive the tiles.
+    For complex data, the flow will link the complex data to the raw data and archive the tiles.
+    Once the complex data is ready, the flow will convert the complex data to processed data.
+
+    """
     logger = get_run_logger()
-    # Use slice-based structure
+    logger.info(f"Processing batch {batch_id} in mosaic {mosaic_id}")
+
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)
-    batch_started_path = state_path / f"batch-{batch_id}.started"
-    # if batch_started_path.exists():
-    #     logger.info(f"Batch {batch_id} already started")
-    #     return
+    batch_started_path = get_batch_flag_path(state_path, batch_id, STARTED)
     batch_started_path.touch()
 
     # Run archive and spectral2complex in parallel (if enabled)
@@ -241,48 +293,66 @@ def process_tile_batch_flow(
         )
 
     if convert:
-        spectral_to_complex_future = spectral_to_complex_batch_task.submit(
-            project_name=project_name,
-            project_base_path=project_base_path,
-            mosaic_id=mosaic_id,
-            batch_id=batch_id,
-            file_list=file_list
-        )
-
+        if tile_saving_type == TileSavingType.SPECTRAL:
+            project_config = get_project_config_block(project_name)
+            is_tilted = mosaic_id % 2 == 0
+            
+            # Handle tile_size values with defaults
+            if project_config is None:
+                from workflow.config.blocks import PSOCTScanConfig
+                
+                # Helper to get field default (supports both Pydantic v1 and v2)
+                def _get_field_default(model_class, field_name: str):
+                    if hasattr(model_class, 'model_fields') and field_name in model_class.model_fields:
+                        field_info = model_class.model_fields[field_name]
+                        if hasattr(field_info, 'default'):
+                            return field_info.default
+                    if hasattr(model_class, '__fields__') and field_name in model_class.__fields__:
+                        field_info = model_class.__fields__[field_name]
+                        if hasattr(field_info, 'default'):
+                            return field_info.default
+                    return None
+                
+                tile_size_x_tilted = _get_field_default(PSOCTScanConfig, 'tile_size_x_tilted') or 200
+                tile_size_x_normal = _get_field_default(PSOCTScanConfig, 'tile_size_x_normal') or 350
+                tile_size_y = _get_field_default(PSOCTScanConfig, 'tile_size_y') or 350
+                
+                aline_length = tile_size_x_tilted if is_tilted else tile_size_x_normal
+                bline_length = tile_size_y
+                logger.warning(
+                    f"Using default tile_size values (aline_length={aline_length}, "
+                    f"bline_length={bline_length}) from class defaults (config block not found)"
+                )
+            else:
+                aline_length = project_config.tile_size_x_tilted if is_tilted else project_config.tile_size_x_normal
+                bline_length = project_config.tile_size_y
+            
+            spectral_to_complex_future = spectral_to_complex_batch_task.submit(
+                project_name=project_name,
+                project_base_path=project_base_path,
+                mosaic_id=mosaic_id,
+                batch_id=batch_id,
+                file_list=file_list,
+                aline_length = aline_length,
+                bline_length = bline_length,
+            )
+        elif tile_saving_type == TileSavingType.COMPLEX:
+            complex_to_complex_future = complex_to_complex_batch_task.submit(
+                project_name=project_name,
+                project_base_path=project_base_path,
+                mosaic_id=mosaic_id,
+                batch_id=batch_id,
+                file_list=file_list
+            )
     # Wait for both to complete (if they were started)
     archive_result = None
     spectral_to_complex_result = None
 
     if archive_future is not None:
         archive_result = archive_future.wait()
-        # Mark batch as archived
-        batch_archived_path = state_path / f"batch-{batch_id}.archived"
-        batch_archived_path.touch()
-
-        # Emit archived event to trigger state management flow
-        emit_event(
-            event="tile_batch.archived.ready",
-            resource={
-                "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
-                "project_name": project_name,
-                "mosaic_id": str(mosaic_id),
-                "batch_id": str(batch_id),
-            },
-            payload={
-                "project_name": project_name,
-                "project_base_path": project_base_path,
-                "mosaic_id": mosaic_id,
-                "batch_id": batch_id,
-            }
-        )
 
     if spectral_to_complex_future is not None:
         spectral_to_complex_result = spectral_to_complex_future.wait()
-
-    logger.info(
-        f"Emitted events for batch {batch_id} in mosaic {mosaic_id}. "
-        f"Waiting for complex2processed and upload_to_linc flows to be triggered."
-    )
 
     return {
         "archive_result": archive_result,
@@ -294,6 +364,35 @@ def process_tile_batch_flow(
 def process_tile_batch_event_flow(
     payload: Dict[str, Any]
 ):
+    """
+    Wrapper flow for event-driven triggering.
+    Loads config block and provides defaults using priority: payload → block → class defaults.
+    """
+    from prefect.logging import get_run_logger
+    logger = get_run_logger()
+    
+    project_name = payload["project_name"]
+    
+    # Load config block
+    project_config = get_project_config_block(project_name)
+    if project_config is None:
+        logger.warning(
+            f"Project config block for '{project_name}' not found. "
+            f"Using defaults from payload or class defaults."
+        )
+    
+    # Handle tile_saving_type (payload → block → class default)
+    tile_saving_type = payload.get("tile_saving_type")
+    if tile_saving_type is None:
+        if project_config:
+            tile_saving_type = project_config.tile_saving_type
+        else:
+            tile_saving_type = TileSavingType.SPECTRAL
+    else:
+        # Convert string to enum if needed
+        if isinstance(tile_saving_type, str):
+            tile_saving_type = TileSavingType[tile_saving_type.upper()]
+    
     process_tile_batch_flow(
         project_name=payload["project_name"],
         project_base_path=payload["project_base_path"],
@@ -302,6 +401,7 @@ def process_tile_batch_event_flow(
         file_list=payload["file_list"],
         archive=payload.get("archive", True),
         convert=payload.get("convert", True),
+        tile_saving_type=tile_saving_type,
     )
 
 
@@ -314,7 +414,7 @@ def complex_to_processed_batch_flow(
     file_list: List[str],
 ):
     """
-    Event-driven flow triggered by 'tile_batch.complex2processed.ready' event.
+    Event-driven flow triggered by event.
     Runs complex_to_processed_batch_task and checks if all batches are processed.
     """
     logger = get_run_logger()
@@ -322,7 +422,7 @@ def complex_to_processed_batch_flow(
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)
 
-    batch_processed_path = state_path / f"batch-{batch_id}.processed"
+    batch_processed_path = get_batch_flag_path(state_path, batch_id, PROCESSED)
     # if batch_processed_path.exists():
     #     logger.info(f"Batch {batch_id} already processed")
     # else:
@@ -339,9 +439,12 @@ def complex_to_processed_batch_flow(
     batch_processed_path.touch()
     logger.info(f"Batch {batch_id} processed successfully")
     emit_event(
-        event="tile_batch.processed.ready",
+        event=BATCH_PROCESSED,
         resource={
             "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+            "batch_id": str(batch_id),
         },
         payload={
             "project_name": project_name,
@@ -383,29 +486,33 @@ if __name__ == "__main__":
     process_tile_batch_flow_deployment = process_tile_batch_flow.to_deployment(
         name="process_tile_batch_flow"
     )
+    
+    # Deployment for complex-to-processed batch flow (triggered by BATCH_READY event)
+    complex_to_processed_batch_event_flow_deployment = (
+        complex_to_processed_batch_event_flow.to_deployment(
+            name="complex_to_processed_batch_event_flow",
+            tags=["event-driven", "tile-batch", "complex-to-processed"],
+            triggers=[
+                get_event_trigger(BATCH_READY),
+            ],
+        )
+    )
+    
     upload_to_linc_batch_flow_deployment = upload_to_linc_batch_flow.to_deployment(
         name="upload_to_linc_batch_flow",
     )
     upload_to_linc_batch_event_flow_deployment = upload_to_linc_batch_event_flow.to_deployment(
         name="upload_to_linc_batch_payload_flow",
         triggers=[
-            DeploymentEventTrigger(
-                expect={"tile_batch.upload_to_linc.ready"},
-                parameters={
-                    "payload": {
-                        "__prefect_kind": "json",
-                        "value": {
-                            "__prefect_kind": "jinja",
-                            "template": "{{ event.payload | tojson }}",
-                        }
-                    }
-                },
-            )
+            get_event_trigger(BATCH_ARCHIVED),
         ],
     )
-    prefect.serve(process_tile_batch_flow_deployment,
-                  upload_to_linc_batch_flow_deployment,
-                  upload_to_linc_batch_event_flow_deployment)
+    prefect.serve(
+        process_tile_batch_flow_deployment,
+        complex_to_processed_batch_event_flow_deployment,
+        upload_to_linc_batch_flow_deployment,
+        upload_to_linc_batch_event_flow_deployment
+    )
 # Note: After complex2processed flow completes (triggered by event), 
 # it checks if all batches in the mosaic are processed.
 # If all batches are processed, it emits the mosaic_processed event,

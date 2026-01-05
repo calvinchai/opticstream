@@ -8,9 +8,17 @@ at different levels: batch, mosaic, and slice.
 from typing import Any, Dict
 
 from prefect import flow
-from prefect.events import DeploymentEventTrigger, emit_event
+from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
+from workflow.events import (
+    BATCH_ARCHIVED,
+    BATCH_PROCESSED,
+    MOSAIC_READY,
+    MOSAIC_STITCHED,
+    SLICE_READY,
+    get_event_trigger,
+)
 from workflow.tasks.state_management import (check_batch_state_task,
                                              check_mosaic_completion_task,
                                              check_mosaic_stitched_task,
@@ -54,6 +62,7 @@ def manage_mosaic_batch_state_flow(
     batch_state = check_batch_state_task(
         project_base_path=project_base_path,
         mosaic_id=mosaic_id,
+        project_name=project_name,
     )
 
     # Update Artifact with progress
@@ -69,6 +78,7 @@ def manage_mosaic_batch_state_flow(
         project_base_path=project_base_path,
         mosaic_id=mosaic_id,
         batch_state=batch_state,
+        project_name=project_name,
     )
 
     # If complete and not already stitched, emit mosaic.processed event
@@ -82,10 +92,10 @@ def manage_mosaic_batch_state_flow(
         if not is_stitched:
             logger.info(
                 f"All batches processed for mosaic {mosaic_id}. "
-                f"Emitting mosaic.processed event."
+                f"Emitting {MOSAIC_READY} event."
             )
             emit_event(
-                event="mosaic.processed",
+                event=MOSAIC_READY,
                 resource={
                     "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
                     "project_name": project_name,
@@ -120,8 +130,8 @@ def manage_mosaic_batch_state_event_flow(
     Wrapper flow for event-driven triggering of batch state management.
     
     Triggered by:
-    - tile_batch.complex2processed.ready (after each batch completes)
-    - tile_batch.archived.ready (after each batch is archived)
+    - linc.oct.batch.processed (after each batch completes)
+    - linc.oct.batch.archived (after each batch is archived)
     
     Parameters
     ----------
@@ -179,6 +189,7 @@ def manage_slice_state_flow(
     slice_state = check_slice_state_task(
         project_base_path=project_base_path,
         slice_number=slice_number,
+        project_name=project_name,
     )
 
     # Update Artifact with slice progress
@@ -206,10 +217,10 @@ def manage_slice_state_flow(
     if both_stitched:
         logger.info(
             f"Both mosaics stitched for slice {slice_number}. "
-            f"Emitting slice.ready event."
+            f"Emitting {SLICE_READY} event."
         )
         emit_event(
-            event="slice.ready",
+            event=SLICE_READY,
             resource={
                 "prefect.resource.id": f"slice:{project_name}:slice-{slice_number}",
                 "project_name": project_name,
@@ -243,7 +254,7 @@ def manage_slice_state_event_flow(
     Wrapper flow for event-driven triggering of slice state management.
     
     Triggered by:
-    - mosaic.stitched (after each mosaic is stitched)
+    - linc.oct.mosaic.stitched (after each mosaic is stitched)
     
     Parameters
     ----------
@@ -286,31 +297,9 @@ if __name__ == "__main__":
             tags=["event-driven", "state-management", "mosaic"],
             triggers=[
                 # Trigger when a batch completes processing
-                DeploymentEventTrigger(
-                    expect={"tile_batch.complex2processed.ready"},
-                    parameters={
-                        "payload": {
-                            "__prefect_kind": "json",
-                            "value": {
-                                "__prefect_kind": "jinja",
-                                "template": "{{ event.payload | tojson }}",
-                            }
-                        }
-                    },
-                ),
+                get_event_trigger(BATCH_PROCESSED),
                 # Also trigger when a batch is archived (for early progress tracking)
-                DeploymentEventTrigger(
-                    expect={"tile_batch.archived.ready"},
-                    parameters={
-                        "payload": {
-                            "__prefect_kind": "json",
-                            "value": {
-                                "__prefect_kind": "jinja",
-                                "template": "{{ event.payload | tojson }}",
-                            }
-                        }
-                    },
-                ),
+                get_event_trigger(BATCH_ARCHIVED),
             ],
             concurrency_limit=1
         ))
@@ -321,21 +310,9 @@ if __name__ == "__main__":
         name="manage_slice_state_event_flow",
         tags=["event-driven", "state-management", "slice"],
         triggers=[
-            DeploymentEventTrigger(
-                expect={"mosaic.stitched"},
-                parameters={
-                    "payload": {
-                        "__prefect_kind": "json",
-                        "value": {
-                            "__prefect_kind": "jinja",
-                            "template": "{{ event.payload | tojson }}",
-                        }
-                    }
-                },
-            ),
+            get_event_trigger(MOSAIC_STITCHED),
         ],
         concurrency_limit=1
-
     ))
 
     # Deployments are created but not served here

@@ -1,0 +1,70 @@
+"""
+Prefect Blocks for project configuration.
+
+This module defines custom Prefect Blocks for managing project-level configuration.
+Blocks provide typed configuration schemas with validation and UI management.
+
+See: https://docs.prefect.io/v3/concepts/blocks
+"""
+
+from typing import List, Optional, Tuple
+
+from prefect.blocks.core import Block
+from pydantic import ConfigDict
+
+from workflow.config.constants import TileSavingType
+from linc_convert.utils.zarr_config import ZarrConfig
+
+class PSOCTScanConfig(Block):
+    """
+    Project-level configuration block.
+    
+    Stores all project-specific parameters needed for processing workflows.
+    Block instances should be saved with name: "{project_name}-config"
+    
+    Attributes
+    ----------
+    project_base_path : str
+        Base filesystem path for project data (required)
+    grid_size_x_normal : int
+        Number of batches (columns) per mosaic for normal illumination (required)
+    grid_size_x_tilted : int
+        Number of batches (columns) per mosaic for tilted illumination (required)
+    grid_size_y : int
+        Number of tiles per batch (rows) - determines batch size (required)
+    tile_overlap : float, optional
+        Overlap between tiles in pixels (default: 20.0)
+    mask_threshold : float, optional
+        Threshold for mask generation and coordinate processing (default: 50.0)
+    scan_resolution_3d : List[float], optional
+        Scan resolution for 3D volumes [x, y, z] in millimeters 
+        (default: [0.01, 0.01, 0.0025])
+    """
+    # model_config = ConfigDict(frozen=False)
+    
+    zarr_config: ZarrConfig 
+
+    project_base_path: str
+    grid_size_x_normal: int
+    grid_size_x_tilted: int
+    grid_size_y: int
+    tile_size_x_normal: int = 350
+    tile_size_x_tilted: int = 200
+    tile_size_y: int = 350
+
+    tile_overlap: float = 20.0
+    mask_threshold: float = 50.0
+    scan_resolution_3d: Tuple[float, float, float] = (0.01, 0.01, 0.0025)
+    tile_saving_type: TileSavingType = TileSavingType.SPECTRAL
+
+    tile_archive_format:str = "sub-{project_name}_sample-slice{slice_id:03d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz"
+    mosaic_volume_format:str = "sub-{project_name}_sample-slice{slice_id:03d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+    mosaic_enface_format:str = "sub-{project_name}_sample-slice{slice_id:03d}_acq-{acq}_proc-{modality}_OCT.nii.gz"
+    mosaic_mask_format:str = "sub-{project_name}_sample-slice{slice_id:03d}_acq-{acq}_OCT_mask.nii.gz"
+    slice_registered_format:str = "sub-{project_name}_sample-slice{slice_id:03d}_proc-3daxis_OCT.nii.gz"
+
+    enface_modalities: List[str] = ["ret", "ori", "biref", "mip", "surf"]
+    volume_modalities: List[str] = ["dBI", "R3D", "O3D"]
+    
+    
+#PSOCTScanConfig.register_type_and_schema()

@@ -10,9 +10,10 @@ This flow is triggered by the 'slice.ready' event when both mosaics
 from typing import Any, Dict
 
 from prefect import flow
-from prefect.events import DeploymentEventTrigger, emit_event
+from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
+from workflow.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
 from workflow.tasks.slice_registration import (rgb_3daxis_task,
                                                thruplane_registration_task)
 
@@ -83,9 +84,9 @@ def register_slice_flow(
         matlab_script_path="/space/megaera/1/users/kchai/code/psoct-renew",
     )
 
-    # Emit event that slice registration is complete
+    # Emit event that slice registration is complete (per Section 6.2)
     emit_event(
-        event="slice.registered",
+        event=SLICE_REGISTERED,
         resource={
             "prefect.resource.id": f"slice:{project_name}:slice-{slice_number}",
             "project_name": project_name,
@@ -120,7 +121,7 @@ def register_slice_event_flow(
     """
     Wrapper flow for event-driven triggering of slice registration.
     
-    Triggered by the 'slice.ready' event when both mosaics are stitched.
+    Triggered by the 'linc.oct.slice.ready' event when both mosaics are stitched.
     
     Parameters
     ----------
@@ -166,17 +167,6 @@ if __name__ == "__main__":
         name="register_slice_event_flow",
         tags=["event-driven", "slice-registration"],
         triggers=[
-            DeploymentEventTrigger(
-                expect={"slice.ready"},
-                parameters={
-                    "payload": {
-                        "__prefect_kind": "json",
-                        "value": {
-                            "__prefect_kind": "jinja",
-                            "template": "{{ event.payload | tojson }}",
-                        }
-                    }
-                },
-            )
+            get_event_trigger(SLICE_READY),
         ],
     )

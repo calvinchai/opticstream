@@ -1,19 +1,20 @@
 """
-Slack notification flow triggered by mosaic.enface_stitched event.
+Slack notification flow triggered by linc.oct.mosaic.stitched event.
 
-This flow sends notifications to Slack when 2D enface images are stitched,
-including uploading JPEG preview images.
+This flow sends notifications to Slack when mosaics are stitched,
+including uploading JPEG preview images for enface modalities.
+Per Section 7.3 of design document.
 """
 
 import os
 from typing import Dict
 
 from prefect import flow
-from prefect.events import DeploymentEventTrigger
 from prefect.logging import get_run_logger
 
+from workflow.events import MOSAIC_STITCHED, get_event_trigger
 from workflow.tasks.slack_notifications import (send_slack_message_task,
-                                                upload_image_to_slack_task)
+                                               upload_image_to_slack_task)
 
 # Default Slack configuration (can be overridden via environment variables)
 DEFAULT_SLACK_BOT_TOKEN = os.getenv(
@@ -31,12 +32,14 @@ def slack_enface_notification_flow(
     payload: dict,
 ) -> Dict[str, bool]:
     """
-    Flow triggered by mosaic.enface_stitched event to send Slack notifications.
+    Flow triggered by linc.oct.mosaic.stitched event to send Slack notifications.
     
     This flow:
     1. Extracts enface output paths from the event payload
     2. Sends a text message to Slack about the completion
     3. Uploads JPEG preview images for each stitched enface modality
+    
+    Per Section 7.3 of design document.
     
     Parameters
     ----------
@@ -131,17 +134,6 @@ if __name__ == "__main__":
         name="slack_enface_notification_flow",
         tags=["event-driven", "slack-notifications", "enface-stitched"],
         triggers=[
-            DeploymentEventTrigger(
-                expect={"mosaic.enface_stitched"},
-                parameters={
-                    "payload": {
-                        "__prefect_kind": "json",
-                        "value": {
-                            "__prefect_kind": "jinja",
-                            "template": "{{ event.payload | tojson }}",
-                        }
-                    }
-                },
-            )
+            get_event_trigger(MOSAIC_STITCHED),
         ],
     )

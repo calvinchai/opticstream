@@ -2,7 +2,6 @@
 Event utilities for Prefect event-driven deployments.
 
 This module provides utilities for creating event triggers and emitting events
-following the design document naming convention (Section 6.1, 6.2).
 """
 
 from prefect.events import DeploymentEventTrigger

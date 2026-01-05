@@ -418,3 +418,86 @@ def stitch_mosaic3d_task(
     )
     logger.info(f"Stitched mosaic 3D saved to {output_path}")
     return output_path
+
+
+@task(name="find_focus_plane_task")
+def find_focus_plane_task(
+    project_base_path: str,
+    mosaic_id: int,
+    stitched_surface_path: str,
+    illumination: str,
+) -> str:
+    """
+    Find optimal focus plane for 3D volume stitching (Section 3.3).
+    
+    Per design document Section 3.3, focus finding:
+    - Determines optimal focus plane for 3D volume stitching
+    - Uses unfiltered surface data
+    - Generates QC validation: verify focus finding overlap with intensity images
+    - Output saved as focus-{illumination}.nii in project base path
+    
+    Parameters
+    ----------
+    project_base_path : str
+        Base path for the project
+    mosaic_id : int
+        Mosaic identifier (first slice: 1 for normal, 2 for tilted)
+    stitched_surface_path : str
+        Path to stitched surface map (unfiltered version)
+    illumination : str
+        Illumination type ("normal" or "tilted")
+        
+    Returns
+    -------
+    str
+        Path to generated focus plane file (focus-{illumination}.nii)
+        
+    Notes
+    -----
+    Detailed algorithms are described in Section 15 of design document.
+    This is a placeholder implementation that can be expanded with actual
+    focus finding algorithms.
+    """
+    logger = get_run_logger()
+    logger.info(
+        f"Finding focus plane for {illumination} illumination "
+        f"(mosaic {mosaic_id})"
+    )
+    
+    # Output path per Section 4.1: {project_base_path}/focus-{illumination}.nii
+    focus_output_path = Path(project_base_path) / f"focus-{illumination}.nii"
+    focus_output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # TODO: Implement actual focus finding algorithm (Section 15)
+    # For now, this is a placeholder that:
+    # 1. Loads the stitched surface map
+    # 2. Processes it to determine optimal focus plane
+    # 3. Saves the focus plane as a NIfTI file
+    
+    # Placeholder: Copy surface map as focus plane (to be replaced with actual algorithm)
+    import nibabel as nib
+    
+    try:
+        # Load stitched surface
+        surface_img = nib.load(stitched_surface_path)
+        surface_data = surface_img.get_fdata()
+        
+        # TODO: Apply focus finding algorithm here
+        # For now, use surface data directly (this should be replaced with actual algorithm)
+        focus_data = surface_data.copy()
+        
+        # Save focus plane
+        focus_img = nib.Nifti1Image(focus_data, surface_img.affine, surface_img.header)
+        nib.save(focus_img, str(focus_output_path))
+        
+        logger.info(f"Focus plane saved to {focus_output_path}")
+        logger.warning(
+            "Focus finding using placeholder implementation. "
+            "Actual algorithm from Section 15 should be implemented."
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in focus finding: {e}")
+        raise
+    
+    return str(focus_output_path)

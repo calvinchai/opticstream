@@ -5,7 +5,8 @@ This module contains all task definitions organized by functionality.
 """
 
 # Mosaic processing tasks
-from .mosaic_processing import (fiji_stitch_task, generate_coord_template_task,
+from .mosaic_processing import (fiji_stitch_task, find_focus_plane_task,
+                                generate_coord_template_task,
                                 generate_mask_task, generate_tile_info_file_task,
                                 process_tile_coord_task, stitch_mosaic2d_task)
 # Slack notification tasks
@@ -44,6 +45,7 @@ __all__ = [
     "generate_tile_info_file_task",
     "stitch_mosaic2d_task",
     "generate_mask_task",
+    "find_focus_plane_task",
     # Slack notifications
     "upload_image_to_slack_task",
     "send_slack_message_task",

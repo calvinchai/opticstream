@@ -12,23 +12,42 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from prefect import flow
-from prefect.events import DeploymentEventTrigger, emit_event
+from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
+from workflow.events import MOSAIC_READY, MOSAIC_STITCHED, get_event_trigger
 from workflow.tasks.mosaic_processing import (fiji_stitch_task,
+                                              find_focus_plane_task,
                                               generate_coord_template_task,
                                               generate_mask_task,
                                               generate_tile_info_file_task,
                                               process_tile_coord_task,
                                               stitch_mosaic2d_task, stitch_mosaic3d_task)
 from workflow.tasks.utils import get_illumination, get_mosaic_paths, mosaic_id_to_slice_number
+from workflow.config.project_config import get_grid_size_x, get_project_config_block
+from workflow.config.blocks import PSOCTScanConfig
 
-# Modality configurations
-ENFACE_MODALITIES = ["ret", "ori", "biref", "mip", "surf"]
-VOLUME_MODALITIES = ["dBI", "R3D", "O3D"]
+# Helper function to get field default from Pydantic model
+def _get_field_default(model_class, field_name: str):
+    """Get default value for a Pydantic model field, supporting both v1 and v2."""
+    # Try Pydantic v2 first (model_fields)
+    if hasattr(model_class, 'model_fields') and field_name in model_class.model_fields:
+        field_info = model_class.model_fields[field_name]
+        if hasattr(field_info, 'default'):
+            return field_info.default
+    # Try Pydantic v1 (__fields__)
+    if hasattr(model_class, '__fields__') and field_name in model_class.__fields__:
+        field_info = model_class.__fields__[field_name]
+        if hasattr(field_info, 'default'):
+            return field_info.default
+    # Fallback: return None
+    return None
 
-# Default scan resolution (3D: [x, y, z], 2D uses first 2 elements)
-DEFAULT_SCAN_RESOLUTION_3D = [0.01, 0.01, 0.0025]
+# Default constants from PSOCTScanConfig class
+ENFACE_MODALITIES = _get_field_default(PSOCTScanConfig, 'enface_modalities') or ["ret", "ori", "biref", "mip", "surf"]
+VOLUME_MODALITIES = _get_field_default(PSOCTScanConfig, 'volume_modalities') or ["dBI", "R3D", "O3D"]
+_scan_res_3d_default = _get_field_default(PSOCTScanConfig, 'scan_resolution_3d')
+DEFAULT_SCAN_RESOLUTION_3D = list(_scan_res_3d_default) if _scan_res_3d_default is not None else [0.01, 0.01, 0.0025]
 
 @flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
 def process_stitching_coordinates(
@@ -39,6 +58,7 @@ def process_stitching_coordinates(
     grid_size_y: int,
     tile_overlap: float,
     mask_threshold: float,
+    illumination: str,
 ) -> tuple[Path, Path]:
     """
     Process coordinate determination for first slice (mosaic_001 or mosaic_002).
@@ -144,7 +164,6 @@ def stitch_enface_modalities_flow(
     project_base_path: str,
     mosaic_id: int,
     template_path: Path,
-    tiles_data_path: Path,
     processed_path: Path,
     stitched_path: Path,
     mask_path: Path,
@@ -310,11 +329,11 @@ def stitch_volume_modalities_flow(
 def process_mosaic_flow(
     project_name: str,
     mosaic_id: int,
-    project_base_path: str,
-    grid_size_x: int,
-    grid_size_y: int,
-    tile_overlap: float = 20.0,
-    mask_threshold: float = 50.0,
+    project_base_path: Optional[str] = None,
+    grid_size_x: Optional[int] = None,
+    grid_size_y: Optional[int] = None,
+    tile_overlap: Optional[float] = None,
+    mask_threshold: Optional[float] = None,
     scan_resolution_3d: Optional[List[float]] = None,
     force_refresh_coords: bool = False,
 ) -> Dict[str, Any]:
@@ -359,21 +378,43 @@ def process_mosaic_flow(
         Dictionary with output paths and status
     """
     logger = get_run_logger()
-    # Use slice-based structure
-    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    
+    # Note: Event flows handle loading config blocks and providing defaults.
+    # These checks are minimal defensive programming for direct calls.
+    
+    # Handle project_base_path (required - event flow should always provide this)
+    if project_base_path is None:
+        project_config = get_project_config_block(project_name)
+        if project_config is None:
+            raise ValueError(
+                f"project_base_path is required but not provided and config block "
+                f"'{project_name}-config' is missing. Please provide project_base_path "
+                f"or create the config block."
+            )
+        project_base_path = project_config.project_base_path
+    
+    # Handle grid_size_x (can be None from event flow when config block exists)
+    if grid_size_x is None:
+        try:
+            grid_size_x = get_grid_size_x(project_name, mosaic_id)
+        except ValueError as e:
+            raise ValueError(
+                f"grid_size_x is required but cannot be determined. {str(e)}"
+            )
+    
+    # Note: grid_size_y, tile_overlap, mask_threshold, scan_resolution_3d are always
+    # provided by event flows, so no None handling needed here.
+    # If called directly, these should be provided explicitly.
+    
+    scan_resolution_2d = scan_resolution_3d[:2]
+    
     processed_path, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
-    processed_path.mkdir(parents=True, exist_ok=True)
     stitched_path.mkdir(parents=True, exist_ok=True)
 
     # Determine if this is normal or tilted illumination
     # Normal: odd mosaic_id (1, 3, 5, ...), Tilted: even mosaic_id (2, 4, 6, ...)
     is_tilted = mosaic_id % 2 == 0
     illumination = "tilted" if is_tilted else "normal"
-
-    # Set scan resolution (3D, 2D uses first 2 elements)
-    if scan_resolution_3d is None:
-        scan_resolution_3d = DEFAULT_SCAN_RESOLUTION_3D
-    scan_resolution_2d = scan_resolution_3d[:2]
 
     logger.info(
         f"Processing mosaic {mosaic_id} ({illumination} illumination) "
@@ -387,15 +428,14 @@ def process_mosaic_flow(
     base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(project_base_path,
                                                                      base_mosaic_id)
 
-    # Check if we need to run coordinate determination
-    # Only run for mosaic_001 (normal) or mosaic_002 (tilted) unless forced
-    should_run_coords = (mosaic_id == base_mosaic_id) or force_refresh_coords
-
     # Get template path and tile coordinates export path
     template_filename = f"tile_info_{illumination}.j2"
     template_path = Path(project_base_path) / template_filename
 
-    if should_run_coords:
+    # Check if we need to run coordinate determination
+    # Only run for mosaic_001 (normal) or mosaic_002 (tilted) unless overridden
+    first_slice_run = (mosaic_id <=2) or force_refresh_coords
+    if first_slice_run:
         # Process first slice coordinates (Fiji stitch, coordinate processing, template generation)
         template_path, tile_coords_export = process_stitching_coordinates(
             project_name=project_name,
@@ -408,14 +448,11 @@ def process_mosaic_flow(
             scan_resolution_2d=scan_resolution_2d,
             illumination=illumination,
         )
-        tiles_data_path = tile_coords_export
     else:
         logger.info(
             f"Skipping coordinate determination for mosaic {mosaic_id}. "
-            f"Using template from mosaic {base_mosaic_id} ({illumination} illumination)"
+            f"Using template from mosaic {base_mosaic_id})"
         )
-        # Use existing tile coordinates export from base mosaic
-        tiles_data_path = base_stitched_path / f"mosaic_{base_mosaic_id:03d}_tile_coords_export.yaml"
 
     if not template_path.exists():
         raise FileNotFoundError(
@@ -431,7 +468,6 @@ def process_mosaic_flow(
     mip_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_mip.yaml"
     mip_nifti = stitched_path / f"mosaic_{mosaic_id:03d}_mip.nii"
     mip_jpeg = stitched_path / f"mosaic_{mosaic_id:03d}_mip.jpeg"
-    mip_tiff = stitched_path / f"mosaic_{mosaic_id:03d}_mip.tif"
 
     # Generate tile_info files for AIP and MIP (both without mask)
     generate_tile_info_file_task(
@@ -464,7 +500,6 @@ def process_mosaic_flow(
         tile_info_file=str(mip_tile_info),
         nifti_output=str(mip_nifti),
         jpeg_output=str(mip_jpeg),
-        tiff_output=str(mip_tiff),
         circular_mean=False,
     )
 
@@ -487,7 +522,6 @@ def process_mosaic_flow(
         project_base_path=project_base_path,
         mosaic_id=mosaic_id,
         template_path=template_path,
-        tiles_data_path=tiles_data_path,
         processed_path=processed_path,
         stitched_path=stitched_path,
         mask_path=mask_path,
@@ -495,6 +529,38 @@ def process_mosaic_flow(
     )
     enface_outputs["aip"] = aip_nifti
     enface_outputs["mip"] = mip_nifti
+    
+    # Step 6.5: Focus finding for first slice (Section 3.3)
+    # Focus finding requires unfiltered surface data, so it runs after surface stitching
+    if first_slice_run:
+        # This is the first slice for this illumination type
+        # Find focus plane using stitched surface (unfiltered)
+        # Surface is stitched as part of enface modalities
+        surf_output = enface_outputs.get("surf")
+        if surf_output:
+            # surf_output is a dict with 'nifti', 'jpeg', 'tiff' keys from stitch_mosaic2d_task
+            surface_nifti = surf_output.get("nifti") if isinstance(surf_output, dict) else str(surf_output)
+            surface_path = Path(surface_nifti) if surface_nifti else None
+            if surface_path and surface_path.exists():
+                focus_path = find_focus_plane_task(
+                    project_base_path=project_base_path,
+                    mosaic_id=mosaic_id,
+                    stitched_surface_path=str(surface_path),
+                    illumination=illumination,
+                )
+                logger.info(
+                    f"Focus plane determined for {illumination} illumination: {focus_path}"
+                )
+            else:
+                logger.warning(
+                    f"Surface map NIfTI not found or doesn't exist for focus finding in mosaic {mosaic_id}. "
+                    f"Path: {surface_path}. Focus finding skipped."
+                )
+        else:
+            logger.warning(
+                f"Surface map not found in enface outputs for mosaic {mosaic_id}. "
+                f"Focus finding skipped."
+            )
     # Step 7: Stitch all volume modalities asynchronously (using template, no mask)
     volume_futures = {}
     for modality in VOLUME_MODALITIES:
@@ -503,7 +569,7 @@ def process_mosaic_flow(
 
         # Generate tile_info_file using template
         
-
+    
         # Submit stitch task asynchronously (volumes don't need JPEG/TIFF)
         # future = stitch_mosaic2d_task.submit(
         #     tile_info_file=str(modality_tile_info),
@@ -512,25 +578,11 @@ def process_mosaic_flow(
         # )
         # volume_futures[modality] = future
 
-    # Emit event when 2D enface images are finished stitching
-    emit_event(
-        event="mosaic.enface_stitched",
-        resource={
-            "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
-            "project_name": project_name,
-            "mosaic_id": str(mosaic_id),
-        },
-        payload={
-            "project_name": project_name,
-            "project_base_path": project_base_path,
-            "mosaic_id": mosaic_id,
-            "enface_outputs": enface_outputs,
-        }
-    )
-
+    # Note: Per design document Section 6.2, we emit a single mosaic.stitched event
+    # after all modalities (both enface and volume) are stitched
     logger.info(
         f"All enface modalities stitched for mosaic {mosaic_id}. "
-        f"Emitted mosaic.enface_stitched event."
+        f"Volume stitching in progress..."
     )
 
     # Wait for all volume stitching to complete
@@ -539,14 +591,9 @@ def process_mosaic_flow(
         outputs = future.wait()
         volume_outputs[modality] = outputs
 
-    # Emit event that mosaic stitching is complete
+    # Emit event that mosaic stitching is complete (per Section 6.2)
     emit_event(
-        event="mosaic.stitched",
-        resource={
-            "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
-            "project_name": project_name,
-            "mosaic_id": str(mosaic_id),
-        },
+        event=MOSAIC_STITCHED,
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -576,42 +623,95 @@ def process_mosaic_event_flow(
 ) -> Dict[str, Any]:
     """
     Wrapper flow for event-driven triggering.
+    Loads config block and provides defaults using priority: payload → block → class defaults.
     Extracts parameters from the event payload and calls process_mosaic_flow.
     
     The payload is passed as JSON from the event, so types should be preserved.
     However, we ensure proper type conversion for safety.
     """
-    # Extract and convert types explicitly to ensure correctness
+    logger = get_run_logger()
+    project_name = payload["project_name"]
     mosaic_id = int(payload["mosaic_id"])
-    grid_size_x = int(payload.get("total_batches") or payload.get("grid_size_x", 14))
-    grid_size_y = int(payload.get("grid_size_y", 31))
-    tile_overlap = float(payload.get("tile_overlap", 20.0))
-    mask_threshold = float(payload.get("mask_threshold", 50.0))
-
-    # Handle scan_resolution_3d - could be list or need default
-    scan_resolution_3d = payload.get("scan_resolution_3d")
-    if scan_resolution_3d is None:
-        scan_resolution_3d = DEFAULT_SCAN_RESOLUTION_3D
+    
+    # Load config block
+    project_config = get_project_config_block(project_name)
+    if project_config is None:
+        logger.warning(
+            f"Project config block for '{project_name}' not found. "
+            f"Using defaults from payload or class defaults."
+        )
+    
+    # Build parameter dict with priority: payload → block → class defaults
+    params = {
+        "project_name": project_name,
+        "mosaic_id": mosaic_id,
+    }
+    
+    # Required field: project_base_path (must be in payload or block)
+    if "project_base_path" in payload:
+        params["project_base_path"] = payload["project_base_path"]
+    elif project_config:
+        params["project_base_path"] = project_config.project_base_path
     else:
+        raise ValueError(
+            f"project_base_path is required but not found in payload and config block "
+            f"'{project_name}-config' is missing. Please provide project_base_path in event payload "
+            f"or create the config block."
+        )
+    
+    # Optional field: grid_size_x (payload → block → get_grid_size_x → error)
+    if "grid_size_x" in payload or "total_batches" in payload:
+        params["grid_size_x"] = int(payload.get("grid_size_x") or payload.get("total_batches"))
+    elif project_config:
+        # Will be resolved in main flow via get_grid_size_x
+        params["grid_size_x"] = None
+    else:
+        # Leave as None, will raise error in main flow if needed
+        params["grid_size_x"] = None
+    
+    # Optional field: grid_size_y (payload → block → class default)
+    if "grid_size_y" in payload:
+        params["grid_size_y"] = int(payload["grid_size_y"])
+    elif project_config:
+        params["grid_size_y"] = project_config.grid_size_y
+    else:
+        params["grid_size_y"] = _get_field_default(PSOCTScanConfig, 'grid_size_y')
+        if params["grid_size_y"] is None:
+            raise ValueError("grid_size_y is required but cannot be determined from config block or defaults")
+    
+    # Optional field: tile_overlap (payload → block → class default)
+    if "tile_overlap" in payload:
+        params["tile_overlap"] = float(payload["tile_overlap"])
+    elif project_config:
+        params["tile_overlap"] = project_config.tile_overlap
+    else:
+        params["tile_overlap"] = _get_field_default(PSOCTScanConfig, 'tile_overlap') or 20.0
+    
+    # Optional field: mask_threshold (payload → block → class default)
+    if "mask_threshold" in payload:
+        params["mask_threshold"] = float(payload["mask_threshold"])
+    elif project_config:
+        params["mask_threshold"] = project_config.mask_threshold
+    else:
+        params["mask_threshold"] = _get_field_default(PSOCTScanConfig, 'mask_threshold') or 50.0
+    
+    # Optional field: scan_resolution_3d (payload → block → class default)
+    if "scan_resolution_3d" in payload:
+        scan_resolution_3d = payload["scan_resolution_3d"]
         # Ensure it's a list of floats
-        scan_resolution_3d = [float(x) for x in scan_resolution_3d]
-
-    # Handle boolean - could be string "true"/"false" or actual boolean
+        params["scan_resolution_3d"] = [float(x) for x in scan_resolution_3d]
+    elif project_config:
+        params["scan_resolution_3d"] = list(project_config.scan_resolution_3d)
+    else:
+        params["scan_resolution_3d"] = DEFAULT_SCAN_RESOLUTION_3D
+    
+    # Optional field: force_refresh_coords (payload → default False)
     force_refresh_coords = payload.get("force_refresh_coords", False)
     if isinstance(force_refresh_coords, str):
         force_refresh_coords = force_refresh_coords.lower() == "true"
+    params["force_refresh_coords"] = force_refresh_coords
 
-    return process_mosaic_flow(
-        project_name=payload["project_name"],
-        project_base_path=payload["project_base_path"],
-        mosaic_id=mosaic_id,
-        grid_size_x=grid_size_x,
-        grid_size_y=grid_size_y,
-        tile_overlap=tile_overlap,
-        mask_threshold=mask_threshold,
-        scan_resolution_3d=scan_resolution_3d,
-        force_refresh_coords=force_refresh_coords,
-    )
+    return process_mosaic_flow(**params)
 
 
 # Deployment configuration for event-driven triggering
@@ -620,7 +720,7 @@ if __name__ == "__main__":
         name="process_mosaic_event_flow",
         tags=["event-driven", "mosaic-processing", "stitching"],
         triggers=[
-            get_event_trigger("mosaic.ready"),
+            get_event_trigger(MOSAIC_READY),
         ],
     )
     

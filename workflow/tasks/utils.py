@@ -110,10 +110,11 @@ def discover_slices_task(
 def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[
     Path, Path, Path, Path]:
     """
-    Get standard paths for a mosaic using slice-based structure.
+    Get standard paths for a mosaic.
     
-    This function converts mosaic_id to slice_number and returns the
-    appropriate paths in the slice-based directory structure.
+    Per design document Section 4.1 and 7.1:
+    - Flag files (state_path) use mosaic-based structure: mosaic-{mosaic_id}/state/
+    - Processed/stitched/complex data use slice-based structure for efficiency
     
     Parameters
     ----------
@@ -126,9 +127,15 @@ def get_mosaic_paths(project_base_path: str, mosaic_id: int) -> Tuple[
     -------
     Tuple[Path, Path, Path, Path]
         Tuple of (processed_path, stitched_path, complex_path, state_path)
+        where state_path uses mosaic-{id}/state/ structure (Section 7.1)
     """
-    slice_number = mosaic_id_to_slice_number(mosaic_id)
-    return get_slice_paths(project_base_path, slice_number)
+    project_base_path = Path(project_base_path)
+    mosaic_path = project_base_path / f"mosaic-{mosaic_id:03d}"
+    processed_path = mosaic_path / "processed"
+    stitched_path = mosaic_path / "stitched"
+    complex_path = mosaic_path / "complex"
+    mosaic_state_path = mosaic_path / "state"
+    return processed_path, stitched_path, complex_path, mosaic_state_path
 
 
 def get_illumination(mosaic_id: int) -> str:
