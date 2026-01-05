@@ -10,7 +10,8 @@ from .mosaic_processing import (fiji_stitch_task, find_focus_plane_task,
                                 generate_mask_task, generate_tile_info_file_task,
                                 process_tile_coord_task, stitch_mosaic2d_task)
 # Slack notification tasks
-from .slack_notifications import (send_slack_message_task, upload_image_to_slack_task)
+from .slack_notifications import (send_slack_message_task, upload_image_to_slack_task,
+                                 upload_multiple_files_to_slack_task)
 # Slice registration tasks
 from .slice_registration import (rgb_3daxis_task, thruplane_registration_task)
 # Tile processing tasks
@@ -49,6 +50,7 @@ __all__ = [
     # Slack notifications
     "upload_image_to_slack_task",
     "send_slack_message_task",
+    "upload_multiple_files_to_slack_task",
     # Slice registration
     "thruplane_registration_task",
     "rgb_3daxis_task",

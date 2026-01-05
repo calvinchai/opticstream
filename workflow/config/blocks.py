@@ -66,5 +66,7 @@ class PSOCTScanConfig(Block):
     enface_modalities: List[str] = ["ret", "ori", "biref", "mip", "surf"]
     volume_modalities: List[str] = ["dBI", "R3D", "O3D"]
     
+    stitch_3d_volumes: bool = True
+    
     
 #PSOCTScanConfig.register_type_and_schema()

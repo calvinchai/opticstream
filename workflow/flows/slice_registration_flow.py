@@ -87,11 +87,6 @@ def register_slice_flow(
     # Emit event that slice registration is complete (per Section 6.2)
     emit_event(
         event=SLICE_REGISTERED,
-        resource={
-            "prefect.resource.id": f"slice:{project_name}:slice-{slice_number}",
-            "project_name": project_name,
-            "slice_number": str(slice_number),
-        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,

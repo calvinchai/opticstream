@@ -41,6 +41,32 @@ def slack_enface_notification_flow(
     
     Per Section 7.3 of design document.
     
+    logger = get_run_logger()
+    
+    # Recover state from flag files
+    # Note: project_name not available in this task, will use fallback method
+    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name=None)
+    
+    # Check flag file first (authoritative source)
+    if mosaic_state.stitched:
+        logger.info(f"Mosaic {mosaic_id} is stitched (flag file exists)")
+        return True
+    
+    # Fallback: Check for AIP file as indicator of stitching completion
+    _, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
+    aip_file = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"
+    is_stitched = aip_file.exists()
+
+    if is_stitched:
+        logger.info(f"Mosaic {mosaic_id} is stitched (found {aip_file})")
+    else:
+        logger.debug(f"Mosaic {mosaic_id} not yet stitched (missing flag file and {aip_file})")
+
+    return is_stitched
+
+
+@task(name="refresh_and_save_mosaic_state")
+def refresh_and_save_mosaic_state_task(
     Parameters
     ----------
     payload : dict

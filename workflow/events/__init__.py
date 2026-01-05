@@ -12,6 +12,8 @@ from workflow.events.constants import (
     BATCH_UPLOADED,
     MOSAIC_READY,
     MOSAIC_STITCHED,
+    MOSAIC_VOLUME_STITCHED,
+    MOSAIC_VOLUME_UPLOADED,
     SLICE_READY,
     SLICE_REGISTERED,
 )
