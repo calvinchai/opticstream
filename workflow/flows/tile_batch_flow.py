@@ -390,7 +390,7 @@ def process_tile_batch_flow(
                 bline_length=bline_length,
             )
         elif tile_saving_type == TileSavingType.COMPLEX:
-            complex_to_complex_batch_task.submit(
+            spectral_to_complex_future = complex_to_complex_batch_task.submit(
                 project_name=project_name,
                 project_base_path=project_base_path,
                 mosaic_id=mosaic_id,
@@ -406,7 +406,7 @@ def process_tile_batch_flow(
 
     if spectral_to_complex_future is not None:
         spectral_to_complex_result = spectral_to_complex_future.wait()
-
+    
     return {
         "archive_result": archive_result,
         "spectral_to_complex_result": spectral_to_complex_result,

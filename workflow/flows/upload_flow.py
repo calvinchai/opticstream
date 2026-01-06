@@ -176,7 +176,7 @@ def upload_mosaic_enface_to_dandi_flow(
     logger.info(f"Uploading DANDI slice directory to DANDI: {dandi_slice_path}")
 
     # Upload the DANDI slice directory (contains symlinks to enface files)
-    upload_to_dandi_task(file_path=str(dandi_slice_path))
+    upload_to_linc_task(file_path=str(dandi_slice_path))
 
     logger.info(f"Successfully uploaded enface files for mosaic {mosaic_id} to DANDI")
 
@@ -249,7 +249,7 @@ def upload_mosaic_volume_to_dandi_flow(
         # All files in same directory, upload the directory
         upload_dir = parent_dirs.pop()
         logger.info(f"Uploading DANDI slice directory to DANDI: {upload_dir}")
-        upload_to_dandi_task(file_path=str(upload_dir))
+        upload_to_linc_task(file_path=str(upload_dir))
     else:
         # Files in different directories (unexpected), upload each directory
         logger.warning(
@@ -258,7 +258,7 @@ def upload_mosaic_volume_to_dandi_flow(
         for file_path in file_paths:
             file_dir = Path(file_path).parent
             logger.info(f"Uploading directory to DANDI: {file_dir}")
-            upload_to_dandi_task(file_path=str(file_dir))
+            upload_to_linc_task(file_path=str(file_dir))
 
     logger.info(f"Successfully uploaded volume files for mosaic {mosaic_id} to DANDI")
 

@@ -322,7 +322,7 @@ def stitch_enface_modalities_flow(
     # Wait for all enface stitching to complete
     enface_outputs = {}
     for modality, future in enface_futures.items():
-        outputs = future.wait()
+        outputs = future.result()
         enface_outputs[modality] = outputs
 
     logger.info(f"All enface modalities stitched for mosaic {mosaic_id}")
@@ -636,7 +636,7 @@ def process_mosaic_flow(
     mask_path = stitched_path / f"mosaic_{mosaic_id:03d}_mask.nii.gz"
 
     mask_future = generate_mask_task.submit(
-        input_image=str(mip_nifti),
+        input_image=str(aip_nifti),
         output_mask=str(mask_path),
         threshold=mask_threshold,
         wait_for=[mip_future, aip_future],

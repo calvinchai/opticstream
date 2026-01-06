@@ -189,8 +189,8 @@ if __name__ == "__main__":
         complex_to_processed_batch_deployment,
         complex_to_processed_batch_event_deployment,
         # Upload flows
-        upload_to_linc_batch_deployment,
-        # upload_to_linc_batch_event_deployment,
+        # upload_to_linc_batch_deployment,
+        upload_to_linc_batch_event_deployment,
         upload_mosaic_enface_to_dandi_event_deployment,
         upload_mosaic_volume_to_dandi_event_deployment,
         # Mosaic processing
@@ -200,6 +200,6 @@ if __name__ == "__main__":
         # State management
         unified_state_management_event_deployment,
         # Slack notifications
-        # slack_enface_notification_deployment,
+        slack_enface_notification_deployment,
     )
 

@@ -160,7 +160,7 @@ def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
     """
     Get the DANDI slice-specific directory path.
 
-    Structure: {dandiset_path}/sample-slice{slice_id:03d}/
+    Structure: {dandiset_path}/sample-slice{slice_id:02d}/
 
     Note: dandiset_path already includes derivatives/sub-{subject}/
 
@@ -177,4 +177,4 @@ def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
     Path
         Path to slice-specific directory
     """
-    return Path(dandiset_path) / f"sample-slice{slice_id:03d}"
+    return Path(dandiset_path) / f"sample-slice{slice_id:02d}"

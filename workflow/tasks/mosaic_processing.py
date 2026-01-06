@@ -362,7 +362,7 @@ def stitch_mosaic2d_task(
 def generate_mask_task(
     input_image: str,
     output_mask: str,
-    threshold: float = 50.0,
+    threshold: float = 60.0,
 ) -> str:
     """
     Generate mask from input image.
@@ -383,7 +383,7 @@ def generate_mask_task(
     """
     logger = get_run_logger()
     logger.info(f"Generating mask from {input_image} with threshold {threshold}")
-
+    logger.info(f"Input image: {input_image}, {Path(input_image).suffix}")
     generate_mask.main(
         input=input_image,
         output=output_mask,
@@ -521,7 +521,7 @@ def symlink_enface_to_dandi_task(
 
 
 @task(
-    task_run_name="{project_name}-mosaic-{mosaic_id}-find-focus-plane-{illumination}"
+    task_run_name="mosaic-{mosaic_id}-find-focus-plane-{illumination}"
 )
 def find_focus_plane_task(
     project_base_path: str,

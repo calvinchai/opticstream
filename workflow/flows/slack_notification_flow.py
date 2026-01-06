@@ -15,7 +15,7 @@ from prefect.logging import get_run_logger
 from workflow.events import MOSAIC_STITCHED, get_event_trigger
 from workflow.tasks.slack_notifications import (
     send_slack_message_task,
-    upload_image_to_slack_task,
+    upload_multiple_files_to_slack_task,
 )
 
 # Default Slack configuration (can be overridden via environment variables)
@@ -36,48 +36,6 @@ def slack_enface_notification_flow(
         1. Extracts enface output paths from the event payload
         2. Sends a text message to Slack about the completion
         3. Uploads JPEG preview images for each stitched enface modality
-
-        Per Section 7.3 of design document.
-
-        logger = get_run_logger()
-
-        # Recover state from flag files
-        # Note: project_name not available in this task, will use fallback method
-        mosaic_state = MosaicState(project_base_path, mosaic_id, project_name=None)
-
-        # Check flag file first (authoritative source)
-        if mosaic_state.stitched:
-            logger.info(f"Mosaic {mosaic_id} is stitched (flag file exists)")
-            return True
-
-        # Fallback: Check for AIP file as indicator of stitching completion
-        _, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
-        aip_file = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"
-        is_stitched = aip_file.exists()
-
-        if is_stitched:
-            logger.info(f"Mosaic {mosaic_id} is stitched (found {aip_file})")
-        else:
-            logger.debug(f"Mosaic {mosaic_id} not yet stitched (missing flag file and {aip_file})")
-
-        return is_stitched
-
-
-    @task
-    def refresh_and_save_mosaic_state_task(
-        Parameters
-        ----------
-        payload : dict
-            Event payload containing:
-            - project_name: str
-            - project_base_path: str
-            - mosaic_id: int
-            - enface_outputs: Dict[str, Dict[str, str]] - mapping modality to output paths
-
-        Returns
-        -------
-        Dict[str, bool]
-            Dictionary mapping modality to upload success status
     """
     logger_instance = get_run_logger()
 
@@ -98,8 +56,8 @@ def slack_enface_notification_flow(
 
     # Send initial notification message
     message = (
+        f"(Project: {project_name})\n"
         f"✅ 2D Enface images stitched for mosaic {mosaic_id} "
-        f"(project: {project_name})\n"
         f"Modalities: {', '.join(enface_outputs.keys())}"
     )
 
@@ -109,35 +67,55 @@ def slack_enface_notification_flow(
         slack_channel_id=slack_channel_id,
     )
 
-    # Upload JPEG images for each modality
-    upload_results = {}
+    # Collect all JPEG images for batch upload
+    filepaths = []
+    titles = []
+    modality_to_filepath = {}  # Map modality to filepath for result conversion
+
     for modality, outputs in enface_outputs.items():
         jpeg_path = outputs.get("jpeg")
 
         if jpeg_path and os.path.exists(jpeg_path):
-            title = f"Mosaic {mosaic_id} - {modality.upper()}"
-            initial_comment = (
-                f"Stitched {modality.upper()} enface image for "
-                f"mosaic {mosaic_id} (project: {project_name})"
-            )
-
-            try:
-                success = upload_image_to_slack_task(
-                    filepath=jpeg_path,
-                    slack_bot_token=slack_bot_token,
-                    slack_channel_id=slack_channel_id,
-                    title=title,
-                    initial_comment=initial_comment,
-                )
-                upload_results[modality] = success
-                logger_instance.info(f"Uploaded {modality} JPEG to Slack: {success}")
-            except Exception as e:
-                logger_instance.error(f"Failed to upload {modality} JPEG to Slack: {e}")
-                upload_results[modality] = False
+            filepaths.append(jpeg_path)
+            titles.append(f"Mosaic {mosaic_id} - {modality.upper()}")
+            modality_to_filepath[modality] = jpeg_path
         else:
             logger_instance.warning(
                 f"JPEG path not found or doesn't exist for {modality}: {jpeg_path}"
             )
+
+    # Upload all JPEG images in a single message
+    upload_results = {}
+    if filepaths:
+        initial_comment = (
+            f"Stitched enface images for mosaic {mosaic_id} "
+            f"(project: {project_name})"
+        )
+
+        try:
+            file_results = upload_multiple_files_to_slack_task(
+                filepaths=filepaths,
+                slack_bot_token=slack_bot_token,
+                slack_channel_id=slack_channel_id,
+                titles=titles,
+                initial_comment=initial_comment,
+            )
+
+            # Convert filepath-based results to modality-based results
+            for modality, filepath in modality_to_filepath.items():
+                upload_results[modality] = file_results.get(filepath, False)
+                logger_instance.info(
+                    f"Upload result for {modality} JPEG: {upload_results[modality]}"
+                )
+        except Exception as e:
+            logger_instance.error(f"Failed to upload JPEGs to Slack: {e}")
+            # Mark all modalities as failed
+            for modality in modality_to_filepath.keys():
+                upload_results[modality] = False
+    else:
+        logger_instance.warning("No valid JPEG files to upload")
+        # Mark all modalities as failed
+        for modality in enface_outputs.keys():
             upload_results[modality] = False
 
     logger_instance.info(
