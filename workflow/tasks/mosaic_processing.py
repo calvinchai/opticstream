@@ -16,7 +16,7 @@ from data_processing.stitch import fiji_stitch, fit_coord_files, generate_mask
 from data_processing.stitch.process_tile_coord import process_tile_coord
 
 
-@task(name="fiji_stitch_task")
+@task
 def fiji_stitch_task(
     directory: str,
     file_template: str,
@@ -73,7 +73,7 @@ def fiji_stitch_task(
     return str(output_file)
 
 
-@task(name="process_tile_coord_task")
+@task
 def process_tile_coord_task(
     ideal_coord_file: str,
     stitched_coord_file: str,
@@ -118,13 +118,13 @@ def process_tile_coord_task(
     return export
 
 
-@task(name="generate_coord_template_task")
+@task
 def generate_coord_template_task(
     tile_coords_export_path: str,
     template_output_path: str,
     base_dir: str,
-    scan_resolution: List[float],
     mosaic_id: int,
+    scan_resolution: Optional[List[float]] = None,
 ) -> str:
     """
     Generate a Jinja2 template from tile coordinates using fit_coord_files.
@@ -219,7 +219,9 @@ def generate_coord_template_task(
     return str(template_path)
 
 
-@task(name="generate_tile_info_file_task")
+@task(
+    task_run_name="mosaic-{mosaic_id}-generate-tile-info-{modality}"
+)
 def generate_tile_info_file_task(
     template_path: str,
     output_path: str,
@@ -306,7 +308,7 @@ def generate_tile_info_file_task(
     return str(output_path)
 
 
-@task(name="stitch_mosaic2d_task")
+@task
 def stitch_mosaic2d_task(
     tile_info_file: str,
     nifti_output: str,
@@ -356,7 +358,7 @@ def stitch_mosaic2d_task(
     return outputs
 
 
-@task(name="generate_mask_task")
+@task
 def generate_mask_task(
     input_image: str,
     output_mask: str,
@@ -396,7 +398,8 @@ def generate_mask_task(
 def stitch_mosaic3d_task(
     tile_info_file: str,
     output_path: str,
-    kwargs: Dict[str, Any],
+    zarr_config=None,
+    kwargs: Dict[str, Any] = None,
 ) -> str:
     """
     Stitch mosaic using mosaic3d.
@@ -406,18 +409,120 @@ def stitch_mosaic3d_task(
     tile_info_file: str
         Path to tile_info_file YAML
     output_path: str
-        Path to output NIfTI file
-    kwargs: Dict[str, Any]
-        Keyword arguments for mosaic3d
+        Path to output zarr file
+    zarr_config: ZarrConfig, optional
+        Zarr configuration object
+    kwargs: Dict[str, Any], optional
+        Additional keyword arguments for mosaic3d
     """
+    from linc_convert.utils.zarr_config import ZarrConfig
+
     logger = get_run_logger()
     logger.info(f"Stitching mosaic 3D from {tile_info_file}")
-    mosaic2d(tile_info_file=tile_info_file, out=output_path, **kwargs)
+
+    # Prepare arguments for mosaic2d
+    mosaic_kwargs = (kwargs or {}).copy()
+    if zarr_config is not None:
+        mosaic_kwargs["zarr_config"] = zarr_config
+
+    mosaic2d(tile_info_file=tile_info_file, out=output_path, **mosaic_kwargs)
     logger.info(f"Stitched mosaic 3D saved to {output_path}")
     return output_path
 
 
-@task(name="find_focus_plane_task")
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-symlink-enface-to-dandi"
+)
+def symlink_enface_to_dandi_task(
+    enface_outputs: Dict[str, Dict[str, str]],
+    dandi_slice_path: Path,
+    project_name: str,
+    mosaic_id: int,
+    mosaic_enface_format: str,
+) -> Dict[str, Path]:
+    """
+    Create symlinks from stitched enface nifti files to DANDI slice directory.
+
+    Uses mosaic_enface_format template to generate target filenames.
+    Target directory: {dandiset_path}/sample-slice{slice_id:03d}/
+
+    Parameters
+    ----------
+    enface_outputs : Dict[str, Dict[str, str]]
+        Dictionary mapping modality to output file paths (with 'nifti' key)
+    dandi_slice_path : Path
+        Path to DANDI slice directory
+    project_name : str
+        Project identifier
+    mosaic_id : int
+        Mosaic identifier
+    mosaic_enface_format : str
+        Template string for enface filename format
+
+    Returns
+    -------
+    Dict[str, Path]
+        Dictionary mapping modality to symlink target path
+    """
+    from workflow.tasks.utils import mosaic_id_to_slice_number
+
+    logger = get_run_logger()
+    logger.info(f"Creating symlinks for enface files to DANDI directory: {dandi_slice_path}")
+
+    # Ensure DANDI slice directory exists
+    dandi_slice_path.mkdir(parents=True, exist_ok=True)
+
+    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    acq = "tilted" if mosaic_id % 2 == 0 else "normal"
+    symlink_targets = {}
+
+    for modality, outputs in enface_outputs.items():
+        if not isinstance(outputs, dict) or "nifti" not in outputs:
+            logger.warning(f"Skipping modality {modality}: missing 'nifti' key in outputs")
+            continue
+
+        source_path = Path(outputs["nifti"])
+        if not source_path.exists():
+            logger.warning(f"Skipping modality {modality}: source file does not exist: {source_path}")
+            continue
+
+        # Generate target filename using template
+        try:
+            target_filename = mosaic_enface_format.format(
+                project_name=project_name,
+                slice_id=slice_number,
+                acq=acq,
+                modality=modality,
+            )
+        except KeyError as e:
+            logger.error(f"Error formatting template for modality {modality}: {e}")
+            continue
+
+        target_path = dandi_slice_path / target_filename
+
+        # Create symlink
+        try:
+            if target_path.exists() or target_path.is_symlink():
+                if target_path.is_symlink():
+                    target_path.unlink()
+                else:
+                    logger.warning(f"Target already exists (not a symlink), skipping: {target_path}")
+                    continue
+
+            target_path.symlink_to(source_path)
+            symlink_targets[modality] = target_path
+            logger.info(f"Created symlink: {target_path} -> {source_path}")
+        except OSError as e:
+            logger.error(f"Failed to create symlink for {modality}: {e}")
+            continue
+
+    logger.info(f"Created {len(symlink_targets)} symlinks for enface modalities")
+    return symlink_targets
+
+
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-find-focus-plane-{illumination}"
+)
 def find_focus_plane_task(
     project_base_path: str,
     mosaic_id: int,

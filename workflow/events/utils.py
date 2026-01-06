@@ -7,7 +7,7 @@ This module provides utilities for creating event triggers and emitting events
 from prefect.events import DeploymentEventTrigger
 
 
-def get_event_trigger(event_name: str) -> DeploymentEventTrigger:
+def get_event_trigger(event_name: str, parameters: dict = {}) -> DeploymentEventTrigger:
     """
     Get a deployment event trigger for a given event name.
 
@@ -26,6 +26,7 @@ def get_event_trigger(event_name: str) -> DeploymentEventTrigger:
     return DeploymentEventTrigger(
         expect={event_name},
         parameters={
+            **parameters,
             "payload": {
                 "__prefect_kind": "json",
                 "value": {

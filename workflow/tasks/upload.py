@@ -11,7 +11,7 @@ from prefect.blocks.system import Secret
 from prefect_shell import ShellOperation, shell_run_command
 
 
-@task(name="upload_to_dandi", tags=["dandi-upload"], retries=1)
+@task(tags=["dandi-upload"], retries=1)
 def upload_to_dandi_task(file_path: str) -> None:
     """
     Upload the file to DANDI.
@@ -19,7 +19,7 @@ def upload_to_dandi_task(file_path: str) -> None:
     shell_run_command(f"conda run -n dandi dandi upload {file_path} -J 10:10")
 
 
-@task(name="upload_to_linc", tags=["dandi-upload"], retries=1)
+@task(tags=["dandi-upload"], retries=1)
 def upload_to_linc_task(file_path: str) -> None:
     """
     Upload the file to LINC.
@@ -44,7 +44,7 @@ def upload_to_linc_task(file_path: str) -> None:
         logger.info(f"Upload output: {output}")
 
 
-@task(name="upload_to_linc_batch", tags=["dandi-upload"], retries=1)
+@task(tags=["dandi-upload"], retries=1)
 def upload_to_linc_batch_task(file_list: List[str]) -> None:
     """
     Upload the file to LINC.

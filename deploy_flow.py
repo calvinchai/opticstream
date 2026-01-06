@@ -1,6 +1,7 @@
 from prefect import serve
 from prefect.events import DeploymentEventTrigger
 
+from workflow.events import BATCH_ARCHIVED, get_event_trigger
 from workflow.flows.mosaic_processing_flow import process_mosaic_event_flow
 from workflow.flows.slice_registration_flow import register_slice_event_flow
 from workflow.flows.tile_batch_flow import (
@@ -39,6 +40,7 @@ complex_to_processed_batch_event_deployment = (
                 },
             )
         ],
+        concurrency_limit=1,
     )
 )
 
@@ -52,18 +54,7 @@ upload_to_linc_batch_event_deployment = upload_to_linc_batch_event_flow.to_deplo
     name="upload_to_linc_batch_event_flow",
     tags=["event-driven", "tile-batch", "upload-to-linc"],
     triggers=[
-        DeploymentEventTrigger(
-            expect={"tile_batch.upload_to_linc.ready"},
-            parameters={
-                "payload": {
-                    "__prefect_kind": "json",
-                    "value": {
-                        "__prefect_kind": "jinja",
-                        "template": "{{ event.payload | tojson }}",
-                    },
-                },
-            },
-        )
+        get_event_trigger(BATCH_ARCHIVED),
     ],
 )
 

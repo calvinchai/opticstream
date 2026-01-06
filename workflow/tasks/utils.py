@@ -72,7 +72,7 @@ def get_slice_paths(
     return processed_path, stitched_path, complex_path, state_path
 
 
-@task(name="discover_slices")
+@task
 def discover_slices_task(
     data_root_path: str, slice_numbers: Optional[List[int]] = None
 ) -> List[int]:
@@ -154,3 +154,27 @@ def get_illumination(mosaic_id: int) -> str:
         Illumination type ("normal" or "tilted")
     """
     return "tilted" if mosaic_id % 2 == 0 else "normal"
+
+
+def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
+    """
+    Get the DANDI slice-specific directory path.
+
+    Structure: {dandiset_path}/sample-slice{slice_id:03d}/
+
+    Note: dandiset_path already includes derivatives/sub-{subject}/
+
+    Parameters
+    ----------
+    dandiset_path : str
+        Path to DANDI derivatives directory for the subject
+        (already includes derivatives/sub-{subject}/)
+    slice_id : int
+        Slice number (1-indexed)
+
+    Returns
+    -------
+    Path
+        Path to slice-specific directory
+    """
+    return Path(dandiset_path) / f"sample-slice{slice_id:03d}"

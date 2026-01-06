@@ -15,9 +15,9 @@ from workflow.events import (
     BATCH_ARCHIVED,
     BATCH_READY,
     BATCH_PROCESSED,
+    BATCH_COMPLEXED,
     get_event_trigger,
 )
-from workflow.events.constants import BATCH_COMPLEXED
 from workflow.state.flags import (
     ARCHIVED,
     PROCESSED,
@@ -32,7 +32,7 @@ from workflow.tasks.tile_processing import archive_tile_task
 
 
 @task(
-    task_run_name="spectral_to_complex_batch_{project_name}_{mosaic_id:03d}_{batch_id:03d}"
+    task_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-spectral-to-complex"
 )
 def spectral_to_complex_batch_task(
     project_name: str,
@@ -95,6 +95,12 @@ def spectral_to_complex_batch_task(
 
     emit_event(
         event=BATCH_COMPLEXED,
+        resource={
+            "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+            "batch_id": str(batch_id),
+        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -107,7 +113,7 @@ def spectral_to_complex_batch_task(
 
 
 @task(
-    task_run_name="spectral_to_complex_batch_{project_name}_{mosaic_id:03d}_{batch_id:03d}"
+    task_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-complex-to-complex"
 )
 def complex_to_complex_batch_task(
     project_name: str,
@@ -139,6 +145,12 @@ def complex_to_complex_batch_task(
 
     emit_event(
         event=BATCH_COMPLEXED,
+        resource={
+            "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+            "batch_id": str(batch_id),
+        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -150,7 +162,9 @@ def complex_to_complex_batch_task(
     return complex_file_list
 
 
-@task(name="complex_to_processed_batch_task")
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-complex-to-processed"
+)
 def complex_to_processed_batch_task(
     project_name: str,
     project_base_path: str,
@@ -187,7 +201,9 @@ def complex_to_processed_batch_task(
     return result.stdout
 
 
-@task(name="archive_tile_batch_task")
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-archive"
+)
 def archive_tile_batch_task(
     project_name: str,
     project_base_path: str,
@@ -259,6 +275,12 @@ def archive_tile_batch_task(
     batch_archived_path.touch()
     emit_event(
         event=BATCH_ARCHIVED,
+        resource={
+            "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+            "batch_id": str(batch_id),
+        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -270,7 +292,7 @@ def archive_tile_batch_task(
     return f"Archived {len(file_list)} tiles"
 
 
-@flow(name="process_tile_batch_flow")
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}")
 def process_tile_batch_flow(
     project_name: str,
     project_base_path: str,
@@ -435,7 +457,9 @@ def process_tile_batch_event_flow(payload: Dict[str, Any]):
     )
 
 
-@flow(name="complex_to_processed_batch_flow")
+@flow(
+    flow_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-complex-to-processed"
+)
 def complex_to_processed_batch_flow(
     project_name: str,
     project_base_path: str,

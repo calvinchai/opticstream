@@ -23,7 +23,7 @@ from .slack_notifications import (
 )
 
 # Slice registration tasks
-from .slice_registration import rgb_3daxis_task, thruplane_registration_task
+from .slice_registration import thruplane_from_files_task
 
 # Tile processing tasks
 from .tile_processing import (
@@ -66,8 +66,7 @@ __all__ = [
     "send_slack_message_task",
     "upload_multiple_files_to_slack_task",
     # Slice registration
-    "thruplane_registration_task",
-    "rgb_3daxis_task",
+    "thruplane_from_files_task",
     # "complex_to_volumes_task",
     # "find_surface_task",
     # "volumes_to_enface_task",

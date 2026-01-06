@@ -49,7 +49,7 @@ def _get_matlab_engine():
         raise RuntimeError(f"Failed to start MATLAB engine: {e}")
 
 
-@task(name="thruplane_from_files")
+@task
 def thruplane_from_files_task(
     fixed_ori_path: str,
     moving_ori_path: str,

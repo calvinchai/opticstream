@@ -15,13 +15,15 @@ All project state is stored in a single Prefect Variable: {project_name}.state
 """
 
 import json
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from prefect.variables import Variable
 
-from workflow.config.variables import get_project_variable_sync
+from workflow.config.blocks import PSOCTScanConfig
+from workflow.config.project_config import get_grid_size_x, get_project_config_block
 from workflow.state.flags import (
     ARCHIVED,
     PROCESSED,
@@ -43,8 +45,35 @@ from workflow.tasks.utils import (
 )
 
 
+class BaseState(ABC):
+    """
+    Abstract base class for all state classes.
+    
+    Provides common interface for serialization and state refresh operations.
+    """
+
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert state to dictionary format for serialization.
+        
+        Returns
+        -------
+        Dict[str, Any]
+            Dictionary representation of the state
+        """
+        pass
+
+    @abstractmethod
+    def refresh(self):
+        """
+        Refresh state by re-reading from authoritative source (flag files).
+        """
+        pass
+
+
 @dataclass
-class BatchState:
+class BatchState(BaseState):
     """
     Represents the state of a single batch, recovered from flag files.
     """
@@ -102,17 +131,18 @@ class BatchState:
 
 
 @dataclass
-class MosaicState:
+class MosaicState(BaseState):
     """
     Represents the state of a mosaic, recovered from flag files.
 
-    Total batches is determined from grid_size_x (project variable), not from flag files.
+    Total batches is determined from grid_size_x parameter or project configuration block.
     Can be deserialized from JSON dictionary when loaded from ProjectState.
     """
 
     project_base_path: str
     mosaic_id: int
     project_name: Optional[str] = None
+    grid_size_x: Optional[int] = None
     state_dict: Optional[Dict[str, Any]] = None
     state_path: Path = field(init=False)
     total_batches: int = field(init=False)
@@ -125,7 +155,7 @@ class MosaicState:
     stitched: bool = field(init=False, default=False)
     volume_stitched: bool = field(init=False, default=False)
     volume_uploaded: bool = field(init=False, default=False)
-
+    
     def __post_init__(self):
         """
         Initialize mosaic state from flag files or deserialize from dictionary.
@@ -139,35 +169,141 @@ class MosaicState:
             # Deserialize from dictionary (e.g., from ProjectState Variable)
             self._reconstruct_from_dict(self.state_dict, self.project_base_path)
         else:
-            # Get grid size to determine total batches
-            self._get_grid_size()
+            # Determine total batches from grid_size_x parameter or fallback methods
+            if self.grid_size_x is not None:
+                self.total_batches = self.grid_size_x
+            else:
+                self._get_grid_size_from_block_or_flags()
             # Recover batch state from flag files
             self._recover_batch_state()
             # Recover mosaic-level flags
             self._recover_mosaic_flags()
 
-    def _get_grid_size(self):
-        """Get grid_size_x from project configuration block to determine total batches."""
+    def _get_grid_size_from_block_or_flags(self):
+        """
+        Get grid_size_x from project configuration block or count from flags.
+        
+        This is a fallback method when grid_size_x is not provided as a parameter.
+        """
         if self.project_name:
-            # Get grid size from project configuration block
-            illumination = get_illumination(self.mosaic_id)
-            if illumination == "normal":
-                grid_size_x = get_project_variable_sync(
-                    self.project_name, "grid_size_x_normal"
-                )
-            else:  # tilted
-                grid_size_x = get_project_variable_sync(
-                    self.project_name, "grid_size_x_tilted"
-                )
-
-            # If grid_size_x is None, try to count from flag files as fallback
-            if grid_size_x is None:
+            try:
+                # Get grid size from project configuration block
+                grid_size_x = get_grid_size_x(self.project_name, self.mosaic_id)
+                if grid_size_x is not None:
+                    self.total_batches = int(grid_size_x)
+                else:
+                    # If grid_size_x is None, try to count from flag files as fallback
+                    self.total_batches = self._count_batches_from_flags()
+            except (ValueError, Exception):
+                # If getting from block fails, count from flag files as fallback
                 self.total_batches = self._count_batches_from_flags()
-            else:
-                self.total_batches = int(grid_size_x)
         else:
             # No project_name provided, count from flag files as fallback
             self.total_batches = self._count_batches_from_flags()
+
+    @classmethod
+    def from_flags(
+        cls,
+        project_base_path: str,
+        mosaic_id: int,
+        project_name: Optional[str] = None,
+        grid_size_x: Optional[int] = None,
+    ) -> "MosaicState":
+        """
+        Factory method to create MosaicState from flag files.
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        mosaic_id : int
+            Mosaic identifier
+        project_name : str, optional
+            Project name for retrieving grid size from config block
+        grid_size_x : int, optional
+            Grid size x (number of batches). If not provided, will be retrieved from block or flags.
+
+        Returns
+        -------
+        MosaicState
+            MosaicState instance initialized from flag files
+        """
+        return cls(
+            project_base_path=project_base_path,
+            mosaic_id=mosaic_id,
+            project_name=project_name,
+            grid_size_x=grid_size_x,
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        project_base_path: str,
+        mosaic_id: int,
+        state_dict: Dict[str, Any],
+        project_name: Optional[str] = None,
+        grid_size_x: Optional[int] = None,
+    ) -> "MosaicState":
+        """
+        Factory method to create MosaicState from dictionary (deserialization).
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        mosaic_id : int
+            Mosaic identifier
+        state_dict : Dict[str, Any]
+            Dictionary containing mosaic state
+        project_name : str, optional
+            Project name
+        grid_size_x : int, optional
+            Grid size x (number of batches)
+
+        Returns
+        -------
+        MosaicState
+            MosaicState instance reconstructed from dictionary
+        """
+        return cls(
+            project_base_path=project_base_path,
+            mosaic_id=mosaic_id,
+            project_name=project_name,
+            grid_size_x=grid_size_x,
+            state_dict=state_dict,
+        )
+
+    @classmethod
+    def from_block(
+        cls,
+        project_base_path: str,
+        mosaic_id: int,
+        project_name: str,
+    ) -> "MosaicState":
+        """
+        Factory method to create MosaicState with grid size from config block.
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        mosaic_id : int
+            Mosaic identifier
+        project_name : str
+            Project name for retrieving grid size from config block
+
+        Returns
+        -------
+        MosaicState
+            MosaicState instance with grid size from config block
+        """
+        grid_size_x = get_grid_size_x(project_name, mosaic_id)
+        return cls(
+            project_base_path=project_base_path,
+            mosaic_id=mosaic_id,
+            project_name=project_name,
+            grid_size_x=grid_size_x,
+        )
 
     def _count_batches_from_flags(self) -> int:
         """Count total batches from flag files (fallback method)."""
@@ -363,7 +499,7 @@ class MosaicState:
 
 
 @dataclass
-class SliceState:
+class SliceState(BaseState):
     """
     Represents the state of a slice, recovered from flag files.
 
@@ -374,6 +510,8 @@ class SliceState:
     project_base_path: str
     slice_number: int
     project_name: Optional[str] = None
+    grid_size_x_normal: Optional[int] = None
+    grid_size_x_tilted: Optional[int] = None
     state_dict: Optional[Dict[str, Any]] = None
     normal_mosaic_id: int = field(init=False)
     tilted_mosaic_id: int = field(init=False)
@@ -397,10 +535,16 @@ class SliceState:
         else:
             # Recover state for both mosaics from flag files
             self.normal_mosaic = MosaicState(
-                self.project_base_path, self.normal_mosaic_id, self.project_name
+                self.project_base_path,
+                self.normal_mosaic_id,
+                self.project_name,
+                grid_size_x=self.grid_size_x_normal,
             )
             self.tilted_mosaic = MosaicState(
-                self.project_base_path, self.tilted_mosaic_id, self.project_name
+                self.project_base_path,
+                self.tilted_mosaic_id,
+                self.project_name,
+                grid_size_x=self.grid_size_x_tilted,
             )
             # Recover slice-level flags
             self._recover_slice_flags()
@@ -425,11 +569,15 @@ class SliceState:
                 project_base_path,
                 self.normal_mosaic_id,
                 self.project_name,
+                grid_size_x=self.grid_size_x_normal,
                 state_dict=normal_mosaic_dict,
             )
         else:
             self.normal_mosaic = MosaicState(
-                project_base_path, self.normal_mosaic_id, self.project_name
+                project_base_path,
+                self.normal_mosaic_id,
+                self.project_name,
+                grid_size_x=self.grid_size_x_normal,
             )
 
         # Reconstruct tilted mosaic
@@ -439,11 +587,15 @@ class SliceState:
                 project_base_path,
                 self.tilted_mosaic_id,
                 self.project_name,
+                grid_size_x=self.grid_size_x_tilted,
                 state_dict=tilted_mosaic_dict,
             )
         else:
             self.tilted_mosaic = MosaicState(
-                project_base_path, self.tilted_mosaic_id, self.project_name
+                project_base_path,
+                self.tilted_mosaic_id,
+                self.project_name,
+                grid_size_x=self.grid_size_x_tilted,
             )
 
         # Reconstruct slice flags
@@ -518,9 +670,128 @@ class SliceState:
         self.tilted_mosaic.refresh()
         self._recover_slice_flags()
 
+    @classmethod
+    def from_flags(
+        cls,
+        project_base_path: str,
+        slice_number: int,
+        project_name: Optional[str] = None,
+        grid_size_x_normal: Optional[int] = None,
+        grid_size_x_tilted: Optional[int] = None,
+    ) -> "SliceState":
+        """
+        Factory method to create SliceState from flag files.
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        slice_number : int
+            Slice number (1-indexed)
+        project_name : str, optional
+            Project name
+        grid_size_x_normal : int, optional
+            Grid size for normal mosaic
+        grid_size_x_tilted : int, optional
+            Grid size for tilted mosaic
+
+        Returns
+        -------
+        SliceState
+            SliceState instance initialized from flag files
+        """
+        return cls(
+            project_base_path=project_base_path,
+            slice_number=slice_number,
+            project_name=project_name,
+            grid_size_x_normal=grid_size_x_normal,
+            grid_size_x_tilted=grid_size_x_tilted,
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        project_base_path: str,
+        slice_number: int,
+        state_dict: Dict[str, Any],
+        project_name: Optional[str] = None,
+        grid_size_x_normal: Optional[int] = None,
+        grid_size_x_tilted: Optional[int] = None,
+    ) -> "SliceState":
+        """
+        Factory method to create SliceState from dictionary (deserialization).
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        slice_number : int
+            Slice number (1-indexed)
+        state_dict : Dict[str, Any]
+            Dictionary containing slice state
+        project_name : str, optional
+            Project name
+        grid_size_x_normal : int, optional
+            Grid size for normal mosaic
+        grid_size_x_tilted : int, optional
+            Grid size for tilted mosaic
+
+        Returns
+        -------
+        SliceState
+            SliceState instance reconstructed from dictionary
+        """
+        return cls(
+            project_base_path=project_base_path,
+            slice_number=slice_number,
+            project_name=project_name,
+            grid_size_x_normal=grid_size_x_normal,
+            grid_size_x_tilted=grid_size_x_tilted,
+            state_dict=state_dict,
+        )
+
+    @classmethod
+    def from_block(
+        cls,
+        project_base_path: str,
+        slice_number: int,
+        project_name: str,
+    ) -> "SliceState":
+        """
+        Factory method to create SliceState with grid sizes from config block.
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        slice_number : int
+            Slice number (1-indexed)
+        project_name : str
+            Project name for retrieving grid sizes from config block
+
+        Returns
+        -------
+        SliceState
+            SliceState instance with grid sizes from config block
+        """
+        project_config = get_project_config_block(project_name)
+        grid_size_x_normal = (
+            project_config.grid_size_x_normal if project_config else None
+        )
+        grid_size_x_tilted = (
+            project_config.grid_size_x_tilted if project_config else None
+        )
+        return cls(
+            project_base_path=project_base_path,
+            slice_number=slice_number,
+            project_name=project_name,
+            grid_size_x_normal=grid_size_x_normal,
+            grid_size_x_tilted=grid_size_x_tilted,
+        )
+
 
 @dataclass
-class ProjectState:
+class ProjectState(BaseState):
     """
     Represents the state of an entire project, recovered from flag files or Prefect Variables.
 
@@ -532,17 +803,29 @@ class ProjectState:
     project_name: str
     use_variable: bool = True
     slice_numbers: Optional[List[int]] = None
+    project_config: Optional[PSOCTScanConfig] = field(init=False, default=None)
     slices: Dict[int, SliceState] = field(init=False, default_factory=dict)
 
     def __post_init__(self):
         """
         Initialize project state from Prefect Variable or flag files.
         """
+        # Load project configuration block to get grid sizes
+        self.project_config = get_project_config_block(self.project_name)
+        grid_size_x_normal = (
+            self.project_config.grid_size_x_normal if self.project_config else None
+        )
+        grid_size_x_tilted = (
+            self.project_config.grid_size_x_tilted if self.project_config else None
+        )
+
         # Try to load from Prefect Variable first
         loaded_from_variable = False
         if self.use_variable:
             try:
-                loaded_from_variable = self._load_from_variable()
+                loaded_from_variable = self._load_from_variable(
+                    grid_size_x_normal, grid_size_x_tilted
+                )
             except Exception:
                 # If loading from variable fails, fall back to flag files
                 pass
@@ -555,7 +838,11 @@ class ProjectState:
             # Recover state for all slices from flag files
             for slice_number in self.slice_numbers:
                 self.slices[slice_number] = SliceState(
-                    self.project_base_path, slice_number, self.project_name
+                    self.project_base_path,
+                    slice_number,
+                    self.project_name,
+                    grid_size_x_normal=grid_size_x_normal,
+                    grid_size_x_tilted=grid_size_x_tilted,
                 )
 
     def _get_variable_name(self) -> str:
@@ -596,9 +883,18 @@ class ProjectState:
 
         return sorted(list(slice_numbers))
 
-    def _load_from_variable(self) -> bool:
+    def _load_from_variable(
+        self, grid_size_x_normal: Optional[int], grid_size_x_tilted: Optional[int]
+    ) -> bool:
         """
         Load state from Prefect Variable.
+
+        Parameters
+        ----------
+        grid_size_x_normal : Optional[int]
+            Grid size for normal mosaics (passed to SliceState)
+        grid_size_x_tilted : Optional[int]
+            Grid size for tilted mosaics (passed to SliceState)
 
         Returns
         -------
@@ -634,6 +930,8 @@ class ProjectState:
                     self.project_base_path,
                     slice_number,
                     self.project_name,
+                    grid_size_x_normal=grid_size_x_normal,
+                    grid_size_x_tilted=grid_size_x_tilted,
                     state_dict=slice_dict,
                 )
                 self.slices[slice_number] = slice_state
@@ -728,10 +1026,20 @@ class ProjectState:
             self.slices[slice_number].refresh()
 
         # Add any newly discovered slices
+        grid_size_x_normal = (
+            self.project_config.grid_size_x_normal if self.project_config else None
+        )
+        grid_size_x_tilted = (
+            self.project_config.grid_size_x_tilted if self.project_config else None
+        )
         for slice_number in discovered_slices:
             if slice_number not in self.slices:
                 self.slices[slice_number] = SliceState(
-                    self.project_base_path, slice_number, self.project_name
+                    self.project_base_path,
+                    slice_number,
+                    self.project_name,
+                    grid_size_x_normal=grid_size_x_normal,
+                    grid_size_x_tilted=grid_size_x_tilted,
                 )
 
         # Update slice_numbers
@@ -758,3 +1066,74 @@ class ProjectState:
             "project_base_path": self.project_base_path,
             "slices": slices_dict,
         }
+
+    @classmethod
+    def from_flags(
+        cls,
+        project_base_path: str,
+        project_name: str,
+        slice_numbers: Optional[List[int]] = None,
+        use_variable: bool = True,
+    ) -> "ProjectState":
+        """
+        Factory method to create ProjectState from flag files.
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        project_name : str
+            Project name
+        slice_numbers : List[int], optional
+            List of slice numbers. If None, will be discovered.
+        use_variable : bool, default True
+            Whether to try loading from Prefect Variable first
+
+        Returns
+        -------
+        ProjectState
+            ProjectState instance initialized from flag files
+        """
+        return cls(
+            project_base_path=project_base_path,
+            project_name=project_name,
+            slice_numbers=slice_numbers,
+            use_variable=use_variable,
+        )
+
+    @classmethod
+    def from_block(
+        cls,
+        project_base_path: str,
+        project_name: str,
+        slice_numbers: Optional[List[int]] = None,
+        use_variable: bool = True,
+    ) -> "ProjectState":
+        """
+        Factory method to create ProjectState with config block loaded.
+
+        This is essentially the same as from_flags since ProjectState
+        automatically loads the config block in __post_init__.
+
+        Parameters
+        ----------
+        project_base_path : str
+            Base path for the project
+        project_name : str
+            Project name
+        slice_numbers : List[int], optional
+            List of slice numbers. If None, will be discovered.
+        use_variable : bool, default True
+            Whether to try loading from Prefect Variable first
+
+        Returns
+        -------
+        ProjectState
+            ProjectState instance with config block loaded
+        """
+        return cls(
+            project_base_path=project_base_path,
+            project_name=project_name,
+            slice_numbers=slice_numbers,
+            use_variable=use_variable,
+        )

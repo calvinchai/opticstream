@@ -5,17 +5,24 @@ from prefect import flow
 from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
-from workflow.events import BATCH_ARCHIVED, BATCH_UPLOADED, get_event_trigger
+from workflow.events import (
+    BATCH_ARCHIVED,
+    BATCH_UPLOADED,
+    MOSAIC_STITCHED,
+    MOSAIC_VOLUME_STITCHED,
+    get_event_trigger,
+)
 from workflow.state.flags import UPLOADED, get_batch_flag_path
 from workflow.tasks.upload import (
     upload_to_dandi_task,
     upload_to_linc_batch_task,
     upload_to_linc_task,
 )
-from workflow.tasks.utils import get_mosaic_paths
+from workflow.config.project_config import get_project_config_block
+from workflow.tasks.utils import get_dandi_slice_path, get_mosaic_paths, mosaic_id_to_slice_number
 
 
-@flow(name="upload_flow")
+@flow
 def upload_flow(file_path: str, instance="linc"):
     if instance == "linc":
         task = upload_to_linc_task.submit(file_path)
@@ -27,7 +34,9 @@ def upload_flow(file_path: str, instance="linc"):
     return True
 
 
-@flow(name="upload_to_linc_batch_flow")
+@flow(
+    flow_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-upload-to-linc"
+)
 def upload_to_linc_batch_flow(
     project_name: str,
     project_base_path: str,
@@ -71,6 +80,12 @@ def upload_to_linc_batch_flow(
     # Emit upload completion event (per Section 6.2)
     emit_event(
         event=BATCH_UPLOADED,
+        resource={
+            "prefect.resource.id": f"batch:{project_name}:mosaic-{mosaic_id}:batch-{batch_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+            "batch_id": str(batch_id),
+        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -106,6 +121,163 @@ upload_to_linc_batch_deployment = upload_to_linc_batch_flow.to_deployment(
     tags=["tile-batch", "upload-to-linc"],
 )
 
+@flow(
+    flow_run_name="{project_name}-mosaic-{mosaic_id}-upload-enface-to-dandi"
+)
+def upload_mosaic_enface_to_dandi_flow(
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+    enface_outputs: Dict[str, Dict[str, str]],
+):
+    """
+    Event-driven flow triggered by 'linc.oct.mosaic.stitched' event.
+    Uploads stitched enface nifti files to DANDI.
+
+    The enface files are symlinked to the DANDI directory, so we upload
+    the DANDI slice directory containing the symlinks.
+
+    Parameters
+    ----------
+    project_name : str
+        Project identifier
+    project_base_path : str
+        Base path for the project
+    mosaic_id : int
+        Mosaic identifier
+    enface_outputs : Dict[str, Dict[str, str]]
+        Dictionary mapping modality to output file paths (with 'nifti' key)
+    """
+    from pathlib import Path
+
+    logger = get_run_logger()
+    logger.info(f"Uploading enface files for mosaic {mosaic_id} to DANDI")
+
+    # Load dandiset_path from config block
+    project_config = get_project_config_block(project_name)
+    if not project_config or not project_config.dandiset_path:
+        logger.warning(
+            f"dandiset_path not configured for project {project_name}, "
+            f"skipping enface upload to DANDI"
+        )
+        return
+
+    # Get DANDI slice directory where symlinks are located
+    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    dandi_slice_path = get_dandi_slice_path(project_config.dandiset_path, slice_number)
+
+    if not dandi_slice_path.exists():
+        logger.warning(
+            f"DANDI slice directory does not exist: {dandi_slice_path}, "
+            f"skipping enface upload"
+        )
+        return
+
+    logger.info(f"Uploading DANDI slice directory to DANDI: {dandi_slice_path}")
+
+    # Upload the DANDI slice directory (contains symlinks to enface files)
+    upload_to_dandi_task(file_path=str(dandi_slice_path))
+
+    logger.info(f"Successfully uploaded enface files for mosaic {mosaic_id} to DANDI")
+
+
+@flow
+def upload_mosaic_enface_to_dandi_event_flow(
+    payload: Dict[str, Any],
+):
+    """
+    Event wrapper flow for uploading enface files to DANDI.
+    """
+    return upload_mosaic_enface_to_dandi_flow(
+        project_name=payload["project_name"],
+        project_base_path=payload["project_base_path"],
+        mosaic_id=payload["mosaic_id"],
+        enface_outputs=payload["enface_outputs"],
+    )
+
+
+@flow(
+    flow_run_name="{project_name}-mosaic-{mosaic_id}-upload-volume-to-dandi"
+)
+def upload_mosaic_volume_to_dandi_flow(
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+    volume_outputs: Dict[str, str],
+):
+    """
+    Event-driven flow triggered by 'linc.oct.mosaic.volume_stitched' event.
+    Uploads stitched volume zarr files to DANDI.
+
+    The volume files are written directly to the DANDI directory, so we upload
+    the DANDI slice directory containing the volume files.
+
+    Parameters
+    ----------
+    project_name : str
+        Project identifier
+    project_base_path : str
+        Base path for the project
+    mosaic_id : int
+        Mosaic identifier
+    volume_outputs : Dict[str, str]
+        Dictionary mapping modality to volume file paths
+    """
+    from pathlib import Path
+
+    logger = get_run_logger()
+    logger.info(f"Uploading volume files for mosaic {mosaic_id} to DANDI")
+
+    # Collect all volume file paths and verify they exist
+    file_paths = []
+    for modality, volume_path in volume_outputs.items():
+        volume_path_obj = Path(volume_path)
+        if volume_path_obj.exists():
+            file_paths.append(str(volume_path_obj))
+        else:
+            logger.warning(
+                f"Volume file does not exist for modality {modality}: {volume_path}"
+            )
+
+    if not file_paths:
+        logger.warning(f"No volume files to upload for mosaic {mosaic_id}")
+        return
+
+    # Find common parent directory (should be the DANDI slice directory)
+    parent_dirs = {Path(fp).parent for fp in file_paths}
+    if len(parent_dirs) == 1:
+        # All files in same directory, upload the directory
+        upload_dir = parent_dirs.pop()
+        logger.info(f"Uploading DANDI slice directory to DANDI: {upload_dir}")
+        upload_to_dandi_task(file_path=str(upload_dir))
+    else:
+        # Files in different directories (unexpected), upload each directory
+        logger.warning(
+            f"Volume files are in different directories, uploading each separately"
+        )
+        for file_path in file_paths:
+            file_dir = Path(file_path).parent
+            logger.info(f"Uploading directory to DANDI: {file_dir}")
+            upload_to_dandi_task(file_path=str(file_dir))
+
+    logger.info(f"Successfully uploaded volume files for mosaic {mosaic_id} to DANDI")
+
+
+@flow
+def upload_mosaic_volume_to_dandi_event_flow(
+    payload: Dict[str, Any],
+):
+    """
+    Event wrapper flow for uploading volume files to DANDI.
+    """
+    return upload_mosaic_volume_to_dandi_flow(
+        project_name=payload["project_name"],
+        project_base_path=payload["project_base_path"],
+        mosaic_id=payload["mosaic_id"],
+        volume_outputs=payload["volume_outputs"],
+    )
+
+
 if __name__ == "__main__":
     upload_to_linc_batch_flow_deployment = upload_to_linc_batch_flow.to_deployment(
         name="upload_to_linc_batch_flow",
@@ -118,6 +290,25 @@ if __name__ == "__main__":
             ],
         )
     )
+    upload_mosaic_enface_to_dandi_event_flow_deployment = (
+        upload_mosaic_enface_to_dandi_event_flow.to_deployment(
+            name="upload_mosaic_enface_to_dandi_event_flow",
+            triggers=[
+                get_event_trigger(MOSAIC_STITCHED),
+            ],
+        )
+    )
+    upload_mosaic_volume_to_dandi_event_flow_deployment = (
+        upload_mosaic_volume_to_dandi_event_flow.to_deployment(
+            name="upload_mosaic_volume_to_dandi_event_flow",
+            triggers=[
+                get_event_trigger(MOSAIC_VOLUME_STITCHED),
+            ],
+        )
+    )
     prefect.serve(
-        upload_to_linc_batch_flow_deployment, upload_to_linc_batch_event_flow_deployment
+        upload_to_linc_batch_flow_deployment,
+        upload_to_linc_batch_event_flow_deployment,
+        upload_mosaic_enface_to_dandi_event_flow_deployment,
+        upload_mosaic_volume_to_dandi_event_flow_deployment,
     )

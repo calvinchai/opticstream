@@ -22,7 +22,9 @@ from workflow.tasks.slice_registration import thruplane_from_files_task
 from workflow.tasks.utils import get_slice_paths
 
 
-@flow(name="register_slice_flow")
+@flow(
+    flow_run_name="{project_name}-slice-{slice_number}-register"
+)
 def register_slice_flow(
     project_name: str,
     project_base_path: str,
@@ -109,6 +111,11 @@ def register_slice_flow(
     # Emit event that slice registration is complete
     emit_event(
         event=SLICE_REGISTERED,
+        resource={
+            "prefect.resource.id": f"slice:{project_name}:slice-{slice_number}",
+            "project_name": project_name,
+            "slice_number": str(slice_number),
+        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -131,7 +138,7 @@ def register_slice_flow(
     }
 
 
-@flow(name="register_slice_event_flow")
+@flow
 def register_slice_event_flow(
     payload: dict,
 ) -> Dict[str, Any]:

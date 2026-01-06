@@ -30,14 +30,17 @@ from workflow.tasks.mosaic_processing import (
     process_tile_coord_task,
     stitch_mosaic2d_task,
     stitch_mosaic3d_task,
+    symlink_enface_to_dandi_task,
 )
 from workflow.tasks.utils import (
+    get_dandi_slice_path,
     get_illumination,
     get_mosaic_paths,
     mosaic_id_to_slice_number,
 )
 from workflow.config.project_config import get_grid_size_x, get_project_config_block
 from workflow.config.blocks import PSOCTScanConfig
+from linc_convert.utils.zarr_config import ZarrConfig
 
 
 # Helper function to get field default from Pydantic model
@@ -111,7 +114,7 @@ def stitch_2d_modality(
 
     # Generate output paths
     tile_info_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
-    nifti_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii"
+    nifti_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii.gz"
     jpeg_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.jpeg"
 
     # Generate tile_info_file using template
@@ -339,6 +342,9 @@ def stitch_volume_modalities_flow(
     mask_path: Path,
     scan_resolution_3d: List[float],
     volume_modalities: List[str],
+    dandiset_path: Optional[str] = None,
+    mosaic_volume_format: Optional[str] = None,
+    zarr_config: Optional[ZarrConfig] = None,
     kwargs: Dict[str, Any] = {},
 ) -> Dict[str, Path]:
     """
@@ -366,6 +372,12 @@ def stitch_volume_modalities_flow(
         Scan resolution for 3D volumes [x, y, z]
     volume_modalities : List[str]
         List of volume modalities to stitch
+    dandiset_path : str, optional
+        Path to DANDI derivatives directory (already includes derivatives/sub-{subject}/)
+    mosaic_volume_format : str, optional
+        Template string for volume filename format
+    zarr_config : ZarrConfig, optional
+        Zarr configuration object for zarr file creation
     kwargs : Dict[str, Any], optional
         Additional keyword arguments for 3D stitching task
 
@@ -381,7 +393,24 @@ def stitch_volume_modalities_flow(
     slice_number = mosaic_id_to_slice_number(mosaic_id)
     acq = "tilted" if mosaic_id % 2 == 0 else "normal"
 
-    # Use kwargs parameter, but ensure circular_mean is set per modality
+    # Determine output directory: use DANDI if configured, otherwise use processed_path
+    if dandiset_path and mosaic_volume_format:
+        dandi_slice_path = get_dandi_slice_path(dandiset_path, slice_number)
+        dandi_slice_path.mkdir(parents=True, exist_ok=True)
+        output_dir = dandi_slice_path
+        logger.info(f"Writing volumes to DANDI directory: {dandi_slice_path}")
+    else:
+        output_dir = processed_path
+        if dandiset_path is None:
+            logger.warning(
+                f"dandiset_path not configured, writing volumes to processed directory: {processed_path}"
+            )
+        if mosaic_volume_format is None:
+            logger.warning(
+                f"mosaic_volume_format not provided, using default filename format"
+            )
+
+    # Use kwargs parameter, but ensure circular_mean and voxel_size_xyz are set per modality
     stitching_kwargs = kwargs.copy()
     stitching_kwargs.setdefault("voxel_size_xyz", scan_resolution_3d)
 
@@ -400,14 +429,24 @@ def stitch_volume_modalities_flow(
             scan_resolution=scan_resolution_3d,
         )
 
-        output_path = (
-            processed_path
-            / f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
-        )
+        # Generate filename using template if provided, otherwise use default format
+        if mosaic_volume_format:
+            filename = mosaic_volume_format.format(
+                project_name=project_name,
+                slice_id=slice_number,
+                acq=acq,
+                modality=modality,
+            )
+        else:
+            # Fallback to default format
+            filename = f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+
+        output_path = output_dir / filename
         future = stitch_mosaic3d_task.submit(
             str(modality_tile_info),
             str(output_path),
-            stitching_kwargs,
+            zarr_config=zarr_config,
+            kwargs=stitching_kwargs,
         )
         volume_futures[modality] = future
         volume_outputs[modality] = output_path
@@ -421,6 +460,11 @@ def stitch_volume_modalities_flow(
     # Emit MOSAIC_VOLUME_STITCHED event
     emit_event(
         event=MOSAIC_VOLUME_STITCHED,
+        resource={
+            "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -446,6 +490,10 @@ def process_mosaic_flow(
     volume_modalities: List[str],
     force_refresh_coords: bool = False,
     stitch_3d_volumes: bool = True,
+    dandiset_path: Optional[str] = None,
+    mosaic_enface_format: Optional[str] = None,
+    mosaic_volume_format: Optional[str] = None,
+    zarr_config: Optional[ZarrConfig] = None,
 ) -> Dict[str, Any]:
     """
     Event-driven flow triggered by 'mosaic.processed' event.
@@ -538,7 +586,6 @@ def process_mosaic_flow(
             grid_size_y=grid_size_y,
             tile_overlap=tile_overlap,
             mask_threshold=mask_threshold,
-            scan_resolution_2d=scan_resolution_2d,
             illumination=illumination,
         )
     else:
@@ -586,7 +633,7 @@ def process_mosaic_flow(
     mip_outputs = mip_future.wait()
 
     # Step 5: Generate mask from MIP (asynchronous, depends on MIP stitching)
-    mask_path = stitched_path / f"mosaic_{mosaic_id:03d}_mask.nii"
+    mask_path = stitched_path / f"mosaic_{mosaic_id:03d}_mask.nii.gz"
 
     mask_future = generate_mask_task.submit(
         input_image=str(mip_nifti),
@@ -610,10 +657,34 @@ def process_mosaic_flow(
         scan_resolution_2d=scan_resolution_2d,
         enface_modalities=enface_modalities,
     )
-    enface_outputs["aip"] = {"nifti": aip_outputs["nifti"], "jpeg": aip_outputs["jpeg"]}
-    enface_outputs["mip"] = {"nifti": mip_outputs["nifti"], "jpeg": mip_outputs["jpeg"]}
+    enface_outputs["aip"] = {"nifti": str(aip_nifti), "jpeg": str(aip_jpeg)}
+    enface_outputs["mip"] = {"nifti": str(mip_nifti), "jpeg": str(mip_jpeg)}
+
+    # Create symlinks to DANDI directory if configured
+    if dandiset_path and mosaic_enface_format:
+        slice_number = mosaic_id_to_slice_number(mosaic_id)
+        dandi_slice_path = get_dandi_slice_path(dandiset_path, slice_number)
+        symlink_targets = symlink_enface_to_dandi_task(
+            enface_outputs=enface_outputs,
+            dandi_slice_path=dandi_slice_path,
+            project_name=project_name,
+            mosaic_id=mosaic_id,
+            mosaic_enface_format=mosaic_enface_format,
+        )
+        logger.info(f"Created {len(symlink_targets)} symlinks for enface files to DANDI")
+    else:
+        if dandiset_path is None:
+            logger.debug("dandiset_path not configured, skipping enface symlinking")
+        if mosaic_enface_format is None:
+            logger.debug("mosaic_enface_format not provided, skipping enface symlinking")
+
     emit_event(
         event=MOSAIC_STITCHED,
+        resource={
+            "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+        },
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -671,7 +742,10 @@ def process_mosaic_flow(
             mask_path=mask_path,
             scan_resolution_3d=scan_resolution_3d,
             volume_modalities=volume_modalities,
-            kwargs={},  # Can be extended to load from config if needed
+            dandiset_path=dandiset_path,
+            mosaic_volume_format=mosaic_volume_format,
+            zarr_config=zarr_config,
+            kwargs={"overwrite": True},  # Can be extended to load from config if needed
         )
         logger.info(f"All volume modalities stitched for mosaic {mosaic_id}")
     else:
@@ -694,7 +768,7 @@ def process_mosaic_flow(
     }
 
 
-@flow(name="process_mosaic_event_flow")
+@flow
 def process_mosaic_event_flow(
     payload: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -832,6 +906,40 @@ def process_mosaic_event_flow(
         )
         if params["stitch_3d_volumes"] is None:
             params["stitch_3d_volumes"] = True  # Default to True
+
+    # Optional field: dandiset_path (payload → block → None)
+    if "dandiset_path" in payload:
+        params["dandiset_path"] = payload["dandiset_path"]
+    elif project_config:
+        params["dandiset_path"] = project_config.dandiset_path
+    else:
+        params["dandiset_path"] = None
+
+    # Optional field: mosaic_enface_format (payload → block → class default)
+    if "mosaic_enface_format" in payload:
+        params["mosaic_enface_format"] = payload["mosaic_enface_format"]
+    elif project_config:
+        params["mosaic_enface_format"] = project_config.mosaic_enface_format
+    else:
+        params["mosaic_enface_format"] = _get_field_default(
+            PSOCTScanConfig, "mosaic_enface_format"
+        )
+
+    # Optional field: mosaic_volume_format (payload → block → class default)
+    if "mosaic_volume_format" in payload:
+        params["mosaic_volume_format"] = payload["mosaic_volume_format"]
+    elif project_config:
+        params["mosaic_volume_format"] = project_config.mosaic_volume_format
+    else:
+        params["mosaic_volume_format"] = _get_field_default(
+            PSOCTScanConfig, "mosaic_volume_format"
+        )
+
+    # Optional field: zarr_config (from block only, not from payload)
+    if project_config:
+        params["zarr_config"] = project_config.zarr_config
+    else:
+        params["zarr_config"] = None
 
     return process_mosaic_flow(**params)
 

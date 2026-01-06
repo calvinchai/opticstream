@@ -25,7 +25,7 @@ DEFAULT_SLACK_BOT_TOKEN = os.getenv(
 DEFAULT_SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "C09SA78A8QJ")
 
 
-@flow(name="slack_enface_notification_flow")
+@flow
 def slack_enface_notification_flow(
     payload: dict,
 ) -> Dict[str, bool]:
@@ -63,7 +63,7 @@ def slack_enface_notification_flow(
         return is_stitched
 
 
-    @task(name="refresh_and_save_mosaic_state")
+    @task
     def refresh_and_save_mosaic_state_task(
         Parameters
         ----------

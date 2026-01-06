@@ -41,8 +41,8 @@ def load_image(input_path: str) -> Tuple[
     """
     input_path_obj = Path(input_path)
     suffix = input_path_obj.suffix.lower()
-
-    if suffix in ['.nii', '.nii.gz', '.nifti']:
+    print(suffix, input_path)
+    if suffix in ['.nii', '.gz', '.nii.gz']:
         # Load nifti file
         nifti_img = nib.load(input_path)
         data = np.asarray(nifti_img.dataobj)

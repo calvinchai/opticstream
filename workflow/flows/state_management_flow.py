@@ -29,7 +29,9 @@ from workflow.tasks.state_management import (
 )
 
 
-@flow(name="manage_mosaic_batch_state_flow")
+@flow(
+    flow_run_name="{project_name}-mosaic-{mosaic_id}-manage-batch-state"
+)
 def manage_mosaic_batch_state_flow(
     project_name: str,
     project_base_path: str,
@@ -98,6 +100,11 @@ def manage_mosaic_batch_state_flow(
             )
             emit_event(
                 event=MOSAIC_READY,
+                resource={
+                    "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
+                    "project_name": project_name,
+                    "mosaic_id": str(mosaic_id),
+                },
                 payload={
                     "project_name": project_name,
                     "project_base_path": project_base_path,
@@ -117,7 +124,7 @@ def manage_mosaic_batch_state_flow(
     }
 
 
-@flow(name="manage_mosaic_batch_state_event_flow")
+@flow
 def manage_mosaic_batch_state_event_flow(
     payload: dict,
 ) -> Dict[str, Any]:
@@ -149,7 +156,9 @@ def manage_mosaic_batch_state_event_flow(
     )
 
 
-@flow(name="manage_slice_state_flow")
+@flow(
+    flow_run_name="{project_name}-slice-{slice_number}-manage-state"
+)
 def manage_slice_state_flow(
     project_name: str,
     project_base_path: str,
@@ -216,6 +225,11 @@ def manage_slice_state_flow(
         )
         emit_event(
             event=SLICE_READY,
+            resource={
+                "prefect.resource.id": f"slice:{project_name}:slice-{slice_number}",
+                "project_name": project_name,
+                "slice_number": str(slice_number),
+            },
             payload={
                 "project_name": project_name,
                 "project_base_path": project_base_path,
@@ -236,7 +250,7 @@ def manage_slice_state_flow(
     }
 
 
-@flow(name="manage_slice_state_event_flow")
+@flow
 def manage_slice_state_event_flow(
     payload: dict,
 ) -> Dict[str, Any]:
@@ -278,7 +292,7 @@ def manage_slice_state_event_flow(
     )
 
 
-@flow(name="unified_state_management_event_flow")
+@flow
 def unified_state_management_event_flow(
     event: str,
     payload: dict,

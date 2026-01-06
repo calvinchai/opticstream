@@ -18,7 +18,9 @@ from workflow.state import MosaicState, ProjectState, SliceState
 from workflow.tasks.utils import get_mosaic_paths
 
 
-@task(name="check_batch_state")
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-check-batch-state"
+)
 def check_batch_state_task(
     project_base_path: str,
     mosaic_id: int,
@@ -57,7 +59,9 @@ def check_batch_state_task(
     return mosaic_state.to_dict()
 
 
-@task(name="update_mosaic_artifact")
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-update-artifact"
+)
 def update_mosaic_artifact_task(
     project_name: str,
     project_base_path: str,
@@ -95,7 +99,7 @@ def update_mosaic_artifact_task(
     progress_percentage = mosaic_state.get_progress_percentage()
 
     # Create table artifact with progress information
-    artifact_key = f"{project_name}_mosaic_{mosaic_id}_progress"
+    artifact_key = f"{project_name.lower()}-mosaic-{mosaic_id}-progress"
 
     # Calculate percentages
     started_pct = (
@@ -175,7 +179,9 @@ Milestones:
     return artifact_key
 
 
-@task(name="check_mosaic_completion")
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-check-completion"
+)
 def check_mosaic_completion_task(
     project_base_path: str,
     mosaic_id: int,
@@ -220,7 +226,9 @@ def check_mosaic_completion_task(
     return is_complete
 
 
-@task(name="check_slice_state")
+@task(
+    task_run_name="{project_name}-slice-{slice_number}-check-state"
+)
 def check_slice_state_task(
     project_base_path: str,
     slice_number: int,
@@ -258,7 +266,9 @@ def check_slice_state_task(
     return slice_state.to_dict()
 
 
-@task(name="update_slice_artifact")
+@task(
+    task_run_name="{project_name}-slice-{slice_number}-update-artifact"
+)
 def update_slice_artifact_task(
     project_name: str,
     project_base_path: str,
@@ -297,7 +307,7 @@ def update_slice_artifact_task(
     normal_progress = normal_mosaic.get_progress_percentage()
     tilted_progress = tilted_mosaic.get_progress_percentage()
 
-    artifact_key = f"{project_name}_slice_{slice_number}_progress"
+    artifact_key = f"{project_name.lower()}-slice-{slice_number}-progress"
 
     # Create table data as list of dictionaries
     table_data = [
@@ -360,7 +370,9 @@ Overall Slice Status: {overall_status}
     return artifact_key
 
 
-@task(name="check_mosaic_stitched")
+@task(
+    task_run_name="mosaic-{mosaic_id}-check-stitched"
+)
 def check_mosaic_stitched_task(
     project_base_path: str,
     mosaic_id: int,
@@ -406,7 +418,9 @@ def check_mosaic_stitched_task(
     return is_stitched
 
 
-@task(name="refresh_and_save_mosaic_state")
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-refresh-state"
+)
 def refresh_and_save_mosaic_state_task(
     project_name: str,
     project_base_path: str,
@@ -493,7 +507,9 @@ def refresh_and_save_mosaic_state_task(
     return success
 
 
-@task(name="refresh_and_save_slice_state")
+@task(
+    task_run_name="{project_name}-slice-{slice_number}-refresh-state"
+)
 def refresh_and_save_slice_state_task(
     project_name: str,
     project_base_path: str,

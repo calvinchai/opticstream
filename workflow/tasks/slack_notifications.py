@@ -10,7 +10,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 
-@task(name="upload_image_to_slack", retries=2, retry_delay_seconds=5)
+@task(retries=2, retry_delay_seconds=5)
 def upload_image_to_slack_task(
     filepath: str,
     slack_bot_token: str,
@@ -70,7 +70,7 @@ def upload_image_to_slack_task(
         raise
 
 
-@task(name="send_slack_message", retries=2, retry_delay_seconds=5)
+@task(retries=2, retry_delay_seconds=5)
 def send_slack_message_task(
     message: str,
     slack_bot_token: str,
@@ -118,7 +118,7 @@ def send_slack_message_task(
         raise
 
 
-@task(name="upload_multiple_files_to_slack", retries=2, retry_delay_seconds=5)
+@task(retries=2, retry_delay_seconds=5)
 def upload_multiple_files_to_slack_task(
     filepaths: List[str],
     slack_bot_token: str,
