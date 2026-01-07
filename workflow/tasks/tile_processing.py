@@ -3,6 +3,7 @@ Tasks for processing individual tiles.
 """
 
 import gzip
+import hashlib
 import shutil
 
 from prefect import get_run_logger, task
@@ -70,15 +71,34 @@ def complex_to_processed_task(
 
 
 @task(tags=["psoct-data-archive"])
-def archive_tile_task(input_path: str, output_path: str):
+def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = True):
     """gzip the file"""
     logger = get_run_logger()
     if not output_path.endswith(".gz"):
         output_path += ".gz"
+    
+    # Initialize SHA-256 hasher if needed
+    hasher = hashlib.sha256() if output_sha256 else None
+    chunk_size = 8192 * 1024
+    
     with gzip.open(output_path, "wb", compresslevel=3) as f:
         with open(input_path, "rb") as f_in:
-            shutil.copyfileobj(f_in, f)
+            # Read in chunks and hash during compression
+            for chunk in iter(lambda: f_in.read(chunk_size), b""):
+                if output_sha256:
+                    hasher.update(chunk)  # Hash the uncompressed content
+                f.write(chunk)  # Write to gzip (compresses it)
+    
     logger.info(f"Archived tile {input_path} to {output_path}")
+    
+    # Write hash file if requested
+    if output_sha256:
+        # Remove .gz extension to create hash filename
+        hash_path = output_path[:-3] + ".sha256" if output_path.endswith(".gz") else output_path + ".sha256"
+        hash_digest = hasher.hexdigest()
+        with open(hash_path, "w") as hash_file:
+            hash_file.write(hash_digest)
+        logger.info(f"SHA-256 hash: {hash_digest} written to {hash_path}")
 
 
 # @task(name="load_spectral_file_raw", cache_key_fn=task_input_hash)
