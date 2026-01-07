@@ -60,6 +60,6 @@ def get_grid_size_x(project_name: str, mosaic_id: int) -> int:
         )
     return (
         project_config.grid_size_x_normal
-        if mosaic_id % 2 == 0
+        if mosaic_id % 2 == 1
         else project_config.grid_size_x_tilted
     )
