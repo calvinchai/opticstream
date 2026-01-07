@@ -25,7 +25,7 @@ def get_project_config_block(project_name: str) -> Optional[PSOCTScanConfig]:
     ProjectConfig, optional
         Project configuration block, or None if not found
     """
-    block_name = f"{project_name.lower()}-config"
+    block_name = f"{project_name.lower().replace('_', '-')}-config"
     try:
         return PSOCTScanConfig.load(block_name)
     except Exception:
