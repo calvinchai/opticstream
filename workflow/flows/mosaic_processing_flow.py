@@ -413,7 +413,6 @@ def stitch_volume_modalities_flow(
     # Use kwargs parameter, but ensure circular_mean and voxel_size_xyz are set per modality
     stitching_kwargs = kwargs.copy()
     stitching_kwargs.setdefault("voxel_size_xyz", scan_resolution_3d)
-
     for modality in volume_modalities:
         modality_tile_info = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
 
@@ -673,11 +672,13 @@ def process_mosaic_flow(
         )
         logger.info(f"Created {len(symlink_targets)} symlinks for enface files to DANDI")
     else:
+        # Use the original NIfTI path as the symlink target, not the standardized DANDI format
+        symlink_targets = {modality: Path(outputs["nifti"]) for modality, outputs in enface_outputs.items() if isinstance(outputs, dict) and "nifti" in outputs}
         if dandiset_path is None:
             logger.debug("dandiset_path not configured, skipping enface symlinking")
         if mosaic_enface_format is None:
             logger.debug("mosaic_enface_format not provided, skipping enface symlinking")
-
+        symlink_targets = {}
     emit_event(
         event=MOSAIC_STITCHED,
         resource={
@@ -690,6 +691,7 @@ def process_mosaic_flow(
             "project_base_path": project_base_path,
             "mosaic_id": mosaic_id,
             "enface_outputs": enface_outputs,
+            "symlink_targets": symlink_targets,
         },
     )
     # Step 6.5: Focus finding for first slice (Section 3.3)
@@ -745,7 +747,12 @@ def process_mosaic_flow(
             dandiset_path=dandiset_path,
             mosaic_volume_format=mosaic_volume_format,
             zarr_config=zarr_config,
-            kwargs={"overwrite": True},  # Can be extended to load from config if needed
+            kwargs={"overwrite": True,
+            "focus_plane": str(focus_path),
+            "normalize_focus_plane": True,
+            "crop_focus_plane_depth": 500,
+            "crop_focus_plane_offset": 30,
+            },  # Can be extended to load from config if needed
         )
         logger.info(f"All volume modalities stitched for mosaic {mosaic_id}")
     else:
