@@ -10,15 +10,294 @@ This flow uses the unified thruplane_from_files function that combines
 registration and 3D axis generation in a single call.
 """
 
-from typing import Any, Dict
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-from prefect import flow
+from prefect import flow, task
 from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
 from workflow.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
-from workflow.tasks.slice_registration import thruplane_from_files_task
-from workflow.tasks.utils import get_slice_paths
+from workflow.utils.utils import get_slice_paths
+
+
+def _get_matlab_engine():
+    """
+    Get MATLAB engine instance.
+
+    Returns
+    -------
+    matlab.engine.MatlabEngine
+        MATLAB engine instance
+
+    Raises
+    ------
+    ImportError
+        If matlab.engine is not available
+    RuntimeError
+        If MATLAB engine cannot be started
+    """
+    logger = get_run_logger()
+    try:
+        import matlab.engine
+    except ImportError:
+        raise ImportError(
+            "MATLAB Engine for Python is not installed. "
+            "Install it using: pip install matlabengine"
+        )
+
+    try:
+        # Start MATLAB engine
+        eng = matlab.engine.start_matlab()
+        logger.info("MATLAB engine started successfully")
+        return eng
+    except Exception as e:
+        raise RuntimeError(f"Failed to start MATLAB engine: {e}")
+
+
+@task
+def thruplane_from_files_task(
+    fixed_ori_path: str,
+    moving_ori_path: str,
+    fixed_biref_path: str,
+    moving_biref_path: str,
+    output_dir: str,
+    gamma: float = -15.0,
+    matlab_script_path: Optional[str] = None,
+) -> Dict[str, Path]:
+    """
+    Perform thruplane registration and generate 3D axis from NIfTI files.
+
+    This is a Python wrapper for the MATLAB function `thruplane_from_files()`.
+    It registers normal and tilted illuminations and generates all outputs including
+    3D axis vectors in a single call.
+
+    Parameters
+    ----------
+    fixed_ori_path : str
+        Path to fixed orientation image (.nii or .nii.gz)
+    moving_ori_path : str
+        Path to moving orientation image (.nii or .nii.gz)
+    fixed_biref_path : str
+        Path to fixed birefringence image (.nii or .nii.gz)
+    moving_biref_path : str
+        Path to moving birefringence image (.nii or .nii.gz)
+    output_dir : str
+        Directory to save output files
+    gamma : float
+        Tilt angle parameter for registration (default: -15.0)
+    matlab_script_path : str, optional
+        Path to MATLAB script directory. If None, uses default location
+        or searches for thruplane_from_files.m
+
+    Returns
+    -------
+    Dict[str, Path]
+        Dictionary with output file paths:
+        - 'data': Path to data.mat file
+        - 'inplane_tiff': Path to inplane.tiff
+        - 'inplane_jpg': Path to inplane.jpg
+        - 'alpha_tiff': Path to alpha.tiff
+        - 'alpha_jpg': Path to alpha.jpg
+        - 'axis_nii': Path to 3daxis.nii (normalized)
+        - 'axis_jpg': Path to 3daxis.jpg
+
+    Notes
+    -----
+    The MATLAB function signature is:
+        thruplane_from_files(fixed_ori_path, moving_ori_path, fixed_biref_path,
+                            moving_biref_path, output_dir, gamma)
+
+    All output files are saved to output_dir with simple names.
+    """
+    logger = get_run_logger()
+    logger.info(
+        f"Starting thruplane_from_files registration:\n"
+        f"  Fixed orientation: {fixed_ori_path}\n"
+        f"  Moving orientation: {moving_ori_path}\n"
+        f"  Fixed birefringence: {fixed_biref_path}\n"
+        f"  Moving birefringence: {moving_biref_path}\n"
+        f"  Output directory: {output_dir}\n"
+        f"  Gamma: {gamma}"
+    )
+
+    # Validate input files exist
+    input_files = [
+        fixed_ori_path,
+        moving_ori_path,
+        fixed_biref_path,
+        moving_biref_path,
+    ]
+    for file_path in input_files:
+        if not Path(file_path).exists():
+            raise FileNotFoundError(f"Input file not found: {file_path}")
+
+    # Create output directory if it doesn't exist
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Convert paths to absolute paths for MATLAB
+    fixed_ori_abs = str(Path(fixed_ori_path).absolute())
+    moving_ori_abs = str(Path(moving_ori_path).absolute())
+    fixed_biref_abs = str(Path(fixed_biref_path).absolute())
+    moving_biref_abs = str(Path(moving_biref_path).absolute())
+    output_dir_abs = str(output_path.absolute())
+
+    try:
+        # Get MATLAB engine
+        eng = _get_matlab_engine()
+
+        # Add MATLAB script path if provided
+        if matlab_script_path:
+            eng.addpath(matlab_script_path, nargout=0)
+            # Also add registration subdirectory
+            registration_path = Path(matlab_script_path) / "registration"
+            if registration_path.exists():
+                eng.addpath(str(registration_path), nargout=0)
+        else:
+            # Try to find MATLAB scripts in common locations
+            possible_paths = [
+                Path("/space/megaera/1/users/kchai/code/psoct-renew"),
+                Path("/space/megaera/1/users/kchai/code/psoct-renew/registration"),
+            ]
+            for path in possible_paths:
+                if path.exists():
+                    eng.addpath(str(path), nargout=0)
+                    logger.info(f"Added MATLAB path: {path}")
+
+        # Call MATLAB function
+        logger.info(
+            f"Calling MATLAB thruplane_from_files with:\n"
+            f"  fixed_ori: {fixed_ori_abs}\n"
+            f"  moving_ori: {moving_ori_abs}\n"
+            f"  fixed_biref: {fixed_biref_abs}\n"
+            f"  moving_biref: {moving_biref_abs}\n"
+            f"  output_dir: {output_dir_abs}\n"
+            f"  gamma: {gamma}"
+        )
+
+        eng.thruplane_from_files(
+            fixed_ori_abs,
+            moving_ori_abs,
+            fixed_biref_abs,
+            moving_biref_abs,
+            output_dir_abs,
+            float(gamma),
+            nargout=0,
+        )
+
+        logger.info("thruplane_from_files completed successfully")
+
+        # Close MATLAB engine
+        eng.quit()
+
+    except ImportError:
+        # Fallback: Try calling MATLAB via command line
+        logger.warning("MATLAB Engine not available, attempting command-line call")
+        _call_matlab_via_cli(
+            "thruplane_from_files",
+            fixed_ori_abs,
+            moving_ori_abs,
+            fixed_biref_abs,
+            moving_biref_abs,
+            output_dir_abs,
+            gamma,
+            matlab_script_path=matlab_script_path,
+        )
+    except Exception as e:
+        logger.error(f"Error in thruplane_from_files: {e}")
+        raise
+
+    # Collect output file paths
+    outputs = {
+        "data": output_path / "data_data.mat",
+        "inplane_tiff": output_path / "data_inplane.tiff",
+        "inplane_jpg": output_path / "data_inplane.jpg",
+        "alpha_tiff": output_path / "data_alpha.tiff",
+        "alpha_jpg": output_path / "data_alpha.jpg",
+        "axis_nii": output_path / "3daxis.nii",
+        "axis_jpg": output_path / "3daxis.jpg",
+    }
+
+    # Verify outputs exist
+    for key, path in outputs.items():
+        if not path.exists():
+            logger.warning(f"Expected output file not found: {path}")
+
+    return outputs
+
+
+def _call_matlab_via_cli(
+    function_name: str,
+    *args,
+    matlab_script_path: Optional[str] = None,
+) -> None:
+    """
+    Call MATLAB function via command line as fallback.
+
+    Parameters
+    ----------
+    function_name : str
+        Name of MATLAB function to call
+    *args
+        Arguments to pass to MATLAB function
+    matlab_script_path : str, optional
+        Path to MATLAB script directory
+    """
+    logger = get_run_logger()
+    # Build MATLAB command
+    # Format: matlab -batch "function_name(arg1, arg2, ...)"
+
+    # Convert arguments to MATLAB format
+    matlab_args = []
+    for arg in args:
+        if isinstance(arg, (int, float)):
+            matlab_args.append(str(arg))
+        elif isinstance(arg, str):
+            # Escape quotes and wrap in quotes
+            escaped = arg.replace("'", "''")
+            matlab_args.append(f"'{escaped}'")
+        else:
+            matlab_args.append(str(arg))
+
+    # Add path if provided
+    path_cmd = ""
+    if matlab_script_path:
+        path_cmd = f"addpath(genpath('{matlab_script_path}')); "
+        # Also add registration subdirectory
+        registration_path = Path(matlab_script_path) / "registration"
+        if registration_path.exists():
+            path_cmd += f"addpath('{registration_path}'); "
+
+    # Build MATLAB command
+    args_str = ", ".join(matlab_args)
+    matlab_cmd = f"{path_cmd}{function_name}({args_str})"
+
+    # Execute MATLAB
+    cmd = ["matlab", "-batch", matlab_cmd]
+
+    logger.info(f"Executing MATLAB command: {' '.join(cmd)}")
+    logger.debug(f"MATLAB command string: {matlab_cmd}")
+    try:
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        logger.info(f"MATLAB command completed: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"MATLAB stderr: {result.stderr}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"MATLAB command failed: {e.stderr}")
+        logger.error(f"MATLAB stdout: {e.stdout}")
+        raise
+    except FileNotFoundError:
+        raise RuntimeError(
+            "MATLAB not found in PATH. "
+            "Please install MATLAB or use MATLAB Engine for Python."
+        )
 
 
 @flow(flow_run_name="{project_name}-slice-{slice_number}-register")

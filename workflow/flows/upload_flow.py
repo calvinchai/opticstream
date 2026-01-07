@@ -13,12 +13,12 @@ from workflow.events import (
     get_event_trigger,
 )
 from workflow.state.flags import UPLOADED, get_batch_flag_path
-from workflow.tasks.upload import (
+from workflow.tasks.common_tasks import (
     upload_to_dandi_task,
     upload_to_linc_batch_task,
     upload_to_linc_task,
 )
-from workflow.tasks.utils import (
+from workflow.utils.utils import (
     get_mosaic_paths,
 )
 

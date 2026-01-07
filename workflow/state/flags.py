@@ -9,7 +9,7 @@ of truth for processing state at batch, mosaic, and slice levels.
 from pathlib import Path
 from typing import Union
 
-from workflow.tasks.utils import get_mosaic_paths, get_slice_paths
+from workflow.utils.utils import get_mosaic_paths, get_slice_paths
 
 
 # Flag name constants

@@ -37,7 +37,7 @@ from workflow.state.flags import (
     get_mosaic_flag_path,
     get_slice_flag_path,
 )
-from workflow.tasks.utils import (
+from workflow.utils.utils import (
     get_illumination,
     get_mosaic_paths,
     get_slice_paths,

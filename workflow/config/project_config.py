@@ -4,7 +4,7 @@ Project-level parameter management using Prefect Blocks.
 See: https://docs.prefect.io/v3/concepts/blocks
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from workflow.config.blocks import PSOCTScanConfig
 from workflow.config.constants import TileSavingType
@@ -109,7 +109,7 @@ def resolve_config_param(
     >>> # With different config attribute name (automatically used for class default too)
     >>> value = resolve_config_param(
     ...     payload, "archive_format", config,
-    ...     config_attr="tile_archive_format"
+    ...     config_attr="archive_tile_name_format"
     ... )
     """
     # Determine class_default_attr: use explicit value, or config_attr, or param_key
@@ -179,6 +179,47 @@ def resolve_tile_saving_type(
         return TileSavingType[value.upper()]
 
     return value
+
+
+def resolve_config(payload: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
+    """
+    Resolve configuration values from payload and project config.
+    
+    Priority: payload[key] → project_config.key → omit key
+    
+    Does not apply defaults - defaults must be in processing flow signature.
+    
+    Parameters
+    ----------
+    payload : Dict[str, Any]
+        Event payload dictionary (must contain "project_name")
+    keys : List[str]
+        List of configuration keys to resolve
+        
+    Returns
+    -------
+    Dict[str, Any]
+        Dictionary with resolved configuration values (only keys that were found)
+    """
+    project_name = payload["project_name"]
+    project_config = get_project_config_block(project_name)
+    
+    resolved = {}
+    for key in keys:
+        if key in payload:
+            value = payload[key]
+        elif project_config is not None and hasattr(project_config, key):
+            value = getattr(project_config, key)
+        else:
+            continue  # Omit key if not found
+        
+        # Special handling for tile_saving_type
+        if key == "tile_saving_type" and isinstance(value, str):
+            value = TileSavingType[value.upper()]
+        
+        resolved[key] = value
+    
+    return resolved
 
 
 def get_grid_size_x(project_name: str, mosaic_id: int) -> int:

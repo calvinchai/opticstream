@@ -3,7 +3,8 @@ Flows module for OCT pipeline workflow.
 
 This module contains all flow definitions organized by scope:
 - tile_flow: Process a single tile
-- tile_batch_flow: Process a batch of tiles
+- process_tile_batch_flow: Process a batch of tiles
+- process_tile_batch_complex2processed_flow: Convert complex data to processed data
 - mosaic_processing_flow: Event-driven mosaic processing (stitching)
 - slice_flow: Process a slice (two mosaics + registration)
 - experiment_flow: Main experiment flow and stacking
@@ -23,23 +24,18 @@ from .slack_notification_flow import (
 
 # Slice registration flow
 from .slice_registration_flow import register_slice_event_flow, register_slice_flow
-from .tile_batch_flow import (
+from .process_tile_batch_flow import process_tile_batch_flow
+from .process_tile_batch_complex2processed_flow import (
     complex_to_processed_batch_event_flow,
-    process_tile_batch_flow,
 )
 
-# Tile flows
-from .tile_flow import (
-    process_tile_flow,
-)
+
 from .upload_flow import (
     upload_flow,
     upload_to_linc_batch_flow,
 )
 
 __all__ = [
-    # Tile flows
-    "process_tile_flow",
     "process_tile_batch_flow",
     "complex_to_processed_batch_event_flow",
     "upload_to_linc_batch_flow",
