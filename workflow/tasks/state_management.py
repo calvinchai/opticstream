@@ -99,7 +99,7 @@ def update_mosaic_artifact_task(
     progress_percentage = mosaic_state.get_progress_percentage()
 
     # Create table artifact with progress information
-    artifact_key = f"{project_name.lower()}-mosaic-{mosaic_id}-progress"
+    artifact_key = f"{project_name.lower().replace('_', '-')}-mosaic-{mosaic_id}-progress"
 
     # Calculate percentages
     started_pct = (
@@ -307,7 +307,7 @@ def update_slice_artifact_task(
     normal_progress = normal_mosaic.get_progress_percentage()
     tilted_progress = tilted_mosaic.get_progress_percentage()
 
-    artifact_key = f"{project_name.lower()}-slice-{slice_number}-progress"
+    artifact_key = f"{project_name.lower().replace('_', '-')}-slice-{slice_number}-progress"
 
     # Create table data as list of dictionaries
     table_data = [
