@@ -16,7 +16,6 @@ import jinja2
 import yaml
 from linc_convert.modalities.psoct.mosaic import mosaic2d
 from prefect import flow, task
-from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
 from data_processing.stitch import fiji_stitch, fit_coord_files, generate_mask
@@ -32,6 +31,7 @@ from workflow.events import (
     MOSAIC_VOLUME_STITCHED,
     get_event_trigger,
 )
+from workflow.events.utils import emit_mosaic_event
 from workflow.utils.utils import (
     get_dandi_slice_path,
     get_illumination,
@@ -1025,13 +1025,11 @@ def stitch_volume_modalities_flow(
     logger.info(f"All volume modalities stitched for mosaic {mosaic_id}")
 
     # Emit MOSAIC_VOLUME_STITCHED event
-    emit_event(
-        event=MOSAIC_VOLUME_STITCHED,
-        resource={
-            "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
-            "project_name": project_name,
-            "mosaic_id": str(mosaic_id),
-        },
+    emit_mosaic_event(
+        event_name=MOSAIC_VOLUME_STITCHED,
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -1266,13 +1264,11 @@ def process_mosaic_flow(
                 "mosaic_enface_format not provided, skipping enface symlinking"
             )
         symlink_targets = {}
-    emit_event(
-        event=MOSAIC_STITCHED,
-        resource={
-            "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
-            "project_name": project_name,
-            "mosaic_id": str(mosaic_id),
-        },
+    emit_mosaic_event(
+        event_name=MOSAIC_STITCHED,
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
         payload={
             "project_name": project_name,
             "project_base_path": project_base_path,
@@ -1443,10 +1439,11 @@ def process_mosaic_event_flow(
 
 # Deployment configuration for event-driven triggering
 if __name__ == "__main__":
-    process_mosaic_event_flow_deployment = process_mosaic_event_flow.to_deployment(
+    from workflow.utils.deployment_utils import create_event_deployment
+
+    process_mosaic_event_flow_deployment = create_event_deployment(
+        flow=process_mosaic_event_flow,
         name="process_mosaic_event_flow",
+        event_name=MOSAIC_READY,
         tags=["event-driven", "mosaic-processing", "stitching"],
-        triggers=[
-            get_event_trigger(MOSAIC_READY),
-        ],
     )

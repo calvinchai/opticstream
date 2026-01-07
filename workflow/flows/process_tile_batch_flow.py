@@ -335,10 +335,6 @@ def process_tile_batch_event_flow(payload: Dict[str, Any]):
     Wrapper flow for event-driven triggering.
     Resolves config from payload and project config, then calls process_tile_batch_flow.
     """
-    from prefect.logging import get_run_logger
-
-    get_run_logger()
-
     # Resolve config parameters
     config = resolve_config(
         payload=payload,
