@@ -2,21 +2,23 @@ import os
 import os.path as op
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+import re
 
-import prefect
 from prefect import flow, task
 from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
 from workflow.config.constants import TileSavingType
-from workflow.config.project_config import get_project_config_block
+from workflow.config.project_config import (
+    get_project_config_block,
+    resolve_config_param,
+    resolve_tile_saving_type,
+)
 from workflow.events import (
     BATCH_ARCHIVED,
-    BATCH_READY,
     BATCH_PROCESSED,
     BATCH_COMPLEXED,
-    get_event_trigger,
 )
 from workflow.state.flags import (
     ARCHIVED,
@@ -26,7 +28,7 @@ from workflow.state.flags import (
     get_batch_flag_path_from_project,
 )
 from workflow.tasks.utils import get_mosaic_paths
-import re
+
 
 from workflow.tasks.tile_processing import archive_tile_task
 
@@ -210,7 +212,8 @@ def archive_tile_batch_task(
     mosaic_id: int,
     batch_id: int,
     file_list: List[str],
-    compressed_base_path: str = None,
+    archive_tile_name_format: str,
+    archive_path: str,
 ):
     """
     Archive tiles in a batch one by one.
@@ -227,15 +230,15 @@ def archive_tile_batch_task(
         Batch identifier
     file_list : List[str]
         List of file paths to archive
-    compressed_base_path : str, optional
-        Base path for compressed files. If None, uses project_base_path.
+    archive_tile_name_format : str
+        Format string for archived tile names. Should contain placeholders:
+        {project_name}, {slice_id}, {tile_id}, {acq}
+    archive_path : str
+        Base path for archived files.
     """
     logger = get_run_logger()
-    if compressed_base_path is None:
-        compressed_base_path = str(Path(project_base_path) / "archived")
-
-    # Ensure compressed_base_path directory exists
-    os.makedirs(compressed_base_path, exist_ok=True)
+    # Ensure archive_path directory exists
+    os.makedirs(archive_path, exist_ok=True)
 
     # Determine acquisition type based on mosaic_id
     titled_illumination = mosaic_id % 2 == 0
@@ -254,9 +257,14 @@ def archive_tile_batch_task(
     for file_path in file_list:
         # Extract tile_index from filename (similar to spectral_to_complex_batch_task)
         tile_index = int(os.path.basename(file_path).split("_")[3])
-        # Generate archived tile name (same pattern as tile_flow.py)
-        archived_tile_name = f"{project_name}_sample-slice-{slice_id:03d}_chunk-{tile_index:04d}_acq-{acq}_OCT.nii.gz"
-        archived_tile_path = op.join(compressed_base_path, archived_tile_name)
+        # Generate archived tile name using format string
+        archived_tile_name = archive_tile_name_format.format(
+            project_name=project_name,
+            slice_id=slice_id,
+            tile_id=tile_index,  # Map tile_index to tile_id for format string
+            acq=acq
+        )
+        archived_tile_path = op.join(archive_path, archived_tile_name)
 
         # Archive the tile (synchronous, one by one)
         logger.info(
@@ -305,6 +313,11 @@ def process_tile_batch_flow(
     archive: bool = True,
     convert: bool = True,
     tile_saving_type: TileSavingType = TileSavingType.SPECTRAL,
+    archive_tile_name_format: str = "{project_name}_sample-slice-{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz",
+    archive_path: Optional[str] = None,
+    tile_size_x_tilted: int = 200,
+    tile_size_x_normal: int = 350,
+    tile_size_y: int = 350,
 ):
     """
     Process a batch of tiles.
@@ -321,6 +334,12 @@ def process_tile_batch_flow(
     batch_started_path = get_batch_flag_path(state_path, batch_id, STARTED)
     batch_started_path.touch()
 
+    # Validate archive_path if archive is enabled
+    if archive:
+        if archive_path is None:
+            archive_path = str(Path(project_base_path) / "archived")
+            logger.info(f"archive_path not provided, using default: {archive_path}")
+ 
     # Run archive and spectral2complex in parallel (if enabled)
     archive_future = None
     spectral_to_complex_future = None
@@ -332,56 +351,16 @@ def process_tile_batch_flow(
             mosaic_id=mosaic_id,
             batch_id=batch_id,
             file_list=file_list,
+            archive_tile_name_format=archive_tile_name_format,
+            archive_path=archive_path,
         )
 
     if convert:
         if tile_saving_type == TileSavingType.SPECTRAL:
-            project_config = get_project_config_block(project_name)
             is_tilted = mosaic_id % 2 == 0
 
-            # Handle tile_size values with defaults
-            if project_config is None:
-                from workflow.config.blocks import PSOCTScanConfig
-
-                # Helper to get field default (supports both Pydantic v1 and v2)
-                def _get_field_default(model_class, field_name: str):
-                    if (
-                        hasattr(model_class, "model_fields")
-                        and field_name in model_class.model_fields
-                    ):
-                        field_info = model_class.model_fields[field_name]
-                        if hasattr(field_info, "default"):
-                            return field_info.default
-                    if (
-                        hasattr(model_class, "__fields__")
-                        and field_name in model_class.__fields__
-                    ):
-                        field_info = model_class.__fields__[field_name]
-                        if hasattr(field_info, "default"):
-                            return field_info.default
-                    return None
-
-                tile_size_x_tilted = (
-                    _get_field_default(PSOCTScanConfig, "tile_size_x_tilted") or 200
-                )
-                tile_size_x_normal = (
-                    _get_field_default(PSOCTScanConfig, "tile_size_x_normal") or 350
-                )
-                tile_size_y = _get_field_default(PSOCTScanConfig, "tile_size_y") or 350
-
-                aline_length = tile_size_x_tilted if is_tilted else tile_size_x_normal
-                bline_length = tile_size_y
-                logger.warning(
-                    f"Using default tile_size values (aline_length={aline_length}, "
-                    f"bline_length={bline_length}) from class defaults (config block not found)"
-                )
-            else:
-                aline_length = (
-                    project_config.tile_size_x_tilted
-                    if is_tilted
-                    else project_config.tile_size_x_normal
-                )
-                bline_length = project_config.tile_size_y
+            aline_length = tile_size_x_tilted if is_tilted else tile_size_x_normal
+            bline_length = tile_size_y
 
             spectral_to_complex_future = spectral_to_complex_batch_task.submit(
                 project_name=project_name,
@@ -400,21 +379,15 @@ def process_tile_batch_flow(
                 batch_id=batch_id,
                 file_list=file_list,
             )
-    # Wait for both to complete (if they were started)
-    archive_result = None
-    spectral_to_complex_result = None
-
+    states = []
     if archive_future is not None:
-        archive_result = archive_future.wait()
-
+        archive_future.wait()
+        states.append(archive_future.state)
     if spectral_to_complex_future is not None:
-        spectral_to_complex_result = spectral_to_complex_future.wait()
-    
-    return {
-        "archive_result": archive_result,
-        "spectral_to_complex_result": spectral_to_complex_result,
-    }
+        spectral_to_complex_future.wait()
+        states.append(spectral_to_complex_future.state)
 
+    return states
 
 @flow
 def process_tile_batch_event_flow(payload: Dict[str, Any]):
@@ -436,17 +409,50 @@ def process_tile_batch_event_flow(payload: Dict[str, Any]):
             f"Using defaults from payload or class defaults."
         )
 
-    # Handle tile_saving_type (payload → block → class default)
-    tile_saving_type = payload.get("tile_saving_type")
-    if tile_saving_type is None:
-        if project_config:
-            tile_saving_type = project_config.tile_saving_type
-        else:
-            tile_saving_type = TileSavingType.SPECTRAL
-    else:
-        # Convert string to enum if needed
-        if isinstance(tile_saving_type, str):
-            tile_saving_type = TileSavingType[tile_saving_type.upper()]
+    # Resolve parameters using helper function
+    tile_saving_type = resolve_tile_saving_type(payload, project_config)
+
+    archive_tile_name_format = resolve_config_param(
+        payload,
+        "archive_tile_name_format",
+        project_config,
+        config_attr="tile_archive_format",
+    )
+
+    tile_size_x_tilted = resolve_config_param(
+        payload,
+        "tile_size_x_tilted",
+        project_config,
+        config_attr="tile_size_x_tilted",
+    )
+
+    tile_size_x_normal = resolve_config_param(
+        payload,
+        "tile_size_x_normal",
+        project_config,
+        config_attr="tile_size_x_normal",
+    )
+
+    tile_size_y = resolve_config_param(
+        payload,
+        "tile_size_y",
+        project_config,
+        config_attr="tile_size_y",
+    )
+
+    # Handle archive_path (only needed if archive is enabled)
+    archive = payload.get("archive", True)
+    archive_path = None
+    if archive:
+        archive_path = resolve_config_param(
+            payload,
+            "archive_path",
+            project_config,
+            config_attr="archive_path",
+        )
+        if archive_path is None:
+            # Default to project_base_path / "archived" if archive is enabled
+            archive_path = str(Path(payload["project_base_path"]) / "archived")
 
     process_tile_batch_flow(
         project_name=payload["project_name"],
@@ -454,9 +460,14 @@ def process_tile_batch_event_flow(payload: Dict[str, Any]):
         mosaic_id=payload["mosaic_id"],
         batch_id=payload["batch_id"],
         file_list=payload["file_list"],
-        archive=payload.get("archive", True),
+        archive=archive,
         convert=payload.get("convert", True),
         tile_saving_type=tile_saving_type,
+        archive_tile_name_format=archive_tile_name_format,
+        archive_path=archive_path,
+        tile_size_x_tilted=tile_size_x_tilted,
+        tile_size_x_normal=tile_size_x_normal,
+        tile_size_y=tile_size_y,
     )
 
 
@@ -480,17 +491,16 @@ def complex_to_processed_batch_flow(
     state_path.mkdir(parents=True, exist_ok=True)
 
     batch_processed_path = get_batch_flag_path(state_path, batch_id, PROCESSED)
-    # if batch_processed_path.exists():
-    #     logger.info(f"Batch {batch_id} already processed")
-    # else:
-    # Run complex_to_processed_batch_task
-    complex_to_processed_batch_task(
-        project_name=project_name,
-        project_base_path=project_base_path,
-        mosaic_id=mosaic_id,
-        batch_id=batch_id,
-        file_list=file_list,
-    )
+    if batch_processed_path.exists():
+        logger.info(f"Batch {batch_id} already processed")
+    else:
+        complex_to_processed_batch_task(
+            project_name=project_name,
+            project_base_path=project_base_path,
+            mosaic_id=mosaic_id,
+            batch_id=batch_id,
+            file_list=file_list,
+        )
 
     # Mark batch as processed
     batch_processed_path.touch()
@@ -522,57 +532,3 @@ def complex_to_processed_batch_event_flow(payload: Dict[str, Any]):
         batch_id=payload["batch_id"],
         file_list=payload["file_list"],
     )
-
-
-# process_tile_batch_event_deployment = process_tile_batch_event_flow.to_deployment(
-#     name="process_tile_batch_event_flow",
-#     tags=["event-driven", "tile-batch", "process-tile-batch"],
-#     triggers=[
-#         DeploymentEventTrigger(
-#             expect={"tile_batch.archived.ready"},
-#         )
-#     ]
-# )
-
-if __name__ == "__main__":
-    from workflow.flows.upload_flow import (
-        upload_to_linc_batch_flow,
-        upload_to_linc_batch_event_flow,
-    )
-
-    process_tile_batch_flow_deployment = process_tile_batch_flow.to_deployment(
-        name="process_tile_batch_flow"
-    )
-
-    # Deployment for complex-to-processed batch flow (triggered by BATCH_READY event)
-    complex_to_processed_batch_event_flow_deployment = (
-        complex_to_processed_batch_event_flow.to_deployment(
-            name="complex_to_processed_batch_event_flow",
-            tags=["event-driven", "tile-batch", "complex-to-processed"],
-            triggers=[
-                get_event_trigger(BATCH_READY),
-            ],
-        )
-    )
-
-    upload_to_linc_batch_flow_deployment = upload_to_linc_batch_flow.to_deployment(
-        name="upload_to_linc_batch_flow",
-    )
-    upload_to_linc_batch_event_flow_deployment = (
-        upload_to_linc_batch_event_flow.to_deployment(
-            name="upload_to_linc_batch_payload_flow",
-            triggers=[
-                get_event_trigger(BATCH_ARCHIVED),
-            ],
-        )
-    )
-    prefect.serve(
-        process_tile_batch_flow_deployment,
-        complex_to_processed_batch_event_flow_deployment,
-        upload_to_linc_batch_flow_deployment,
-        upload_to_linc_batch_event_flow_deployment,
-    )
-# Note: After complex2processed flow completes (triggered by event),
-# it checks if all batches in the mosaic are processed.
-# If all batches are processed, it emits the mosaic_processed event,
-# which will then trigger the mosaic level processing flow.

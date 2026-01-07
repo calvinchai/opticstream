@@ -38,26 +38,12 @@ from workflow.tasks.utils import (
     get_mosaic_paths,
     mosaic_id_to_slice_number,
 )
-from workflow.config.project_config import get_grid_size_x, get_project_config_block
-from workflow.config.blocks import PSOCTScanConfig
+from workflow.config.project_config import (
+    get_grid_size_x,
+    get_project_config_block,
+    resolve_config_param,
+)
 from linc_convert.utils.zarr_config import ZarrConfig
-
-
-# Helper function to get field default from Pydantic model
-def _get_field_default(model_class, field_name: str):
-    """Get default value for a Pydantic model field, supporting both v1 and v2."""
-    # Try Pydantic v2 first (model_fields)
-    if hasattr(model_class, "model_fields") and field_name in model_class.model_fields:
-        field_info = model_class.model_fields[field_name]
-        if hasattr(field_info, "default"):
-            return field_info.default
-    # Try Pydantic v1 (__fields__)
-    if hasattr(model_class, "__fields__") and field_name in model_class.__fields__:
-        field_info = model_class.__fields__[field_name]
-        if hasattr(field_info, "default"):
-            return field_info.default
-    # Fallback: return None
-    return None
 
 
 def stitch_2d_modality(
@@ -407,7 +393,7 @@ def stitch_volume_modalities_flow(
             )
         if mosaic_volume_format is None:
             logger.warning(
-                f"mosaic_volume_format not provided, using default filename format"
+                "mosaic_volume_format not provided, using default filename format"
             )
 
     # Use kwargs parameter, but ensure circular_mean and voxel_size_xyz are set per modality
@@ -670,14 +656,22 @@ def process_mosaic_flow(
             mosaic_id=mosaic_id,
             mosaic_enface_format=mosaic_enface_format,
         )
-        logger.info(f"Created {len(symlink_targets)} symlinks for enface files to DANDI")
+        logger.info(
+            f"Created {len(symlink_targets)} symlinks for enface files to DANDI"
+        )
     else:
         # Use the original NIfTI path as the symlink target, not the standardized DANDI format
-        symlink_targets = {modality: Path(outputs["nifti"]) for modality, outputs in enface_outputs.items() if isinstance(outputs, dict) and "nifti" in outputs}
+        symlink_targets = {
+            modality: Path(outputs["nifti"])
+            for modality, outputs in enface_outputs.items()
+            if isinstance(outputs, dict) and "nifti" in outputs
+        }
         if dandiset_path is None:
             logger.debug("dandiset_path not configured, skipping enface symlinking")
         if mosaic_enface_format is None:
-            logger.debug("mosaic_enface_format not provided, skipping enface symlinking")
+            logger.debug(
+                "mosaic_enface_format not provided, skipping enface symlinking"
+            )
         symlink_targets = {}
     emit_event(
         event=MOSAIC_STITCHED,
@@ -747,11 +741,12 @@ def process_mosaic_flow(
             dandiset_path=dandiset_path,
             mosaic_volume_format=mosaic_volume_format,
             zarr_config=zarr_config,
-            kwargs={"overwrite": True,
-            "focus_plane": str(focus_path),
-            "normalize_focus_plane": True,
-            "crop_focus_plane_depth": 500,
-            "crop_focus_plane_offset": 30,
+            kwargs={
+                "overwrite": True,
+                "focus_plane": str(focus_path),
+                "normalize_focus_plane": True,
+                "crop_focus_plane_depth": 500,
+                "crop_focus_plane_offset": 30,
             },  # Can be extended to load from config if needed
         )
         logger.info(f"All volume modalities stitched for mosaic {mosaic_id}")
@@ -806,72 +801,82 @@ def process_mosaic_event_flow(
     }
 
     # Required field: project_base_path (must be in payload or block)
-    if "project_base_path" in payload:
-        params["project_base_path"] = payload["project_base_path"]
-    elif project_config:
-        params["project_base_path"] = project_config.project_base_path
-    else:
+    project_base_path = resolve_config_param(
+        payload,
+        "project_base_path",
+        project_config,
+        config_attr="project_base_path",
+    )
+    if project_base_path is None:
         raise ValueError(
             f"project_base_path is required but not found in payload and config block "
             f"'{project_name}-config' is missing. Please provide project_base_path in event payload "
             f"or create the config block."
         )
+    params["project_base_path"] = project_base_path
 
     # Required field: grid_size_x (payload → block → get_grid_size_x → error)
+    # Special case: can come from "grid_size_x" or "total_batches"
     if "grid_size_x" in payload or "total_batches" in payload:
         params["grid_size_x"] = int(
             payload.get("grid_size_x") or payload.get("total_batches")
         )
-    elif project_config:
-        # Resolve from config block
-        params["grid_size_x"] = get_grid_size_x(project_name, mosaic_id)
     else:
-        # Try to get from config block, will raise error if not found
+        # Will raise error if config block not found
         params["grid_size_x"] = get_grid_size_x(project_name, mosaic_id)
 
     # Optional field: grid_size_y (payload → block → class default)
-    if "grid_size_y" in payload:
-        params["grid_size_y"] = int(payload["grid_size_y"])
-    elif project_config:
-        params["grid_size_y"] = project_config.grid_size_y
-    else:
-        params["grid_size_y"] = _get_field_default(PSOCTScanConfig, "grid_size_y")
-        if params["grid_size_y"] is None:
-            raise ValueError(
-                "grid_size_y is required but cannot be determined from config block or defaults"
-            )
+    grid_size_y = resolve_config_param(
+        payload,
+        "grid_size_y",
+        project_config,
+        converter=int,
+        config_attr="grid_size_y",
+    )
+    if grid_size_y is None:
+        raise ValueError(
+            "grid_size_y is required but cannot be determined from config block or defaults"
+        )
+    params["grid_size_y"] = grid_size_y
 
     # Optional field: tile_overlap (payload → block → class default)
-    if "tile_overlap" in payload:
-        params["tile_overlap"] = float(payload["tile_overlap"])
-    elif project_config:
-        params["tile_overlap"] = project_config.tile_overlap
-    else:
-        params["tile_overlap"] = (
-            _get_field_default(PSOCTScanConfig, "tile_overlap") or 20.0
+    params["tile_overlap"] = (
+        resolve_config_param(
+            payload,
+            "tile_overlap",
+            project_config,
+            default=20.0,
+            converter=float,
+            config_attr="tile_overlap",
         )
+        or 20.0
+    )
 
     # Optional field: mask_threshold (payload → block → class default)
-    if "mask_threshold" in payload:
-        params["mask_threshold"] = float(payload["mask_threshold"])
-    elif project_config:
-        params["mask_threshold"] = project_config.mask_threshold
-    else:
-        params["mask_threshold"] = (
-            _get_field_default(PSOCTScanConfig, "mask_threshold") or 50.0
+    params["mask_threshold"] = (
+        resolve_config_param(
+            payload,
+            "mask_threshold",
+            project_config,
+            default=50.0,
+            converter=float,
+            config_attr="mask_threshold",
         )
+        or 50.0
+    )
 
     # Optional field: scan_resolution_3d (payload → block → class default)
-    if "scan_resolution_3d" in payload:
-        scan_resolution_3d = payload["scan_resolution_3d"]
-        # Ensure it's a list of floats
+    scan_resolution_3d = resolve_config_param(
+        payload,
+        "scan_resolution_3d",
+        project_config,
+        config_attr="scan_resolution_3d",
+    )
+    if scan_resolution_3d is not None:
+        # Ensure it's a list of floats (handles both list and tuple from config)
         params["scan_resolution_3d"] = [float(x) for x in scan_resolution_3d]
-    elif project_config:
-        params["scan_resolution_3d"] = list(project_config.scan_resolution_3d)
     else:
-        params["scan_resolution_3d"] = _get_field_default(
-            PSOCTScanConfig, "scan_resolution_3d"
-        )
+        params["scan_resolution_3d"] = None
 
     # Optional field: force_refresh_coords (payload → default False)
     force_refresh_coords = payload.get("force_refresh_coords", False)
@@ -880,67 +885,71 @@ def process_mosaic_event_flow(
     params["force_refresh_coords"] = force_refresh_coords
 
     # Optional field: enface_modalities (payload → block → class default)
-    if "enface_modalities" in payload:
-        params["enface_modalities"] = payload["enface_modalities"]
-    elif project_config:
-        params["enface_modalities"] = list(project_config.enface_modalities)
-    else:
-        params["enface_modalities"] = _get_field_default(
-            PSOCTScanConfig, "enface_modalities"
-        ) or ["ret", "ori", "biref", "mip", "surf"]
+    enface_modalities = resolve_config_param(
+        payload,
+        "enface_modalities",
+        project_config,
+        default=["ret", "ori", "biref", "mip", "surf"],
+        config_attr="enface_modalities",
+    )
+    params["enface_modalities"] = (
+        list(enface_modalities)
+        if enface_modalities is not None
+        else ["ret", "ori", "biref", "mip", "surf"]
+    )
 
     # Optional field: volume_modalities (payload → block → class default)
-    if "volume_modalities" in payload:
-        params["volume_modalities"] = payload["volume_modalities"]
-    elif project_config:
-        params["volume_modalities"] = list(project_config.volume_modalities)
-    else:
-        params["volume_modalities"] = _get_field_default(
-            PSOCTScanConfig, "volume_modalities"
-        ) or ["dBI", "R3D", "O3D"]
+    volume_modalities = resolve_config_param(
+        payload,
+        "volume_modalities",
+        project_config,
+        default=["dBI", "R3D", "O3D"],
+        config_attr="volume_modalities",
+    )
+    params["volume_modalities"] = (
+        list(volume_modalities)
+        if volume_modalities is not None
+        else ["dBI", "R3D", "O3D"]
+    )
 
     # Optional field: stitch_3d_volumes (payload → block → default True)
-    if "stitch_3d_volumes" in payload:
-        stitch_3d_volumes = payload["stitch_3d_volumes"]
-        if isinstance(stitch_3d_volumes, str):
-            stitch_3d_volumes = stitch_3d_volumes.lower() == "true"
-        params["stitch_3d_volumes"] = bool(stitch_3d_volumes)
-    elif project_config:
-        params["stitch_3d_volumes"] = project_config.stitch_3d_volumes
-    else:
-        params["stitch_3d_volumes"] = _get_field_default(
-            PSOCTScanConfig, "stitch_3d_volumes"
-        )
-        if params["stitch_3d_volumes"] is None:
-            params["stitch_3d_volumes"] = True  # Default to True
+    stitch_3d_volumes = resolve_config_param(
+        payload,
+        "stitch_3d_volumes",
+        project_config,
+        default=True,
+        config_attr="stitch_3d_volumes",
+    )
+    if stitch_3d_volumes is None:
+        stitch_3d_volumes = True
+    elif isinstance(stitch_3d_volumes, str):
+        stitch_3d_volumes = stitch_3d_volumes.lower() == "true"
+    params["stitch_3d_volumes"] = bool(stitch_3d_volumes)
 
     # Optional field: dandiset_path (payload → block → None)
-    if "dandiset_path" in payload:
-        params["dandiset_path"] = payload["dandiset_path"]
-    elif project_config:
-        params["dandiset_path"] = project_config.dandiset_path
-    else:
-        params["dandiset_path"] = None
+    params["dandiset_path"] = resolve_config_param(
+        payload,
+        "dandiset_path",
+        project_config,
+        default=None,
+        config_attr="dandiset_path",
+    )
 
     # Optional field: mosaic_enface_format (payload → block → class default)
-    if "mosaic_enface_format" in payload:
-        params["mosaic_enface_format"] = payload["mosaic_enface_format"]
-    elif project_config:
-        params["mosaic_enface_format"] = project_config.mosaic_enface_format
-    else:
-        params["mosaic_enface_format"] = _get_field_default(
-            PSOCTScanConfig, "mosaic_enface_format"
-        )
+    params["mosaic_enface_format"] = resolve_config_param(
+        payload,
+        "mosaic_enface_format",
+        project_config,
+        config_attr="mosaic_enface_format",
+    )
 
     # Optional field: mosaic_volume_format (payload → block → class default)
-    if "mosaic_volume_format" in payload:
-        params["mosaic_volume_format"] = payload["mosaic_volume_format"]
-    elif project_config:
-        params["mosaic_volume_format"] = project_config.mosaic_volume_format
-    else:
-        params["mosaic_volume_format"] = _get_field_default(
-            PSOCTScanConfig, "mosaic_volume_format"
-        )
+    params["mosaic_volume_format"] = resolve_config_param(
+        payload,
+        "mosaic_volume_format",
+        project_config,
+        config_attr="mosaic_volume_format",
+    )
 
     # Optional field: zarr_config (from block only, not from payload)
     if project_config:

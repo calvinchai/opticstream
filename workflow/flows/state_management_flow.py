@@ -29,9 +29,7 @@ from workflow.tasks.state_management import (
 )
 
 
-@flow(
-    flow_run_name="{project_name}-mosaic-{mosaic_id}-manage-batch-state"
-)
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-manage-batch-state")
 def manage_mosaic_batch_state_flow(
     project_name: str,
     project_base_path: str,
@@ -156,9 +154,7 @@ def manage_mosaic_batch_state_event_flow(
     )
 
 
-@flow(
-    flow_run_name="{project_name}-slice-{slice_number}-manage-state"
-)
+@flow(flow_run_name="{project_name}-slice-{slice_number}-manage-state")
 def manage_slice_state_flow(
     project_name: str,
     project_base_path: str,
@@ -329,12 +325,16 @@ def unified_state_management_event_flow(
 
     # Route to batch state management for batch events
     if event in (BATCH_PROCESSED, BATCH_ARCHIVED):
-        logger.info(f"Routing to batch state management for mosaic {payload.get('mosaic_id')}")
+        logger.info(
+            f"Routing to batch state management for mosaic {payload.get('mosaic_id')}"
+        )
         return manage_mosaic_batch_state_event_flow(payload)
 
     # Route to slice state management for mosaic stitched events
     elif event == MOSAIC_STITCHED:
-        logger.info(f"Routing to slice state management for mosaic {payload.get('mosaic_id')}")
+        logger.info(
+            f"Routing to slice state management for mosaic {payload.get('mosaic_id')}"
+        )
         return manage_slice_state_event_flow(payload)
 
     else:

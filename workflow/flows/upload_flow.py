@@ -18,8 +18,9 @@ from workflow.tasks.upload import (
     upload_to_linc_batch_task,
     upload_to_linc_task,
 )
-from workflow.config.project_config import get_project_config_block
-from workflow.tasks.utils import get_dandi_slice_path, get_mosaic_paths, mosaic_id_to_slice_number
+from workflow.tasks.utils import (
+    get_mosaic_paths,
+)
 
 
 @flow
@@ -34,9 +35,7 @@ def upload_flow(file_path: str, instance="linc"):
     return True
 
 
-@flow(
-    flow_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-upload-to-linc"
-)
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-upload-to-linc")
 def upload_to_linc_batch_flow(
     project_name: str,
     project_base_path: str,
@@ -121,9 +120,8 @@ upload_to_linc_batch_deployment = upload_to_linc_batch_flow.to_deployment(
     tags=["tile-batch", "upload-to-linc"],
 )
 
-@flow(
-    flow_run_name="{project_name}-mosaic-{mosaic_id}-upload-enface-to-dandi"
-)
+
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-upload-enface-to-dandi")
 def upload_mosaic_enface_to_dandi_flow(
     project_name: str,
     project_base_path: str,
@@ -148,10 +146,11 @@ def upload_mosaic_enface_to_dandi_flow(
     enface_outputs : Dict[str, Dict[str, str]]
         Dictionary mapping modality to output file paths (with 'nifti' key)
     """
-    from pathlib import Path
 
     logger = get_run_logger()
-    logger.info(f"Uploading enface files for mosaic {mosaic_id} to DANDI from {list(enface_outputs.values())}")
+    logger.info(
+        f"Uploading enface files for mosaic {mosaic_id} to DANDI from {list(enface_outputs.values())}"
+    )
 
     upload_to_linc_batch_task(file_list=list(enface_outputs.values()), realpath=False)
     logger.info(f"Successfully uploaded enface files for mosaic {mosaic_id} to DANDI")
@@ -178,9 +177,7 @@ def upload_mosaic_enface_to_dandi_event_flow(
     )
 
 
-@flow(
-    flow_run_name="{project_name}-mosaic-{mosaic_id}-upload-volume-to-dandi"
-)
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-upload-volume-to-dandi")
 def upload_mosaic_volume_to_dandi_flow(
     project_name: str,
     project_base_path: str,

@@ -30,12 +30,12 @@ def slack_enface_notification_flow(
     payload: dict,
 ) -> Dict[str, bool]:
     """
-        Flow triggered by linc.oct.mosaic.stitched event to send Slack notifications.
+    Flow triggered by linc.oct.mosaic.stitched event to send Slack notifications.
 
-        This flow:
-        1. Extracts enface output paths from the event payload
-        2. Sends a text message to Slack about the completion
-        3. Uploads JPEG preview images for each stitched enface modality
+    This flow:
+    1. Extracts enface output paths from the event payload
+    2. Sends a text message to Slack about the completion
+    3. Uploads JPEG preview images for each stitched enface modality
     """
     logger_instance = get_run_logger()
 
@@ -88,8 +88,7 @@ def slack_enface_notification_flow(
     upload_results = {}
     if filepaths:
         initial_comment = (
-            f"Stitched enface images for mosaic {mosaic_id} "
-            f"(project: {project_name})"
+            f"Stitched enface images for mosaic {mosaic_id} (project: {project_name})"
         )
 
         try:

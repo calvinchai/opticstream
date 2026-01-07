@@ -16,9 +16,7 @@ from workflow.tasks.upload import (
 "sub-I80_voi-slab1_sample-slice{slice_num:03d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii"
 
 
-@flow(
-    flow_run_name="{project_name}-mosaic-{mosaic_id}-tile-{tile_index}"
-)
+@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-tile-{tile_index}")
 def process_tile_flow(
     project_name: str,
     project_base_path: str,

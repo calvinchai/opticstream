@@ -10,7 +10,6 @@ This flow uses the unified thruplane_from_files function that combines
 registration and 3D axis generation in a single call.
 """
 
-from pathlib import Path
 from typing import Any, Dict
 
 from prefect import flow
@@ -22,9 +21,7 @@ from workflow.tasks.slice_registration import thruplane_from_files_task
 from workflow.tasks.utils import get_slice_paths
 
 
-@flow(
-    flow_run_name="{project_name}-slice-{slice_number}-register"
-)
+@flow(flow_run_name="{project_name}-slice-{slice_number}-register")
 def register_slice_flow(
     project_name: str,
     project_base_path: str,
