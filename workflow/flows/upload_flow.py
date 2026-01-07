@@ -151,34 +151,16 @@ def upload_mosaic_enface_to_dandi_flow(
     from pathlib import Path
 
     logger = get_run_logger()
-    logger.info(f"Uploading enface files for mosaic {mosaic_id} to DANDI")
+    logger.info(f"Uploading enface files for mosaic {mosaic_id} to DANDI from {list(enface_outputs.values())}")
 
-    # Load dandiset_path from config block
-    project_config = get_project_config_block(project_name)
-    if not project_config or not project_config.dandiset_path:
-        logger.warning(
-            f"dandiset_path not configured for project {project_name}, "
-            f"skipping enface upload to DANDI"
-        )
-        return
-
-    # Get DANDI slice directory where symlinks are located
-    slice_number = mosaic_id_to_slice_number(mosaic_id)
-    dandi_slice_path = get_dandi_slice_path(project_config.dandiset_path, slice_number)
-
-    if not dandi_slice_path.exists():
-        logger.warning(
-            f"DANDI slice directory does not exist: {dandi_slice_path}, "
-            f"skipping enface upload"
-        )
-        return
-
-    logger.info(f"Uploading DANDI slice directory to DANDI: {dandi_slice_path}")
-
-    # Upload the DANDI slice directory (contains symlinks to enface files)
-    upload_to_linc_task(file_path=str(dandi_slice_path))
-
+    upload_to_linc_batch_task(file_list=list(enface_outputs.values()), realpath=False)
     logger.info(f"Successfully uploaded enface files for mosaic {mosaic_id} to DANDI")
+
+    return {
+        "mosaic_id": mosaic_id,
+        "uploaded": True,
+        "files_uploaded": len(enface_outputs),
+    }
 
 
 @flow
@@ -192,7 +174,7 @@ def upload_mosaic_enface_to_dandi_event_flow(
         project_name=payload["project_name"],
         project_base_path=payload["project_base_path"],
         mosaic_id=payload["mosaic_id"],
-        enface_outputs=payload["enface_outputs"],
+        enface_outputs=payload["symlink_targets"],
     )
 
 
@@ -243,23 +225,7 @@ def upload_mosaic_volume_to_dandi_flow(
         logger.warning(f"No volume files to upload for mosaic {mosaic_id}")
         return
 
-    # Find common parent directory (should be the DANDI slice directory)
-    parent_dirs = {Path(fp).parent for fp in file_paths}
-    if len(parent_dirs) == 1:
-        # All files in same directory, upload the directory
-        upload_dir = parent_dirs.pop()
-        logger.info(f"Uploading DANDI slice directory to DANDI: {upload_dir}")
-        upload_to_linc_task(file_path=str(upload_dir))
-    else:
-        # Files in different directories (unexpected), upload each directory
-        logger.warning(
-            f"Volume files are in different directories, uploading each separately"
-        )
-        for file_path in file_paths:
-            file_dir = Path(file_path).parent
-            logger.info(f"Uploading directory to DANDI: {file_dir}")
-            upload_to_linc_task(file_path=str(file_dir))
-
+    upload_to_linc_batch_task(file_list=file_paths, realpath=False)
     logger.info(f"Successfully uploaded volume files for mosaic {mosaic_id} to DANDI")
 
 

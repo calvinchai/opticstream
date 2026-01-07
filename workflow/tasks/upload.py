@@ -45,7 +45,7 @@ def upload_to_linc_task(file_path: str) -> None:
 
 
 @task(tags=["dandi-upload"], retries=1)
-def upload_to_linc_batch_task(file_list: List[str]) -> None:
+def upload_to_linc_batch_task(file_list: List[str], realpath: bool = True) -> None:
     """
     Upload the file to LINC.
     """
@@ -53,7 +53,7 @@ def upload_to_linc_batch_task(file_list: List[str]) -> None:
     # TODO: use realpath only for debugging; remove this once paths are confirmed
     # Join file paths with spaces, each enclosed in single quotes
     file_paths_str = " ".join(
-        f"'{os.path.realpath(file_path)}'" for file_path in file_list
+        f"'{os.path.realpath(file_path)}'" if realpath else f"'{file_path}'" for file_path in file_list
     )
     with ShellOperation(
         commands=[
