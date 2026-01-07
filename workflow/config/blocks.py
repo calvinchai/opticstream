@@ -59,9 +59,9 @@ class PSOCTScanConfig(Block):
     tile_saving_type: TileSavingType = TileSavingType.SPECTRAL
     dandiset_path: Optional[str] = None
 
-    tile_archive_format: str = "{project_name}_sample-slice{slice_id:03d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz"
-    mosaic_volume_format: str = "{project_name}_sample-slice{slice_id:03d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
-    mosaic_enface_format: str = "{project_name}_sample-slice{slice_id:03d}_acq-{acq}_proc-{modality}_OCT.nii.gz"
+    tile_archive_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz"
+    mosaic_volume_format: str = "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+    mosaic_enface_format: str = "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.nii.gz"
     mosaic_mask_format: str = (
         "{project_name}_sample-slice{slice_id:03d}_acq-{acq}_OCT_mask.nii.gz"
     )

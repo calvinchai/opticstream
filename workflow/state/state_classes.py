@@ -345,7 +345,7 @@ class MosaicState(BaseState):
         processed_count = 0
         uploaded_count = 0
 
-        for batch_id in range(self.total_batches):
+        for batch_id in range(1, self.total_batches + 1):
             batch_state = BatchState(batch_id, self.state_path)
             self.batch_states[batch_id] = batch_state
 
@@ -448,7 +448,7 @@ class MosaicState(BaseState):
         BatchState, optional
             Batch state object, or None if batch_id is out of range
         """
-        if batch_id < 0 or batch_id >= self.total_batches:
+        if batch_id < 1 or batch_id > self.total_batches:
             return None
         return self.batch_states.get(batch_id)
 
