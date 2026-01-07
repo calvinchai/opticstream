@@ -241,7 +241,12 @@ def archive_tile_batch_task(
     titled_illumination = mosaic_id % 2 == 0
     acq = "tilted" if titled_illumination else "normal"
     slice_id = (mosaic_id + 1) // 2
-
+    batch_archived_path = get_batch_flag_path_from_project(
+        project_base_path, mosaic_id, batch_id, ARCHIVED
+    )
+    if batch_archived_path.exists():
+        logger.info(f"Batch {batch_id} already archived")
+        return f"Batch {batch_id} already archived"
     # Store list of archived file paths for upload
     archived_file_paths = []
     archive_future = []
@@ -269,9 +274,7 @@ def archive_tile_batch_task(
     logger.info(
         f"Completed archiving {len(file_list)} tiles for batch {batch_id} in mosaic {mosaic_id}"
     )
-    batch_archived_path = get_batch_flag_path_from_project(
-        project_base_path, mosaic_id, batch_id, ARCHIVED
-    )
+    
     batch_archived_path.touch()
     emit_event(
         event=BATCH_ARCHIVED,
