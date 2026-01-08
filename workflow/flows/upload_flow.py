@@ -126,7 +126,7 @@ def upload_mosaic_enface_to_dandi_flow(
     project_name: str,
     project_base_path: str,
     mosaic_id: int,
-    enface_outputs: Dict[str, Dict[str, str]],
+    enface_outputs: Dict[str, str],
 ):
     """
     Event-driven flow triggered by 'linc.oct.mosaic.stitched' event.
@@ -143,8 +143,8 @@ def upload_mosaic_enface_to_dandi_flow(
         Base path for the project
     mosaic_id : int
         Mosaic identifier
-    enface_outputs : Dict[str, Dict[str, str]]
-        Dictionary mapping modality to output file paths (with 'nifti' key)
+    enface_outputs : Dict[str, str]
+        Dictionary mapping modality to output file paths
     """
 
     logger = get_run_logger()

@@ -599,32 +599,6 @@ def find_focus_plane_task(
     # 2. Processes it to determine optimal focus plane
     # 3. Saves the focus plane as a NIfTI file
 
-    # Placeholder: Copy surface map as focus plane (to be replaced with actual algorithm)
-    import nibabel as nib
-
-    try:
-        # Load stitched surface
-        surface_img = nib.load(stitched_surface_path)
-        surface_data = surface_img.get_fdata()
-
-        # TODO: Apply focus finding algorithm here
-        # For now, use surface data directly (this should be replaced with actual algorithm)
-        focus_data = surface_data.copy()
-
-        # Save focus plane
-        focus_img = nib.Nifti1Image(focus_data, surface_img.affine, surface_img.header)
-        nib.save(focus_img, str(focus_output_path))
-
-        logger.info(f"Focus plane saved to {focus_output_path}")
-        logger.warning(
-            "Focus finding using placeholder implementation. "
-            "Actual algorithm from Section 15 should be implemented."
-        )
-
-    except Exception as e:
-        logger.error(f"Error in focus finding: {e}")
-        raise
-
     return str(focus_output_path)
 
 
@@ -1312,6 +1286,11 @@ def process_mosaic_flow(
                 f"Surface map not found in enface outputs for mosaic {mosaic_id}. "
                 f"Focus finding skipped."
             )
+    focus_path = Path(project_base_path) / f"focus-{illumination}.nii"
+    if not focus_path.exists():
+        logger.warning(f"Focus plane not found for {illumination} illumination. Focus finding skipped.")
+        focus_path = None
+    
     # Step 7: Stitch volume modalities if enabled
     volume_outputs = {}
     if stitch_3d_volumes and volume_modalities:
