@@ -17,11 +17,13 @@ from workflow.flows.mosaic_processing_flow import process_mosaic_event_flow
 from workflow.flows.slice_registration_flow import register_slice_event_flow
 from workflow.flows.slack_notification_flow import slack_enface_notification_flow
 from workflow.flows.state_management_flow import unified_state_management_event_flow
-from workflow.flows.tile_batch_flow import (
-    complex_to_processed_batch_event_flow,
-    complex_to_processed_batch_flow,
+from workflow.flows.process_tile_batch_flow import (
     process_tile_batch_event_flow,
     process_tile_batch_flow,
+)
+from workflow.flows.process_tile_batch_complex2processed_flow import (
+    complex_to_processed_batch_event_flow,
+    complex_to_processed_batch_flow,
 )
 from workflow.flows.upload_flow import (
     upload_mosaic_enface_to_dandi_event_flow,
