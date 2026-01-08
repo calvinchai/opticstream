@@ -41,7 +41,6 @@ def load_image(input_path: str) -> Tuple[
     """
     input_path_obj = Path(input_path)
     suffix = input_path_obj.suffix.lower()
-    print(suffix, input_path)
     if suffix in ['.nii', '.gz', '.nii.gz']:
         # Load nifti file
         nifti_img = nib.load(input_path)
@@ -98,7 +97,7 @@ def save_mask(
     # Ensure mask is uint8 with values 0 and 1
     mask_uint8 = (mask.astype(np.uint8) * 255).astype(np.uint8)
 
-    if suffix in ['.nii', '.nii.gz', '.nifti']:
+    if suffix in ['.nii', '.nii.gz', '.gz']:
         # Save as nifti
         if nifti_img is not None and affine is not None:
             # Use original nifti header and affine
