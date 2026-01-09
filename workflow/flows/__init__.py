@@ -17,6 +17,11 @@ from .mosaic_processing_flow import (
     stitch_enface_modalities_flow,
 )
 
+# Volume stitching flow
+from .volume_stitching_flow import (
+    stitch_volume_event_flow,
+)
+
 # Slack notification flow
 from .slack_notification_flow import (
     slack_enface_notification_flow,
@@ -42,6 +47,8 @@ __all__ = [
     # Mosaic processing
     "process_mosaic_event_flow",
     "stitch_enface_modalities_flow",
+    # Volume stitching
+    "stitch_volume_event_flow",
     # Slack notifications
     "slack_enface_notification_flow",
     # Slice registration

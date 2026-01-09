@@ -13,7 +13,12 @@ from prefect.events import DeploymentEventTrigger
 
 # Import flows
 from workflow.events.constants import BATCH_COMPLEXED
-from workflow.flows.mosaic_processing_flow import process_mosaic_event_flow
+from workflow.flows.mosaic_processing_flow import (
+    process_mosaic_event_flow,
+)
+from workflow.flows.volume_stitching_flow import (
+    stitch_volume_event_flow,
+)
 from workflow.flows.slice_registration_flow import register_slice_event_flow
 from workflow.flows.slack_notification_flow import slack_enface_notification_flow
 from workflow.flows.state_management_flow import unified_state_management_event_flow
@@ -133,6 +138,15 @@ process_mosaic_event_deployment = process_mosaic_event_flow.to_deployment(
     concurrency_limit=1,
 )
 
+stitch_volume_event_deployment = stitch_volume_event_flow.to_deployment(
+    name="stitch_volume_event_flow",
+    tags=["event-driven", "mosaic-processing", "volume-stitching"],
+    triggers=[
+        get_event_trigger(MOSAIC_STITCHED),
+    ],
+    concurrency_limit=1,
+)
+
 # ============================================================================
 # Slice Registration Flow Deployments
 # ============================================================================
@@ -197,6 +211,7 @@ if __name__ == "__main__":
         upload_mosaic_volume_to_dandi_event_deployment,
         # Mosaic processing
         process_mosaic_event_deployment,
+        stitch_volume_event_deployment,
         # Slice registration
         # register_slice_event_deployment,
         # State management
