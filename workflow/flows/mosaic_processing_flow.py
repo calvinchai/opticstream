@@ -1048,11 +1048,8 @@ def process_mosaic_event_flow(
             "mask_threshold",
             "scan_resolution_3d",
             "enface_modalities",
-            "volume_modalities",
-            "stitch_3d_volumes",
             "dandiset_path",
             "mosaic_enface_format",
-            "mosaic_volume_format",
         ],
     )
 
@@ -1086,8 +1083,6 @@ def process_mosaic_event_flow(
     # Handle special cases: convert tuple to list for modalities
     if "enface_modalities" in config and isinstance(config["enface_modalities"], tuple):
         config["enface_modalities"] = list(config["enface_modalities"])
-    if "volume_modalities" in config and isinstance(config["volume_modalities"], tuple):
-        config["volume_modalities"] = list(config["volume_modalities"])
 
     # Optional field: zarr_config (from block only, not from payload)
     if project_config:
