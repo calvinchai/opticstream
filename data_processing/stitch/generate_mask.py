@@ -187,7 +187,7 @@ def main(
     output: str,
     threshold: float,
     gaussian: bool = True,
-    gaussian_sigma: float = 2.0,
+    gaussian_sigma: float = 1.0,
     single_component: bool = True,
 ):
     """
