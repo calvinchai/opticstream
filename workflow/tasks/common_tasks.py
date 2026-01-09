@@ -108,20 +108,3 @@ def upload_to_linc_batch_task(file_list: List[str], realpath: bool = True) -> No
         output = upload_process.fetch_result()
         logger.info(f"Upload output: {output}")
 
-
-@task
-def submit_upload_to_linc_task(file_path: str) -> None:
-    #     flow_run = run_deployment(
-    #     name="upload_flow/upload",
-    #     parameters={
-    #         "file_paths": [file_path],
-    #         "instance": "linc"
-    #     },
-    #     timeout=0
-    # )
-    os.system(
-        f"prefect deployment run 'upload_flow/upload' --param file_path='{file_path}' "
-        f"--param instance=linc"
-    )
-    # return flow_run
-

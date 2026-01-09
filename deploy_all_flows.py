@@ -198,7 +198,7 @@ if __name__ == "__main__":
         # Mosaic processing
         process_mosaic_event_deployment,
         # Slice registration
-        register_slice_event_deployment,
+        # register_slice_event_deployment,
         # State management
         unified_state_management_event_deployment,
         # Slack notifications

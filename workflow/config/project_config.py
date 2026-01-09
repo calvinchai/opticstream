@@ -252,3 +252,27 @@ def get_grid_size_x(project_name: str, mosaic_id: int) -> int:
         if mosaic_id % 2 == 1
         else project_config.grid_size_x_tilted
     )
+def get_mask_threshold(project_name: str, mosaic_id: int) -> float:
+    """
+    Get mask threshold for a given project and mosaic id.
+
+    Parameters
+    ----------
+    project_name: str
+    mosaic_id: int
+
+    Returns
+    -------
+    float
+    """
+    project_config = get_project_config_block(project_name)
+    if project_config is None:
+        raise ValueError(
+            f"Project config block for '{project_name}' not found. "
+            f"Cannot determine mask threshold. Please create config block '{project_name}-config' or provide mask_threshold explicitly."
+        )
+    return (
+        project_config.mask_threshold_normal
+        if mosaic_id % 2 == 1
+        else project_config.mask_threshold_tilted
+    )

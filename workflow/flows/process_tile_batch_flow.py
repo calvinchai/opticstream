@@ -224,7 +224,7 @@ def process_tile_batch_flow(
     archive: bool = True,
     convert: bool = True,
     tile_saving_type: TileSavingType = TileSavingType.SPECTRAL,
-    archive_tile_name_format: str = "{project_name}_sample-slice-{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz",
+    archive_tile_name_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz",
     archive_path: Optional[str] = None,
     tile_size_x_tilted: int = 200,
     tile_size_x_normal: int = 350,

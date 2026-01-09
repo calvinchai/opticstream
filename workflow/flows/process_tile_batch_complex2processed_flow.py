@@ -45,6 +45,7 @@ def complex_to_processed_batch_flow(
     mosaic_id: int,
     batch_id: int,
     file_list: List[str],
+    force_run: bool = False,
 ):
     """
     Event-driven flow triggered by event.
@@ -55,7 +56,7 @@ def complex_to_processed_batch_flow(
     _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)
 
-    if is_batch_processed(project_base_path, mosaic_id, batch_id):
+    if is_batch_processed(project_base_path, mosaic_id, batch_id) and not force_run:
         logger.info(f"Batch {batch_id} already processed")
     else:
         complex_to_processed_batch_task(

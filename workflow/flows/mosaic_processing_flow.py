@@ -22,6 +22,7 @@ from data_processing.stitch import fiji_stitch, fit_coord_files, generate_mask
 from data_processing.stitch.process_tile_coord import process_tile_coord
 from workflow.config.project_config import (
     get_grid_size_x,
+    get_mask_threshold,
     get_project_config_block,
     resolve_config,
 )
@@ -732,7 +733,7 @@ def process_stitching_coordinates(
 
     logger.info(
         f"Processing coordinate determination for {illumination} illumination "
-        f"(mosaic {mosaic_id})"
+        f"(mosaic {mosaic_id}) with mask_threshold={mask_threshold}"
     )
 
     # Step 1: Run Fiji stitch to generate TileConfiguration files
@@ -1108,7 +1109,7 @@ def process_mosaic_flow(
 
     logger.info(
         f"Processing mosaic {mosaic_id} ({illumination} illumination) "
-        f"with grid {grid_size_x}x{grid_size_y}"
+        f"with grid {grid_size_x}x{grid_size_y}, mask_threshold={mask_threshold}"
     )
 
     # Determine base mosaic ID for this illumination type
@@ -1383,7 +1384,8 @@ def process_mosaic_event_flow(
     # Required field: grid_size_x (use resolve_config, else get_grid_size_x)
     if "grid_size_x" not in config:
         config["grid_size_x"] = get_grid_size_x(project_name, mosaic_id)
-
+    if "mask_threshold" not in config:
+        config["mask_threshold"] = get_mask_threshold(project_name, mosaic_id)
     # Required field: grid_size_y
     if "grid_size_y" not in config:
         raise ValueError(

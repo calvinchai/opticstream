@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from prefect.logging import get_run_logger
+from prefect_shell import ShellOperation
 
 
 def get_matlab_engine():
@@ -104,30 +105,19 @@ def call_matlab_via_cli(
 
     logger.info(f"Executing MATLAB command: {' '.join(cmd)}")
     logger.debug(f"MATLAB command string: {matlab_cmd}")
-    try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        logger.info(f"MATLAB command completed: {result.stdout}")
-        if result.stderr:
-            logger.warning(f"MATLAB stderr: {result.stderr}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"MATLAB command failed: {e.stderr}")
-        logger.error(f"MATLAB stdout: {e.stdout}")
-        raise
-    except FileNotFoundError:
-        raise RuntimeError(
-            "MATLAB not found in PATH. "
-            "Please install MATLAB or use MATLAB Engine for Python."
-        )
+    with ShellOperation(
+        commands=[cmd],
+    ) as matlab_operation:
+        matlab_process = matlab_operation.trigger()
+        matlab_process.wait_for_completion()
+        output = matlab_process.fetch_result()
+        logger.info(f"MATLAB execution output: {output}")
 
 
 def run_matlab_batch_command(
     command: str,
-    matlab_script_path: str = "/homes/5/kc1708/localhome/code/psoct-renew/",
+    matlab_script_path: Optional[str] = "/homes/5/kc1708/localhome/code/psoct-renew/",
+    working_dir: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
     Execute a MATLAB batch command.
@@ -156,13 +146,22 @@ def run_matlab_batch_command(
     matlab_cmd = f"addpath(genpath('{matlab_script_path}'));{command}"
     full_command = ["matlab", "-batch", matlab_cmd]
 
-    logger.debug(f"Executing MATLAB command: {command}")
-    result = subprocess.run(full_command)
+    
+    # Build full command - escape double quotes in matlab_cmd for shell
+    # MATLAB commands use single quotes, so we wrap the whole thing in double quotes
+    escaped_cmd = matlab_cmd.replace('"', '\\"')
+    full_command = f'matlab -batch "{escaped_cmd}"'
+    
+    logger.info(f"Executing MATLAB command: {command}")
+    logger.debug(f"Full MATLAB command: {full_command}")
+    
+    with ShellOperation(
+        commands=[full_command],
+        working_dir=working_dir if working_dir else os.getcwd(),
+    ) as matlab_operation:
+        matlab_process = matlab_operation.trigger()
+        matlab_process.wait_for_completion()
+        output = matlab_process.fetch_result()
+        logger.info(f"MATLAB execution output: {output}")
 
-    if result.returncode != 0:
-        error_msg = f"Error executing MATLAB command: {result.stderr}"
-        logger.error(f"{error_msg}\nFull command: {matlab_cmd}")
-        raise ValueError(error_msg)
-
-    return result
 

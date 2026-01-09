@@ -34,8 +34,10 @@ class PSOCTScanConfig(Block):
         Number of tiles per batch (rows) - determines batch size (required)
     tile_overlap : float, optional
         Overlap between tiles in pixels (default: 20.0)
-    mask_threshold : float, optional
-        Threshold for mask generation and coordinate processing (default: 50.0)
+    mask_threshold_normal : float, optional
+        Threshold for mask generation and coordinate processing for normal illumination (default: 60.0)
+    mask_threshold_tilted : float, optional
+        Threshold for mask generation and coordinate processing for tilted illumination (default: 55.0)
     scan_resolution_3d : List[float], optional
         Scan resolution for 3D volumes [x, y, z] in millimeters
         (default: [0.01, 0.01, 0.0025])
@@ -54,7 +56,8 @@ class PSOCTScanConfig(Block):
     tile_size_y: int = 350
 
     tile_overlap: float = 20.0
-    mask_threshold: float = 50.0
+    mask_threshold_normal: float = 60.0
+    mask_threshold_tilted: float = 55.0
     scan_resolution_3d: Tuple[float, float, float] = (0.01, 0.01, 0.0025)
     tile_saving_type: TileSavingType = TileSavingType.SPECTRAL
     dandiset_path: Optional[str] = None

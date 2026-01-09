@@ -22,7 +22,7 @@ from workflow.utils.matlab_execution import (
     call_matlab_via_cli,
     get_matlab_engine,
 )
-from workflow.utils.utils import get_slice_paths
+from workflow.utils.utils import get_mosaic_paths, get_slice_paths
 
 
 @task
@@ -242,16 +242,17 @@ def register_slice_flow(
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"
     )
 
-    # Get slice paths
-    processed_path, stitched_path, _, _ = get_slice_paths(
-        project_base_path, slice_number
+    processed_path_normal, stitched_path_normal, _, _ = get_mosaic_paths(
+        project_base_path, normal_mosaic_id
     )
-
+    processed_path_tilted, stitched_path_tilted, _, _ = get_mosaic_paths(
+        project_base_path, tilted_mosaic_id
+    )
     # Construct input file paths (stitched mosaics)
-    fixed_ori_path = stitched_path / f"mosaic_{normal_mosaic_id:03d}_ori.nii"
-    moving_ori_path = stitched_path / f"mosaic_{tilted_mosaic_id:03d}_ori.nii"
-    fixed_biref_path = stitched_path / f"mosaic_{normal_mosaic_id:03d}_biref.nii"
-    moving_biref_path = stitched_path / f"mosaic_{tilted_mosaic_id:03d}_biref.nii"
+    fixed_ori_path = stitched_path_normal / f"mosaic_{normal_mosaic_id:03d}_ori.nii.gz"
+    moving_ori_path = stitched_path_tilted / f"mosaic_{tilted_mosaic_id:03d}_ori.nii.gz"
+    fixed_biref_path = stitched_path_normal / f"mosaic_{normal_mosaic_id:03d}_biref.nii.gz"
+    moving_biref_path = stitched_path_tilted / f"mosaic_{tilted_mosaic_id:03d}_biref.nii.gz"
 
     # Check if input files exist
     input_files = [fixed_ori_path, moving_ori_path, fixed_biref_path, moving_biref_path]
@@ -276,7 +277,7 @@ def register_slice_flow(
         moving_ori_path=str(moving_ori_path),
         fixed_biref_path=str(fixed_biref_path),
         moving_biref_path=str(moving_biref_path),
-        output_dir=str(processed_path),
+        output_dir=str(stitched_path_normal),
         gamma=gamma,
         matlab_script_path=matlab_script_path,
     )
@@ -293,7 +294,7 @@ def register_slice_flow(
             "slice_number": slice_number,
             "normal_mosaic_id": normal_mosaic_id,
             "tilted_mosaic_id": tilted_mosaic_id,
-            "processed_dir": str(processed_path),
+            "processed_dir": str(stitched_path_normal),
             "outputs": {k: str(v) for k, v in outputs.items()},
         },
     )
@@ -304,7 +305,7 @@ def register_slice_flow(
         "slice_number": slice_number,
         "normal_mosaic_id": normal_mosaic_id,
         "tilted_mosaic_id": tilted_mosaic_id,
-        "processed_dir": str(processed_path),
+        "processed_dir": str(stitched_path_normal),
         "outputs": outputs,
     }
 
