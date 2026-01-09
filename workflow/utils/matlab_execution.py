@@ -8,7 +8,7 @@ Includes MATLAB engine initialization and command-line fallback utilities.
 import subprocess
 from pathlib import Path
 from typing import Optional
-
+import os
 from prefect.logging import get_run_logger
 from prefect_shell import ShellOperation
 
@@ -162,7 +162,7 @@ def run_matlab_batch_command(
         matlab_process = matlab_operation.trigger()
         matlab_process.wait_for_completion()
         output = matlab_process.fetch_result()
-        if matlab_process.exit_code != 0:
+        if matlab_process.return_code != 0:
             logger.error(f"MATLAB command failed: {output}")
             raise RuntimeError(f"MATLAB command failed: {output}")
         logger.info(f"MATLAB execution output: {output}")

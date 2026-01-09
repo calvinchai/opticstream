@@ -145,7 +145,7 @@ def archive_tile_batch_task(
             acq=acq,
         )
         archived_tile_path = op.join(archive_path, archived_tile_name)
-
+        Path(archived_tile_path).parent.mkdir(parents=True, exist_ok=True)
         # Archive the tile (synchronous, one by one)
         logger.info(
             f"Archiving tile {tile_index:04d} from batch {batch_id} in mosaic {mosaic_id:03d}"
@@ -303,7 +303,6 @@ def process_tile_batch_flow(
         archive_future.wait()
         states.append(archive_future.state)
         archived_file_paths = archive_future.result()
-        mark_batch_archived(project_base_path, mosaic_id, batch_id)
         for archived_file_path in archived_file_paths:
             archived_file_path_path = Path(archived_file_path)
             if not archived_file_path_path.is_file():
@@ -312,6 +311,7 @@ def process_tile_batch_flow(
             if archived_file_path_path.stat().st_size < 512 * 1024 * 1024:
                 logger.error(f"Archived file {archived_file_path} is too small")
                 raise ValueError(f"Archived file {archived_file_path} is too small")
+        mark_batch_archived(project_base_path, mosaic_id, batch_id)
         emit_batch_event(
             event_name=BATCH_ARCHIVED,
             project_name=project_name,
