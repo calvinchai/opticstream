@@ -1084,10 +1084,6 @@ def process_mosaic_event_flow(
     if "enface_modalities" in config and isinstance(config["enface_modalities"], tuple):
         config["enface_modalities"] = list(config["enface_modalities"])
 
-    # Optional field: zarr_config (from block only, not from payload)
-    if project_config:
-        config["zarr_config"] = project_config.zarr_config
-
     return process_mosaic_flow(
         project_name=project_name,
         mosaic_id=mosaic_id,
