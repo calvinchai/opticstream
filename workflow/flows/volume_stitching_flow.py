@@ -406,4 +406,3 @@ if __name__ == "__main__":
         event_name=MOSAIC_STITCHED,
         tags=["event-driven", "mosaic-processing", "volume-stitching"],
     )
-

@@ -133,7 +133,7 @@ def complex_to_complex_filename(complex_file: str, complex_path: Path) -> str:
     """
     # Normalize image index to 4 digits
     normalized_name = normalize_image_index(complex_file)
-    
+
     # Ensure the normalized name ends with _complex.nii
     name_no_ext = op.splitext(normalized_name)[0]
     if not name_no_ext.endswith("_complex"):
@@ -142,7 +142,7 @@ def complex_to_complex_filename(complex_file: str, complex_path: Path) -> str:
         if match:
             name_no_ext = f"mosaic_{match.group(1)}_image_{match.group(2)}_complex"
             normalized_name = name_no_ext + ".nii"
-    
+
     return str(Path(complex_path) / normalized_name)
 
 
@@ -163,4 +163,3 @@ def replace_spectral_with_complex_in_path(file_path: str) -> str:
         File path with 'spectral' replaced by 'complex'
     """
     return file_path.replace("spectral", "complex")
-

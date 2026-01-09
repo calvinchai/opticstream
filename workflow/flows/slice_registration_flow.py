@@ -22,7 +22,7 @@ from workflow.utils.matlab_execution import (
     call_matlab_via_cli,
     get_matlab_engine,
 )
-from workflow.utils.utils import get_mosaic_paths, get_slice_paths
+from workflow.utils.utils import get_mosaic_paths
 
 
 @task
@@ -251,8 +251,12 @@ def register_slice_flow(
     # Construct input file paths (stitched mosaics)
     fixed_ori_path = stitched_path_normal / f"mosaic_{normal_mosaic_id:03d}_ori.nii.gz"
     moving_ori_path = stitched_path_tilted / f"mosaic_{tilted_mosaic_id:03d}_ori.nii.gz"
-    fixed_biref_path = stitched_path_normal / f"mosaic_{normal_mosaic_id:03d}_biref.nii.gz"
-    moving_biref_path = stitched_path_tilted / f"mosaic_{tilted_mosaic_id:03d}_biref.nii.gz"
+    fixed_biref_path = (
+        stitched_path_normal / f"mosaic_{normal_mosaic_id:03d}_biref.nii.gz"
+    )
+    moving_biref_path = (
+        stitched_path_tilted / f"mosaic_{tilted_mosaic_id:03d}_biref.nii.gz"
+    )
 
     # Check if input files exist
     input_files = [fixed_ori_path, moving_ori_path, fixed_biref_path, moving_biref_path]

@@ -140,4 +140,3 @@ def is_batch_processed(project_base_path: str, mosaic_id: int, batch_id: int) ->
         project_base_path, mosaic_id, batch_id, PROCESSED
     )
     return batch_processed_path.exists()
-

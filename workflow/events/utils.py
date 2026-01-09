@@ -35,7 +35,7 @@ def get_event_trigger(event_name: str, parameters: dict = {}) -> DeploymentEvent
                     "__prefect_kind": "jinja",
                     "template": "{{ event.payload | tojson }}",
                 },
-            }
+            },
         },
     )
 

@@ -307,7 +307,9 @@ def process_tile_batch_flow(
             archived_file_path_path = Path(archived_file_path)
             if not archived_file_path_path.is_file():
                 logger.error(f"Archived file {archived_file_path} does not exist")
-                raise FileNotFoundError(f"Archived file {archived_file_path} does not exist")
+                raise FileNotFoundError(
+                    f"Archived file {archived_file_path} does not exist"
+                )
             if archived_file_path_path.stat().st_size < 512 * 1024 * 1024:
                 logger.error(f"Archived file {archived_file_path} is too small")
                 raise ValueError(f"Archived file {archived_file_path} is too small")

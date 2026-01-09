@@ -184,18 +184,18 @@ def resolve_tile_saving_type(
 def resolve_config(payload: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
     """
     Resolve configuration values from payload and project config.
-    
+
     Priority: payload[key] → project_config.key → omit key
-    
+
     Does not apply defaults - defaults must be in processing flow signature.
-    
+
     Parameters
     ----------
     payload : Dict[str, Any]
         Event payload dictionary (must contain "project_name")
     keys : List[str]
         List of configuration keys to resolve
-        
+
     Returns
     -------
     Dict[str, Any]
@@ -203,7 +203,7 @@ def resolve_config(payload: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
     """
     project_name = payload["project_name"]
     project_config = get_project_config_block(project_name)
-    
+
     resolved = {}
     for key in keys:
         if key in payload:
@@ -212,13 +212,13 @@ def resolve_config(payload: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
             value = getattr(project_config, key)
         else:
             continue  # Omit key if not found
-        
+
         # Special handling for tile_saving_type
         if key == "tile_saving_type" and isinstance(value, str):
             value = TileSavingType[value.upper()]
-        
+
         resolved[key] = value
-    
+
     return resolved
 
 
@@ -252,6 +252,8 @@ def get_grid_size_x(project_name: str, mosaic_id: int) -> int:
         if mosaic_id % 2 == 1
         else project_config.grid_size_x_tilted
     )
+
+
 def get_mask_threshold(project_name: str, mosaic_id: int) -> float:
     """
     Get mask threshold for a given project and mosaic id.

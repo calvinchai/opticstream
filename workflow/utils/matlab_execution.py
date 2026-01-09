@@ -146,15 +146,14 @@ def run_matlab_batch_command(
     matlab_cmd = f"addpath(genpath('{matlab_script_path}'));{command}"
     full_command = ["matlab", "-batch", matlab_cmd]
 
-    
     # Build full command - escape double quotes in matlab_cmd for shell
     # MATLAB commands use single quotes, so we wrap the whole thing in double quotes
     escaped_cmd = matlab_cmd.replace('"', '\\"')
     full_command = f'matlab -batch "{escaped_cmd}"'
-    
+
     logger.info(f"Executing MATLAB command: {command}")
     logger.debug(f"Full MATLAB command: {full_command}")
-    
+
     with ShellOperation(
         commands=[full_command],
         working_dir=working_dir if working_dir else os.getcwd(),
@@ -166,5 +165,3 @@ def run_matlab_batch_command(
             logger.error(f"MATLAB command failed: {output}")
             raise RuntimeError(f"MATLAB command failed: {output}")
         logger.info(f"MATLAB execution output: {output}")
-
-

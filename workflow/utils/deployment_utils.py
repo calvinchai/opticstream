@@ -8,7 +8,6 @@ configurations for event-driven flows, reducing boilerplate code.
 from typing import List, Optional
 
 from prefect import Flow
-from prefect.events import DeploymentEventTrigger
 
 from workflow.events import get_event_trigger
 
@@ -124,4 +123,3 @@ def create_unified_deployment(
         deployment.concurrency_limit = concurrency_limit
 
     return deployment
-

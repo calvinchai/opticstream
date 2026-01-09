@@ -38,7 +38,6 @@ from workflow.state.flags import (
     get_slice_flag_path,
 )
 from workflow.utils.utils import (
-    get_illumination,
     get_mosaic_paths,
     get_slice_paths,
     mosaic_id_to_slice_number,
@@ -48,7 +47,7 @@ from workflow.utils.utils import (
 class BaseState(ABC):
     """
     Abstract base class for all state classes.
-    
+
     Provides common interface for serialization and state refresh operations.
     """
 
@@ -56,7 +55,7 @@ class BaseState(ABC):
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert state to dictionary format for serialization.
-        
+
         Returns
         -------
         Dict[str, Any]
@@ -155,7 +154,7 @@ class MosaicState(BaseState):
     stitched: bool = field(init=False, default=False)
     volume_stitched: bool = field(init=False, default=False)
     volume_uploaded: bool = field(init=False, default=False)
-    
+
     def __post_init__(self):
         """
         Initialize mosaic state from flag files or deserialize from dictionary.
@@ -182,7 +181,7 @@ class MosaicState(BaseState):
     def _get_grid_size_from_block_or_flags(self):
         """
         Get grid_size_x from project configuration block or count from flags.
-        
+
         This is a fallback method when grid_size_x is not provided as a parameter.
         """
         if self.project_name:

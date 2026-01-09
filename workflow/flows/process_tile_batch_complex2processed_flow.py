@@ -36,7 +36,6 @@ def complex_to_processed_batch_task(
     return None
 
 
-
 @flow(
     flow_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-complex-to-processed"
 )

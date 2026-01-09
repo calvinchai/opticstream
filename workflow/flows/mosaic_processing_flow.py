@@ -29,7 +29,6 @@ from workflow.config.project_config import (
 from workflow.events import (
     MOSAIC_READY,
     MOSAIC_STITCHED,
-    get_event_trigger,
 )
 from workflow.events.utils import emit_mosaic_event
 from workflow.utils.utils import (
@@ -793,7 +792,7 @@ def process_mosaic_flow(
     enface_modalities: Optional[List[str]] = None,
     force_refresh_coords: bool = False,
     dandiset_path: Optional[str] = None,
-    mosaic_enface_format: Optional[str] = None
+    mosaic_enface_format: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Event-driven flow triggered by 'mosaic.processed' event.

@@ -65,7 +65,9 @@ class PSOCTScanConfig(Block):
 
     archive_tile_name_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz"
     mosaic_volume_format: str = "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
-    mosaic_enface_format: str = "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.nii.gz"
+    mosaic_enface_format: str = (
+        "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.nii.gz"
+    )
     mosaic_mask_format: str = (
         "{project_name}_sample-slice{slice_id:03d}_acq-{acq}_OCT_mask.nii.gz"
     )

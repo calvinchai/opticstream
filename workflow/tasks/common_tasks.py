@@ -20,11 +20,11 @@ def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = T
     logger = get_run_logger()
     if not output_path.endswith(".gz"):
         output_path += ".gz"
-    
+
     # Initialize SHA-256 hasher if needed
     hasher = hashlib.sha256() if output_sha256 else None
     chunk_size = 8192 * 1024
-    
+
     with gzip.open(output_path, "wb", compresslevel=3) as f:
         with open(input_path, "rb") as f_in:
             # Read in chunks and hash during compression
@@ -32,13 +32,17 @@ def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = T
                 if output_sha256:
                     hasher.update(chunk)  # Hash the uncompressed content
                 f.write(chunk)  # Write to gzip (compresses it)
-    
+
     logger.info(f"Archived tile {input_path} to {output_path}")
-    
+
     # Write hash file if requested
     if output_sha256:
         # Remove .gz extension to create hash filename
-        hash_path = output_path[:-3] + ".sha256" if output_path.endswith(".gz") else output_path + ".sha256"
+        hash_path = (
+            output_path[:-3] + ".sha256"
+            if output_path.endswith(".gz")
+            else output_path + ".sha256"
+        )
         hash_digest = hasher.hexdigest()
         with open(hash_path, "w") as hash_file:
             hash_file.write(hash_digest)
@@ -51,6 +55,7 @@ def upload_to_dandi_task(file_path: str) -> None:
     Upload the file to DANDI.
     """
     from prefect_shell import shell_run_command
+
     shell_run_command(f"conda run -n dandi dandi upload {file_path} -J 10:10")
 
 
@@ -88,7 +93,8 @@ def upload_to_linc_batch_task(file_list: List[str], realpath: bool = True) -> No
     # TODO: use realpath only for debugging; remove this once paths are confirmed
     # Join file paths with spaces, each enclosed in single quotes
     file_paths_str = " ".join(
-        f"'{os.path.realpath(file_path)}'" if realpath else f"'{file_path}'" for file_path in file_list
+        f"'{os.path.realpath(file_path)}'" if realpath else f"'{file_path}'"
+        for file_path in file_list
     )
     with ShellOperation(
         commands=[
@@ -107,4 +113,3 @@ def upload_to_linc_batch_task(file_list: List[str], realpath: bool = True) -> No
         upload_process.wait_for_completion()
         output = upload_process.fetch_result()
         logger.info(f"Upload output: {output}")
-

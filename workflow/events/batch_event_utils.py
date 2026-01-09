@@ -56,4 +56,3 @@ def emit_batch_event(
     }
 
     emit_event(event=event_name, resource=resource, payload=merged_payload)
-
