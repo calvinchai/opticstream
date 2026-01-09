@@ -304,6 +304,14 @@ def process_tile_batch_flow(
         states.append(archive_future.state)
         archived_file_paths = archive_future.result()
         mark_batch_archived(project_base_path, mosaic_id, batch_id)
+        for archived_file_path in archived_file_paths:
+            archived_file_path_path = Path(archived_file_path)
+            if not archived_file_path_path.is_file():
+                logger.error(f"Archived file {archived_file_path} does not exist")
+                raise FileNotFoundError(f"Archived file {archived_file_path} does not exist")
+            if archived_file_path_path.stat().st_size < 512 * 1024 * 1024:
+                logger.error(f"Archived file {archived_file_path} is too small")
+                raise ValueError(f"Archived file {archived_file_path} is too small")
         emit_batch_event(
             event_name=BATCH_ARCHIVED,
             project_name=project_name,
@@ -317,6 +325,14 @@ def process_tile_batch_flow(
         spectral_to_complex_future.wait()
         states.append(spectral_to_complex_future.state)
         complex_file_list = spectral_to_complex_future.result()
+        for complex_file in complex_file_list:
+            complex_file_path = Path(complex_file)
+            if not complex_file_path.is_file():
+                logger.error(f"Complex file {complex_file} does not exist")
+                raise FileNotFoundError(f"Complex file {complex_file} does not exist")
+            if complex_file_path.stat().st_size < 512 * 1024 * 1024:
+                logger.error(f"Complex file {complex_file} is too small")
+                raise ValueError(f"Complex file {complex_file} is too small")
         emit_batch_event(
             event_name=BATCH_COMPLEXED,
             project_name=project_name,

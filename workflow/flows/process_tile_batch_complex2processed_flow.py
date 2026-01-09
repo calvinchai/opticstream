@@ -36,6 +36,7 @@ def complex_to_processed_batch_task(
     return None
 
 
+
 @flow(
     flow_run_name="{project_name}-mosaic-{mosaic_id}-batch-{batch_id}-complex-to-processed"
 )
@@ -52,8 +53,7 @@ def complex_to_processed_batch_flow(
     Runs complex_to_processed_batch_task and checks if all batches are processed.
     """
     logger = get_run_logger()
-    # Use slice-based structure
-    _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
+    processed_path, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
     state_path.mkdir(parents=True, exist_ok=True)
 
     if is_batch_processed(project_base_path, mosaic_id, batch_id) and not force_run:
@@ -66,7 +66,6 @@ def complex_to_processed_batch_flow(
             batch_id=batch_id,
             file_list=file_list,
         )
-
     # Mark batch as processed
     mark_batch_processed(project_base_path, mosaic_id, batch_id)
     logger.info(f"Batch {batch_id} processed successfully")
