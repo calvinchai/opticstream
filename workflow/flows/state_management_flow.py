@@ -417,6 +417,83 @@ def check_mosaic_stitched_task(
     return is_stitched
 
 
+@task(
+    task_run_name="{project_name}-mosaic-{mosaic_id}-check-completion-and-emit-mosaic-ready"
+)
+def check_completion_and_emit_mosaic_ready_task(
+    project_name: str,
+    project_base_path: str,
+    mosaic_id: int,
+) -> bool:
+    """
+    Consolidated task to:
+    1. Check if all batches in a mosaic are complete
+    2. If complete and not already stitched, emit MOSAIC_READY
+
+    Parameters
+    ----------
+    project_name : str
+        Project identifier
+    project_base_path : str
+        Base path for the project
+    mosaic_id : int
+        Mosaic identifier
+
+    Returns
+    -------
+    bool
+        True if all batches are complete, False otherwise
+    """
+    logger = get_run_logger()
+
+    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name)
+    is_complete = mosaic_state.is_complete()
+
+    if not is_complete:
+        logger.debug(
+            f"Mosaic {mosaic_id}: {mosaic_state.processed_batches}/"
+            f"{mosaic_state.total_batches} batches processed - not complete yet"
+        )
+        return False
+
+    logger.info(
+        f"Mosaic {mosaic_id}: All {mosaic_state.processed_batches}/"
+        f"{mosaic_state.total_batches} batches processed"
+    )
+
+    # Check if already stitched to avoid duplicate events
+    is_stitched = check_mosaic_stitched_task.fn(
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
+    )
+
+    if is_stitched:
+        logger.info(f"Mosaic {mosaic_id} already stitched, skipping {MOSAIC_READY} emission")
+        return True
+
+    logger.info(
+        f"All batches processed for mosaic {mosaic_id} and not stitched yet. "
+        f"Emitting {MOSAIC_READY} event."
+    )
+    emit_event(
+        event=MOSAIC_READY,
+        resource={
+            "prefect.resource.id": f"mosaic:{project_name}:mosaic-{mosaic_id}",
+            "project_name": project_name,
+            "mosaic_id": str(mosaic_id),
+        },
+        payload={
+            "project_name": project_name,
+            "project_base_path": project_base_path,
+            "mosaic_id": mosaic_id,
+            "total_batches": mosaic_state.total_batches,
+            "triggered_by": "batch_flows",
+        },
+    )
+
+    return True
+
+
 @flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-manage-batch-state")
 def manage_mosaic_batch_state_flow(
     project_name: str,

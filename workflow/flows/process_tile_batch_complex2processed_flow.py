@@ -5,6 +5,10 @@ from prefect.logging import get_run_logger
 
 from workflow.events import BATCH_PROCESSED
 from workflow.events.batch_event_utils import emit_batch_event
+from workflow.flows.state_management_flow import (
+    check_completion_and_emit_mosaic_ready_task,
+    update_mosaic_artifact_task,
+)
 from workflow.state.batch_state_utils import is_batch_processed, mark_batch_processed
 from workflow.utils.filename_utils import replace_spectral_with_complex_in_path
 from workflow.utils.matlab_execution import run_matlab_batch_command
@@ -75,6 +79,17 @@ def complex_to_processed_batch_flow(
         mosaic_id=mosaic_id,
         batch_id=batch_id,
         payload={},
+    )
+    # Update mosaic progress artifact and check for mosaic completion
+    update_mosaic_artifact_task(
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
+    )
+    check_completion_and_emit_mosaic_ready_task(
+        project_name=project_name,
+        project_base_path=project_base_path,
+        mosaic_id=mosaic_id,
     )
     return True
 

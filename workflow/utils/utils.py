@@ -178,3 +178,9 @@ def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
         Path to slice-specific directory
     """
     return Path(dandiset_path) / f"sample-slice{slice_id:02d}"
+
+def get_modality_stitching_filename(project_base_path: str, mosaic_id: int, modality: str) -> str:
+    """
+    Get the filename for a modality stitching.
+    """
+    return Path(project_base_path) / f"mosaic-{mosaic_id:03d}"/ "stitched" / f"mosaic_{mosaic_id:03d}_{modality}.yaml"

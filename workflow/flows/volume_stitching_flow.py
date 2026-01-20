@@ -16,6 +16,9 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from linc_convert.utils.zarr_config import ZarrConfig
+from scripts import find_tile_plane, find_volume_surface
+from scripts.filter_tiles_by_signal import filter_tiles_by_signal
+from scripts.find_tile_region import find_tile_region
 from workflow.config.project_config import (
     get_project_config_block,
     resolve_config,
@@ -25,6 +28,7 @@ from workflow.events.utils import emit_mosaic_event
 from workflow.flows.mosaic_processing_flow import generate_tile_info_file_task
 from workflow.utils.utils import (
     get_dandi_slice_path,
+    get_modality_stitching_filename,
     get_mosaic_paths,
     mosaic_id_to_slice_number,
 )
@@ -70,6 +74,7 @@ def find_focus_plane_task(
     project_base_path: str,
     mosaic_id: int,
     illumination: str,
+    signal_threshold: float = 60,
 ) -> str:
     """
     Find optimal focus plane for 3D volume stitching (Section 3.3).
@@ -106,13 +111,50 @@ def find_focus_plane_task(
     logger.info(
         f"Finding focus plane for {illumination} illumination (mosaic {mosaic_id})"
     )
-
-    # Output path per Section 4.1: {project_base_path}/focus-{illumination}.nii
+    project_base_path = Path(project_base_path)
+    if illumination == "normal":
+        grid_size = "3x3"
+    else:
+        grid_size = "4x3"
+    input_yaml = get_modality_stitching_filename(project_base_path, mosaic_id, "dBI")
+    if not input_yaml.exists():
+        raise FileNotFoundError(f"dBI stitching file not found: {input_yaml}")
+    output_yaml = project_base_path / "focus_finding" / f"filtered_{illumination}.yaml"
     focus_output_path = Path(project_base_path) / f"focus-{illumination}.nii"
     focus_output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # TODO: Implement actual focus finding algorithm (Section 15)
-    # For now, this is a placeholder
+    # find_tile_region(
+    #     input_yaml=str(input_yaml),
+    #     output_yaml=str(output_yaml),
+    #     signal_threshold=signal_threshold,
+    #     grid_size=grid_size,
+    # )
+    filter_tiles_by_signal(input_yaml=str(input_yaml), output_yaml=str(output_yaml), signal_threshold=signal_threshold)
+    find_volume_surface.batch(
+        yaml_path=str(output_yaml),
+        output_dir=str(project_base_path / "focus_finding"),
+        output_yaml=str(
+            project_base_path / "focus_finding" / f"surface_{illumination}.yaml"
+        ),
+        postfix_old="_dBI",
+        postfix_new="_surf",
+    )
+    find_tile_plane.main(
+        yaml_path=str(
+            project_base_path / "focus_finding" / f"surface_{illumination}.yaml"
+        ),
+        output=str(focus_output_path),
+        base_dir=str(project_base_path / f"mosaic_{mosaic_id:03d}/processed"),
+        subsample=1,
+        avg_signal_threshold=signal_threshold,
+        plot=str(project_base_path / "focus_finding" / f"plane_{illumination}.png"),
+        outlier_method="iqr",
+        outlier_iqr_factor=1.5,
+        outlier_z_threshold=3.0,
+        output_corrected_dir=None,
+        crop_x=15,
+        normalize_min=0,
+        degree=2,
+    )
 
     return str(focus_output_path)
 
