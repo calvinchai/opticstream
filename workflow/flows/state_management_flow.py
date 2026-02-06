@@ -6,7 +6,8 @@ at different levels: batch, mosaic, and slice.
 """
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from prefect import flow, task
 from prefect.artifacts import create_table_artifact
@@ -179,6 +180,140 @@ Milestones:
 
     logger.info(
         f"Updated artifact {artifact_key}: {processed_batches}/{total_batches} batches processed ({progress_percentage:.1f}%)"
+    )
+
+    return artifact_key
+
+
+@task(task_run_name="{project_name}-update-all-mosaics-artifact")
+def update_project_mosaic_artifact_task(
+    project_name: str,
+    project_base_path: str,
+) -> str:
+    """
+    Update Prefect Artifact with unified table showing all mosaics in the project.
+
+    This creates a single table artifact that displays all mosaics with their
+    batch progress and status information (enface stitched, 3D volume stitched, etc.).
+
+    Parameters
+    ----------
+    project_name : str
+        Project identifier
+    project_base_path : str
+        Base path for the project
+
+    Returns
+    -------
+    str
+        Artifact key
+    """
+    logger = get_run_logger()
+
+    # Discover all mosaics by scanning for mosaic-*/state directories
+    project_path = Path(project_base_path)
+    if not project_path.exists():
+        logger.warning(f"Project base path does not exist: {project_base_path}")
+        return ""
+
+    # Find all mosaic directories
+    mosaic_dirs = list(project_path.glob("mosaic-*/state"))
+    mosaic_ids = []
+
+    for mosaic_dir in mosaic_dirs:
+        # Extract mosaic ID from directory name (e.g., "mosaic-001" -> 1)
+        try:
+            mosaic_id_str = mosaic_dir.parent.name.replace("mosaic-", "")
+            mosaic_id = int(mosaic_id_str)
+            mosaic_ids.append(mosaic_id)
+        except (ValueError, AttributeError):
+            # Skip invalid directory names
+            continue
+
+    # Sort mosaic IDs
+    mosaic_ids = sorted(mosaic_ids)
+
+    if not mosaic_ids:
+        logger.warning(f"No mosaics found in project {project_name}")
+        return ""
+
+    logger.info(f"Found {len(mosaic_ids)} mosaics in project {project_name}")
+
+    # Collect state for each mosaic
+    table_data = []
+    for mosaic_id in mosaic_ids:
+        try:
+            mosaic_state = MosaicState(project_base_path, mosaic_id, project_name)
+
+            # Format status columns as checkmarks
+            enface_stitched = "✅" if mosaic_state.stitched else "⏳"
+            volume_stitched = "✅" if mosaic_state.volume_stitched else "⏳"
+            volume_uploaded = "✅" if mosaic_state.volume_uploaded else "⏳"
+
+            table_data.append(
+                {
+                    "Mosaic ID": mosaic_id,
+                    "Total Batches": mosaic_state.total_batches,
+                    "Started": mosaic_state.started_batches,
+                    "Archived": mosaic_state.archived_batches,
+                    "Processed": mosaic_state.processed_batches,
+                    "Uploaded": mosaic_state.uploaded_batches,
+                    "Enface Stitched": enface_stitched,
+                    "3D Volume Stitched": volume_stitched,
+                    "3D Volume Uploaded": volume_uploaded,
+                }
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to get state for mosaic {mosaic_id}: {e}. Skipping."
+            )
+            continue
+
+    if not table_data:
+        logger.warning(f"No valid mosaic states found for project {project_name}")
+        return ""
+
+    # Create unified artifact key
+    artifact_key = f"{project_name.lower().replace('_', '-')}-all-mosaics-progress"
+
+    # Calculate summary statistics
+    total_mosaics = len(table_data)
+    complete_mosaics = sum(
+        1
+        for row in table_data
+        if row["Processed"] == row["Total Batches"] and row["Total Batches"] > 0
+    )
+    enface_stitched_count = sum(1 for row in table_data if row["Enface Stitched"] == "✅")
+    volume_stitched_count = sum(
+        1 for row in table_data if row["3D Volume Stitched"] == "✅"
+    )
+    volume_uploaded_count = sum(
+        1 for row in table_data if row["3D Volume Uploaded"] == "✅"
+    )
+
+    description = f"""All Mosaics Processing Progress
+
+Project: {project_name}
+Total Mosaics: {total_mosaics}
+Last Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+Summary:
+- Complete Mosaics: {complete_mosaics}/{total_mosaics}
+- Enface Stitched: {enface_stitched_count}/{total_mosaics}
+- 3D Volume Stitched: {volume_stitched_count}/{total_mosaics}
+- 3D Volume Uploaded: {volume_uploaded_count}/{total_mosaics}
+"""
+
+    create_table_artifact(
+        key=artifact_key,
+        table=table_data,
+        description=description,
+    )
+
+    logger.info(
+        f"Updated unified artifact {artifact_key}: {total_mosaics} mosaics, "
+        f"{complete_mosaics} complete, {enface_stitched_count} enface stitched, "
+        f"{volume_stitched_count} volume stitched, {volume_uploaded_count} volume uploaded"
     )
 
     return artifact_key
@@ -532,12 +667,10 @@ def manage_mosaic_batch_state_flow(
         project_name=project_name,
     )
 
-    # Update Artifact with progress
-    artifact_key = update_mosaic_artifact_task(
+    # Update unified project artifact with all mosaics
+    artifact_key = update_project_mosaic_artifact_task(
         project_name=project_name,
         project_base_path=project_base_path,
-        mosaic_id=mosaic_id,
-        batch_state=batch_state,
     )
 
     # Check if all batches are complete
@@ -658,11 +791,17 @@ def manage_slice_state_flow(
     )
 
     # Update Artifact with slice progress
-    artifact_key = update_slice_artifact_task(
+    slice_artifact_key = update_slice_artifact_task(
         project_name=project_name,
         project_base_path=project_base_path,
         slice_number=slice_number,
         slice_state=slice_state,
+    )
+
+    # Also update unified project mosaic artifact (includes stitching status)
+    unified_artifact_key = update_project_mosaic_artifact_task(
+        project_name=project_name,
+        project_base_path=project_base_path,
     )
 
     # Check if both mosaics are stitched
@@ -707,7 +846,8 @@ def manage_slice_state_flow(
         "normal_stitched": normal_stitched,
         "tilted_stitched": tilted_stitched,
         "both_stitched": both_stitched,
-        "artifact_key": artifact_key,
+        "slice_artifact_key": slice_artifact_key,
+        "unified_artifact_key": unified_artifact_key,
     }
 
 

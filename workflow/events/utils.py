@@ -4,12 +4,16 @@ Event utilities for Prefect event-driven deployments.
 This module provides utilities for creating event triggers and emitting events
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from prefect.events import DeploymentEventTrigger, emit_event
 
 
-def get_event_trigger(event_name: str, parameters: dict = {}) -> DeploymentEventTrigger:
+def get_event_trigger(
+    event_name: str,
+    parameters: Optional[Dict[str, Any]] = None,
+    project_name: Optional[str] = None,
+) -> DeploymentEventTrigger:
     """
     Get a deployment event trigger for a given event name.
 
@@ -19,25 +23,39 @@ def get_event_trigger(event_name: str, parameters: dict = {}) -> DeploymentEvent
     ----------
     event_name : str
         The name of the event to trigger on (may be legacy or canonical format)
+    parameters : dict, optional
+        Extra parameters to merge into the trigger (e.g. for flow run inputs).
+    project_name : str, optional
+        When set, only events whose resource has this project_name will trigger
+        the deployment. When not set, no project filter is applied.
 
     Returns
     -------
     DeploymentEventTrigger
         Configured event trigger with Jinja2 parameter extraction
     """
-    return DeploymentEventTrigger(
-        expect={event_name},
-        parameters={
-            **parameters,
-            "payload": {
-                "__prefect_kind": "json",
-                "value": {
-                    "__prefect_kind": "jinja",
-                    "template": "{{ event.payload | tojson }}",
-                },
+    parameters = parameters or {}
+    trigger_params = {
+        **parameters,
+        "payload": {
+            "__prefect_kind": "json",
+            "value": {
+                "__prefect_kind": "jinja",
+                "template": "{{ event.payload | tojson }}",
             },
         },
-    )
+    }
+    if project_name is not None:
+        trigger_params["project_name"] = project_name
+
+    trigger_kwargs: Dict[str, Any] = {
+        "expect": {event_name},
+        "parameters": trigger_params,
+    }
+    if project_name is not None:
+        trigger_kwargs["match"] = {"project_name": project_name}
+
+    return DeploymentEventTrigger(**trigger_kwargs)
 
 
 def emit_mosaic_event(

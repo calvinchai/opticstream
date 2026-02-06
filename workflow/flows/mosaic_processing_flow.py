@@ -188,6 +188,7 @@ def generate_coord_template_task(
         scan_resolution=scan_resolution,
         replace=[
             "aip:{{ modality }}",  # Replace aip with Jinja2 template variable
+            "mip:{{ modality }}",  # Replace mip with Jinja2 template variable
             f"mosaic_{mosaic_id:03d}:{{{{ mosaic_id_str }}}}",
             # Replace mosaic ID with template variable
         ],
