@@ -48,8 +48,9 @@ def get_event_trigger(
     if project_name is not None:
         trigger_params["project_name"] = project_name
 
+    # Schema per https://docs.prefect.io/v3/concepts/event-triggers: expect is array of strings, match filters on resource labels
     trigger_kwargs: Dict[str, Any] = {
-        "expect": {event_name},
+        "expect": [event_name],
         "parameters": trigger_params,
     }
     if project_name is not None:
