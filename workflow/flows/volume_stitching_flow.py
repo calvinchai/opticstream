@@ -170,6 +170,8 @@ def stitch_volume_flow(
     force_refresh_focus: bool = False,
     dandiset_path: Optional[str] = None,
     mosaic_volume_format: Optional[str] = None,
+    crop_focus_plane_depth: int = 500,
+    crop_focus_plane_offset: int = 30,
     zarr_config: Optional[ZarrConfig] = None,
 ) -> Dict[str, Path]:
     """
@@ -284,8 +286,8 @@ def stitch_volume_flow(
         "focus_plane": str(focus_path) if focus_path else None,
         "mask": str(mask_path) if apply_mask else None,
         "normalize_focus_plane": True,
-        "crop_focus_plane_depth": 500,
-        "crop_focus_plane_offset": 30,
+        "crop_focus_plane_depth": crop_focus_plane_depth,
+        "crop_focus_plane_offset": crop_focus_plane_offset,
         "voxel_size_xyz": scan_resolution_3d,
     }
 
@@ -376,6 +378,8 @@ def stitch_volume_event_flow(
             "stitch_3d_volumes",
             "dandiset_path",
             "mosaic_volume_format",
+            "crop_focus_plane_depth",
+            "crop_focus_plane_offset",
         ],
     )
 
@@ -434,11 +438,12 @@ def stitch_volume_event_flow(
         force_refresh_focus=config.get("force_refresh_focus", False),
         dandiset_path=config.get("dandiset_path"),
         mosaic_volume_format=config.get("mosaic_volume_format"),
+        crop_focus_plane_depth=config.get("crop_focus_plane_depth", 500),
+        crop_focus_plane_offset=config.get("crop_focus_plane_offset", 30),
         zarr_config=zarr_config,
     )
 
 
-# Deployment configuration for event-driven triggering
 if __name__ == "__main__":
     from workflow.utils.deployment_utils import create_event_deployment
 

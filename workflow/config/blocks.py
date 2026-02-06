@@ -41,6 +41,10 @@ class PSOCTScanConfig(Block):
     scan_resolution_3d : List[float], optional
         Scan resolution for 3D volumes [x, y, z] in millimeters
         (default: [0.01, 0.01, 0.0025])
+    crop_focus_plane_depth : int, optional
+        Focus-plane crop depth for 3D volume stitching (default: 500)
+    crop_focus_plane_offset : int, optional
+        Focus-plane crop offset for 3D volume stitching (default: 30)
     """
 
     # model_config = ConfigDict(frozen=False)
@@ -79,6 +83,9 @@ class PSOCTScanConfig(Block):
     volume_modalities: List[str] = ["dBI", "R3D", "O3D"]
 
     stitch_3d_volumes: bool = True
+
+    crop_focus_plane_depth: int = 500
+    crop_focus_plane_offset: int = 30
 
 
 # PSOCTScanConfig.register_type_and_schema()
