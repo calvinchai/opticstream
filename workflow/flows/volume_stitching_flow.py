@@ -121,7 +121,7 @@ def find_focus_plane_task(
         raise FileNotFoundError(f"dBI stitching file not found: {input_yaml}")
     output_yaml = project_base_path / "focus_finding" / f"filtered_{illumination}.yaml"
     focus_output_path = Path(project_base_path) / f"focus-{illumination}.nii"
-    focus_output_path.parent.mkdir(parents=True, exist_ok=True)
+    focus_output_path.mkdir(parents=True, exist_ok=True)
     # find_tile_region(
     #     input_yaml=str(input_yaml),
     #     output_yaml=str(output_yaml),
@@ -143,7 +143,7 @@ def find_focus_plane_task(
             project_base_path / "focus_finding" / f"surface_{illumination}.yaml"
         ),
         output=str(focus_output_path),
-        base_dir=str(project_base_path / f"mosaic_{mosaic_id:03d}/processed"),
+        base_dir=str(project_base_path / "focus_finding"),
         subsample=1,
         avg_signal_threshold=signal_threshold,
         plot=str(project_base_path / "focus_finding" / f"plane_{illumination}.png"),
@@ -289,6 +289,7 @@ def stitch_volume_flow(
         "crop_focus_plane_depth": crop_focus_plane_depth,
         "crop_focus_plane_offset": crop_focus_plane_offset,
         "voxel_size_xyz": scan_resolution_3d,
+        "nii": False,
     }
 
     for modality in volume_modalities:

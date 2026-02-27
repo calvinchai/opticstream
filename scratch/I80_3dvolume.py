@@ -1,6 +1,6 @@
 import sys
 sys.path.append('/autofs/space/zircon_001/users/prefect/oct-pipe')
-from workflow.tasks.utils import mosaic_id_to_slice_number 
+from workflow.utils.utils import mosaic_id_to_slice_number 
 
 from workflow.flows.mosaic_processing_flow import stitch_volume_modalities_flow
 from pathlib import Path

@@ -17,7 +17,8 @@ def emit_mosaic_processed_event(
     total_batches: int,
     grid_size_y: int = None,
     tile_overlap: float = None,
-    mask_threshold: float = None,
+    mask_threshold_normal: float = None,
+    mask_threshold_tilted: float = None,
     scan_resolution_3d: list = None,
     force_refresh_coords: bool = None,
     triggered_by: str = None,
@@ -39,8 +40,10 @@ def emit_mosaic_processed_event(
         Number of rows (tiles per batch) in mosaic. Default: 31
     tile_overlap : float, optional
         Overlap between tiles in pixels. Default: 20.0
-    mask_threshold : float, optional
-        Threshold for mask generation and coordinate processing. Default: 50.0
+    mask_threshold_normal : float, optional
+        Threshold for mask generation and coordinate processing for normal illumination. Default: 60.0
+    mask_threshold_tilted : float, optional
+        Threshold for mask generation and coordinate processing for tilted illumination. Default: 55.0
     scan_resolution_3d : list, optional
         Scan resolution for 3D volumes [x, y, z]. Default: [0.01, 0.01, 0.0025]
     force_refresh_coords : bool, optional
@@ -56,7 +59,6 @@ def emit_mosaic_processed_event(
         "grid_size_x": total_batches,
         "grid_size_y": grid_size_y,
         "tile_overlap": tile_overlap,
-        "mask_threshold": mask_threshold,
         "scan_resolution_3d": scan_resolution_3d,
         "force_refresh_coords": force_refresh_coords
     }
@@ -66,8 +68,10 @@ def emit_mosaic_processed_event(
         payload["grid_size_y"] = grid_size_y
     if tile_overlap is not None:
         payload["tile_overlap"] = tile_overlap
-    if mask_threshold is not None:
-        payload["mask_threshold"] = mask_threshold
+    if mask_threshold_normal is not None:
+        payload["mask_threshold_normal"] = mask_threshold_normal
+    if mask_threshold_tilted is not None:
+        payload["mask_threshold_tilted"] = mask_threshold_tilted
     if scan_resolution_3d is not None:
         payload["scan_resolution_3d"] = scan_resolution_3d
     if force_refresh_coords is not None:

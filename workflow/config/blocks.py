@@ -12,8 +12,7 @@ from typing import List, Optional, Tuple
 from prefect.blocks.core import Block
 
 from workflow.config.constants import TileSavingType
-from linc_convert.utils.zarr_config import ZarrConfig
-
+from niizarr.multizarr.zarr_config import ZarrConfig
 
 class PSOCTScanConfig(Block):
     """
@@ -47,8 +46,6 @@ class PSOCTScanConfig(Block):
         Focus-plane crop offset for 3D volume stitching (default: 30)
     """
 
-    # model_config = ConfigDict(frozen=False)
-
     zarr_config: ZarrConfig
 
     project_base_path: str
@@ -57,16 +54,15 @@ class PSOCTScanConfig(Block):
     grid_size_y: int
     tile_size_x_normal: int = 350
     tile_size_x_tilted: int = 200
-    tile_size_y: int = 350
+    tile_size_y: int = 350 
 
-    tile_overlap: float = 20.0
-    mask_threshold_normal: float = 60.0
-    mask_threshold_tilted: float = 55.0
-    scan_resolution_3d: Tuple[float, float, float] = (0.01, 0.01, 0.0025)
-    tile_saving_type: TileSavingType = TileSavingType.SPECTRAL
-    dandiset_path: Optional[str] = None
-    archive_path: Optional[str] = None
-
+    tile_overlap: float = 20.0 # overlap between tiles in pixels, in percentage
+    mask_threshold_normal: float = 60.0 # mask threshold for normal illumination
+    mask_threshold_tilted: float = 55.0 # mask threshold for tilted illumination
+    scan_resolution_3d: Tuple[float, float, float] = (0.01, 0.01, 0.0025) # scan resolution for 3D volumes
+    tile_saving_type: TileSavingType = TileSavingType.SPECTRAL # the input tile saving type
+    dandiset_path: Optional[str] = None # which dandi set this should be uploaded to
+    archive_path: Optional[str] = None # where to store the archived file
     archive_tile_name_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz"
     mosaic_volume_format: str = "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
     mosaic_enface_format: str = (
@@ -82,10 +78,10 @@ class PSOCTScanConfig(Block):
     enface_modalities: List[str] = ["ret", "ori", "biref", "mip", "surf"]
     volume_modalities: List[str] = ["dBI", "R3D", "O3D"]
 
-    stitch_3d_volumes: bool = True
+    stitch_3d_volumes: bool = True # whether to stitch 3D volumes
 
-    crop_focus_plane_depth: int = 500
-    crop_focus_plane_offset: int = 30
+    crop_focus_plane_depth: int = 700  # depth of the cropped volume
+    crop_focus_plane_offset: int = 0 # offset from the focus plane to crop the volume
 
 
 # PSOCTScanConfig.register_type_and_schema()

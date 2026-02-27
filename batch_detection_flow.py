@@ -424,7 +424,8 @@ if __name__ == "__main__":
         grid_size_x_tilted=23,  # Adjust based on your project
         grid_size_y=31,  # Adjust based on your project
         dandiset_path = "/space/zircon/5/users/data/dandi/000053/derivatives/sub-I55/micr/",
-        mask_threshold = 60
+        mask_threshold_normal = 60.0,
+        mask_threshold_tilted = 55.0
     )
     
     # Save the block

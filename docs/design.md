@@ -492,7 +492,8 @@ Project-level parameters define the structure and configuration of a processing 
 * **`grid_size_x_normal/grid_size_x_tilted`**: Number of batches (columns) per mosaic - determines how tiles are organized for MATLAB batch processing
 * **`grid_size_y`**: Number of tiles per batch (rows) - determines batch size for MATLAB processing
 * **`tile_overlap`**: Overlap between tiles in pixels (default: 20.0)
-* **`mask_threshold`**: Threshold for mask generation and coordinate processing (default: 50.0)
+* **`mask_threshold_normal`**: Threshold for mask generation and coordinate processing for normal illumination (default: 60.0)
+* **`mask_threshold_tilted`**: Threshold for mask generation and coordinate processing for tilted illumination (default: 55.0)
 * **`scan_resolution_3d`**: Scan resolution for 3D volumes [x, y, z] in millimeters (default: [0.01, 0.01, 0.0025])
 
 Parameters are resolved dynamically based on project context. They can be:

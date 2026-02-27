@@ -30,7 +30,6 @@ The approach:
 8. Verify that subtracting the plane makes overlapping regions similar
 """
 
-import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -38,6 +37,7 @@ from typing import Dict, List, Optional, Tuple
 import nibabel as nib
 import numpy as np
 import yaml
+from cyclopts import App
 from scipy.optimize import least_squares, minimize
 
 try:
@@ -50,9 +50,12 @@ except ImportError:
 
 # Constants
 VALID_DEGREES = [1.0, 1.5, 2.0, 2.5, 3.0]
-DEFAULT_DEGREE = 1.5
+DEFAULT_DEGREE = 2
 DEFAULT_RESOLUTION = (0.01, 0.01)  # mm/pixel
 VERIFICATION_THRESHOLDS = {'mean': 1.0, 'max': 5.0}
+
+# Cyclopts app
+app = App(name="find_tile_plane")
 
 
 # Degree configuration mapping
@@ -181,6 +184,52 @@ def compute_plane_value(params: np.ndarray, x: np.ndarray, y: np.ndarray, degree
     elif degree == 3.0:
         a, b, d, e, f, g, h = params
         return a * x + b * y + d * x**2 + e * y**2 + f * x**3 + g * y**3 + h * x**2 * y**2
+    else:
+        raise ValueError(f"Unsupported degree: {degree}")
+
+
+def compute_quadratic_component(params: np.ndarray, x: np.ndarray, y: np.ndarray, degree: float) -> np.ndarray:
+    """
+    Compute only the quadratic component of the plane at given coordinates.
+    
+    Quadratic terms include: x^2, y^2, x*y, and x^2*y^2 (but not x^3, y^3).
+    Note: x*y is considered quadratic (total degree 2).
+    
+    Parameters
+    ----------
+    params : np.ndarray
+        Plane parameters (excluding constant c)
+    x : np.ndarray
+        X coordinates
+    y : np.ndarray
+        Y coordinates
+    degree : float
+        Polynomial degree
+    
+    Returns
+    -------
+    np.ndarray
+        Quadratic component values (without constant term c)
+    """
+    if degree == 1.0:
+        # No quadratic terms
+        return np.zeros_like(x)
+    elif degree == 1.5:
+        # Quadratic term: d*x*y (x*y is quadratic, total degree 2)
+        a, b, d = params
+        return d * x * y
+    elif degree == 2.0:
+        # Quadratic terms: d*x^2 + e*y^2 + f*x*y
+        a, b, d, e, f = params
+        return d * x**2 + e * y**2 + f * x * y
+    elif degree == 2.5:
+        # Quadratic terms: d*x^2 + e*y^2 + f*x*y + g*x^2*y^2
+        a, b, d, e, f, g = params
+        return d * x**2 + e * y**2 + f * x * y + g * x**2 * y**2
+    elif degree == 3.0:
+        # Quadratic terms: d*x^2 + e*y^2 + h*x^2*y^2 (f and g are cubic)
+        a, b, d, e, f, g, h = params
+        return d * x**2 + e * y**2 + h * x**2 * y**2
     else:
         raise ValueError(f"Unsupported degree: {degree}")
 
@@ -870,10 +919,10 @@ def fit_plane_from_overlaps(
     #     method='L-BFGS-B',
     #     options={'maxiter': 1000, 'ftol': 1e-9}
     # )
-    result = minimize(
-        trimmed_mean_objective,
-        initial_params,
-    )
+    # result = minimize(
+    #     trimmed_mean_objective,
+    #     initial_params,
+    # )
     # Initial guess: zeros for all non-constant parameters
     # initial_params = np.zeros(num_params)
     
@@ -881,6 +930,14 @@ def fit_plane_from_overlaps(
     # result = least_squares(residual_func, initial_params, method='lm')
     # alternatively use scipy.optimize.minimize
     # result = minimize(residual_func, initial_params, method='lm')
+
+    result = least_squares(
+        residual_func,
+        initial_params,
+        method='trf',        # or 'dogbox'
+        loss='huber',        # robust loss
+        f_scale=1.0          # tuning parameter
+        )
     non_const_params = result.x
     
     # Create parameter dictionary for printing
@@ -1513,78 +1570,182 @@ def plot_plane_cross_sections(
     plt.close()
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description='Find plane that describes surface signal variation across mosaic tiles'
-    )
-    parser.add_argument('yaml_path', type=str, help='Path to tile configuration YAML')
-    parser.add_argument('--output', type=str, default='tile_plane.nii.gz',
-                       help='Output NIfTI file path (default: tile_plane.nii.gz)')
-    parser.add_argument('--base-dir', type=str, default=None,
-                       help='Base directory for surface map files (default: from YAML metadata)')
-    parser.add_argument('--resolution', type=float, nargs=2, default=None,
-                       help='Resolution [x, y] in mm/pixel (default: from YAML metadata)')
-    parser.add_argument('--tile-size', type=int, nargs=2, default=None,
-                       help='Tile size [width, height] in pixels (default: estimate from surface maps)')
-    parser.add_argument('--subsample', type=int, default=1,
-                       help='Subsample factor for overlap regions (default: 1)')
-    parser.add_argument('--avg-signal-threshold', type=float, default=None,
-                       help='Minimum avg_signal value for tiles to be included (default: no threshold)')
-    parser.add_argument('--no-verify', action='store_true',
-                       help='Skip verification step (default: verification is enabled)')
-    parser.add_argument('--plot', type=str, default=None,
-                       help='Output path for plane cross-section plots (default: no plot)')
-    parser.add_argument('--outlier-method', type=str, default='iqr',
-                       help='Outlier detection method (default: iqr)')
-    parser.add_argument('--outlier-iqr-factor', type=float, default=1.5,
-                       help='IQR factor for outlier detection (default: 1.5)')
-    parser.add_argument('--outlier-z-threshold', type=float, default=3.0,
-                       help='Z-score threshold for outlier detection (default: 3.0)')
-    parser.add_argument('--output-corrected-dir', type=str, default=None,
-                       help='Directory to save corrected surface maps (with plane subtracted). If not specified, corrected surfaces are not saved.')
-    parser.add_argument('--crop-x', type=int, default=0,
-                       help='Number of pixels to crop from the start of x dimension. When set, surface maps are cropped as surface[crop_x:, :] and tile x coordinates are adjusted by adding crop_x (default: 0)')
-    parser.add_argument('--normalize-min', type=float, default=None,
-                       help='Normalize the plane so its minimum value becomes this value. If not specified, the plane is not normalized (default: None)')
-    parser.add_argument('--degree', type=float, default=DEFAULT_DEGREE,
-                       help='Polynomial degree for plane fitting: 1.0 (linear), 1.5 (linear with cross term), 2.0 (quadratic), 2.5 (quadratic with cross term), 3.0 (cubic) (default: 1.5)')
-    args = parser.parse_args()
+def plot_quadratic_component(
+    params: np.ndarray,
+    tile_size: Tuple[int, int],
+    output_path: Optional[str] = None,
+    degree: float = 1.5
+):
+    """
+    Plot only the quadratic component of the fitted plane at middle x and middle y coordinates in tile space.
     
+    Parameters
+    ----------
+    params : np.ndarray
+        Plane parameters (non-constant params + c). Length depends on degree:
+        - degree 1.0: [a, b, c]
+        - degree 1.5: [a, b, d, c]
+        - degree 2.0: [a, b, d, e, f, c]
+        - degree 2.5: [a, b, d, e, f, g, c]
+        - degree 3.0: [a, b, d, e, f, g, h, c]
+        The plane is a function of local tile coordinates (0 to width-1, 0 to height-1)
+    tile_size : tuple
+        (width, height) = (x_size, y_size) in pixels
+    output_path : str, optional
+        Path to save the plot. If None, displays interactively.
+    degree : float
+        Polynomial degree (1.0, 1.5, 2.0, 2.5, 3.0)
+    """
+    if not HAS_MATPLOTLIB:
+        print("Warning: matplotlib not available, skipping quadratic component plots")
+        return
+    
+    plane_params = extract_plane_params(params, degree)
+    w, h = tile_size
+    
+    # Check if there are any quadratic terms for this degree
+    if degree == 1.0:
+        print(f"Warning: Degree {degree} has no quadratic terms. Plot will show zeros.")
+    
+    # Middle coordinates in tile space
+    x_mid = (w - 1) / 2.0  # Middle x in local tile coordinates (0 to w-1)
+    y_mid = (h - 1) / 2.0  # Middle y in local tile coordinates (0 to h-1)
+    
+    # Create coordinate arrays for plotting in tile space
+    x_local = np.linspace(0, w - 1, 200)  # x coordinates: 0 to w-1
+    y_local = np.linspace(0, h - 1, 200)  # y coordinates: 0 to h-1
+    
+    # Compute quadratic component values using local tile coordinates
+    # At fixed x_local = x_mid
+    x_mid_array = np.full_like(y_local, x_mid)
+    quad_at_x_mid = compute_quadratic_component(plane_params.non_const_params, x_mid_array, y_local, degree)
+    
+    # At fixed y_local = y_mid
+    y_mid_array = np.full_like(x_local, y_mid)
+    quad_at_y_mid = compute_quadratic_component(plane_params.non_const_params, x_local, y_mid_array, degree)
+    
+    # Create figure with two subplots
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+    
+    # Plot 1: Quadratic component as function of y_local at x_local = x_mid
+    ax1.plot(y_local, quad_at_x_mid, 'b-', linewidth=2, label=f'Quadratic at x = {x_mid:.1f}')
+    ax1.set_xlabel('Y coordinate (tile space)', fontsize=12)
+    ax1.set_ylabel('Quadratic component value', fontsize=12)
+    ax1.set_title(f'Quadratic Component Cross-Section at x = {x_mid:.1f} (tile space)', fontsize=14)
+    ax1.grid(True, alpha=0.3)
+    ax1.legend()
+    
+    # Plot 2: Quadratic component as function of x_local at y_local = y_mid
+    ax2.plot(x_local, quad_at_y_mid, 'r-', linewidth=2, label=f'Quadratic at y = {y_mid:.1f}')
+    ax2.set_xlabel('X coordinate (tile space)', fontsize=12)
+    ax2.set_ylabel('Quadratic component value', fontsize=12)
+    ax2.set_title(f'Quadratic Component Cross-Section at y = {y_mid:.1f} (tile space)', fontsize=14)
+    ax2.grid(True, alpha=0.3)
+    ax2.legend()
+    
+    plt.tight_layout()
+    
+    if output_path:
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        print(f"\nSaved quadratic component cross-section plots to {output_path}")
+    else:
+        plt.show()
+    
+    plt.close()
+
+
+@app.default
+def main(
+    yaml_path: str,
+    output: str = 'tile_plane.nii.gz',
+    base_dir: Optional[str] = None,
+    resolution: Optional[List[float]] = None,
+    tile_size: Optional[List[int]] = None,
+    subsample: int = 1,
+    avg_signal_threshold: Optional[float] = None,
+    verify: bool = True,
+    plot: Optional[str] = None,
+    plot_quadratic: Optional[str] = None,
+    outlier_method: str = 'iqr',
+    outlier_iqr_factor: float = 1.5,
+    outlier_z_threshold: float = 3.0,
+    output_corrected_dir: Optional[str] = None,
+    crop_x: int = 0,
+    normalize_min: Optional[float] = None,
+    degree: float = DEFAULT_DEGREE,
+):
+    """
+    Find plane that describes surface signal variation across mosaic tiles.
+    
+    Parameters
+    ----------
+    yaml_path : str
+        Path to tile configuration YAML
+    output : str, default='tile_plane.nii.gz'
+        Output NIfTI file path
+    base_dir : Optional[str], default=None
+        Base directory for surface map files (default: from YAML metadata)
+    resolution : Optional[List[float]], default=None
+        Resolution [x, y] in mm/pixel (default: from YAML metadata)
+    tile_size : Optional[List[int]], default=None
+        Tile size [width, height] in pixels (default: estimate from surface maps)
+    subsample : int, default=1
+        Subsample factor for overlap regions
+    avg_signal_threshold : Optional[float], default=None
+        Minimum avg_signal value for tiles to be included (default: no threshold)
+    verify : bool, default=True
+        Enable verification step (default: verification is enabled)
+    plot : Optional[str], default=None
+        Output path for plane cross-section plots (default: no plot)
+    plot_quadratic : Optional[str], default=None
+        Output path for quadratic component cross-section plots (default: no plot)
+    outlier_method : str, default='iqr'
+        Outlier detection method
+    outlier_iqr_factor : float, default=1.5
+        IQR factor for outlier detection
+    outlier_z_threshold : float, default=3.0
+        Z-score threshold for outlier detection
+    output_corrected_dir : Optional[str], default=None
+        Directory to save corrected surface maps (with plane subtracted). If not specified, corrected surfaces are not saved.
+    crop_x : int, default=0
+        Number of pixels to crop from the start of x dimension. When set, surface maps are cropped as surface[crop_x:, :] and tile x coordinates are adjusted by adding crop_x
+    normalize_min : Optional[float], default=None
+        Normalize the plane so its minimum value becomes this value. If not specified, the plane is not normalized
+    degree : float, default=1.5
+        Polynomial degree for plane fitting: 1.0 (linear), 1.5 (linear with cross term), 2.0 (quadratic), 2.5 (quadratic with cross term), 3.0 (cubic)
+    """
     # Validate degree
-    if args.degree not in VALID_DEGREES:
-        raise ValueError(f"Invalid degree: {args.degree}. Must be one of {VALID_DEGREES}")
-    
-    # Default verification to True unless --no-verify is set
-    args.verify = not args.no_verify
+    if degree not in VALID_DEGREES:
+        raise ValueError(f"Invalid degree: {degree}. Must be one of {VALID_DEGREES}")
     
     # Load configuration
-    print(f"Loading tile configuration from {args.yaml_path}")
-    metadata, tiles = load_yaml_config(args.yaml_path)
+    print(f"Loading tile configuration from {yaml_path}")
+    metadata, tiles = load_yaml_config(yaml_path)
     
     print(f"Loaded {len(tiles)} tiles")
     
     # Fit plane
-    tile_size = tuple(args.tile_size) if args.tile_size else None
+    tile_size_tuple = tuple(tile_size) if tile_size else None
     
-    print(f"\nFitting plane (degree {args.degree}) from overlapping regions in surface maps...")
+    print(f"\nFitting plane (degree {degree}) from overlapping regions in surface maps...")
     params, info = fit_plane_from_overlaps(
-        args.yaml_path,
-        base_dir=args.base_dir,
-        tile_size=tile_size,
-        subsample=args.subsample,
-        avg_signal_threshold=args.avg_signal_threshold,
-        outlier_method=args.outlier_method,
-        outlier_iqr_factor=args.outlier_iqr_factor,
-        outlier_z_threshold=args.outlier_z_threshold,
-        crop_x=args.crop_x,
-        degree=args.degree
+        yaml_path,
+        base_dir=base_dir,
+        tile_size=tile_size_tuple,
+        subsample=subsample,
+        avg_signal_threshold=avg_signal_threshold,
+        outlier_method=outlier_method,
+        outlier_iqr_factor=outlier_iqr_factor,
+        outlier_z_threshold=outlier_z_threshold,
+        crop_x=crop_x,
+        degree=degree
     )
     
     # Extract and display parameters
-    plane_params = extract_plane_params(params, args.degree)
-    config = DEGREE_CONFIG[args.degree]
+    plane_params = extract_plane_params(params, degree)
+    config = DEGREE_CONFIG[degree]
     
-    print(f"\nFitted plane parameters (degree {args.degree}):")
+    print(f"\nFitted plane parameters (degree {degree}):")
     for i, name in enumerate(config['names']):
         print(f"  {name}: {plane_params.non_const_params[i]:.6e}  [determined from overlaps]")
     print(f"  c (constant): {plane_params.c:.6f}  [determined from all surface values]")
@@ -1600,31 +1761,31 @@ def main():
     print(f"  Number of pixels used: {info['num_pixels']}")
     
     # Export to NIfTI
-    resolution = tuple(args.resolution) if args.resolution else None
-    tile_size = info['tile_size']
+    resolution_tuple = tuple(resolution) if resolution else None
+    tile_size_final = info['tile_size']
     
     export_plane_to_nifti(
         params,
-        tile_size,
-        args.output,
+        tile_size_final,
+        output,
         metadata,
-        resolution=resolution,
-        normalize_min=args.normalize_min,
-        degree=args.degree,
-        crop_x=args.crop_x
+        resolution=resolution_tuple,
+        normalize_min=normalize_min,
+        degree=degree,
+        crop_x=crop_x
     )
     
     # Verify plane correction if requested
-    if args.verify:
+    if verify:
         verify_stats = verify_plane_correction(
-            args.yaml_path,
+            yaml_path,
             params,
-            base_dir=args.base_dir,
-            tile_size=tile_size,
-            subsample=args.subsample,
-            avg_signal_threshold=args.avg_signal_threshold,
-            crop_x=args.crop_x,
-            degree=args.degree
+            base_dir=base_dir,
+            tile_size=tile_size_final,
+            subsample=subsample,
+            avg_signal_threshold=avg_signal_threshold,
+            crop_x=crop_x,
+            degree=degree
         )
         
         # Exit with error code if verification failed
@@ -1632,25 +1793,29 @@ def main():
             print("\nWarning: Verification failed. The plane correction may not be optimal.")
     
     # Plot plane cross-sections if requested
-    if args.plot:
-        plot_plane_cross_sections(params, tile_size, args.plot, degree=args.degree)
+    if plot:
+        plot_plane_cross_sections(params, tile_size_final, plot, degree=degree)
+    
+    # Plot quadratic component if requested
+    if plot_quadratic:
+        plot_quadratic_component(params, tile_size_final, plot_quadratic, degree=degree)
     
     # Save corrected surfaces if requested
-    if args.output_corrected_dir:
+    if output_corrected_dir:
         save_corrected_surfaces(
-            args.yaml_path,
+            yaml_path,
             params,
-            tile_size,
-            args.output_corrected_dir,
-            base_dir=args.base_dir,
-            avg_signal_threshold=args.avg_signal_threshold,
-            crop_x=args.crop_x,
-            normalize_min=args.normalize_min,
-            degree=args.degree
+            tile_size_final,
+            output_corrected_dir,
+            base_dir=base_dir,
+            avg_signal_threshold=avg_signal_threshold,
+            crop_x=crop_x,
+            normalize_min=normalize_min,
+            degree=degree
         )
     
     print("\nDone!")
 
 
 if __name__ == "__main__":
-    main()
+    app()

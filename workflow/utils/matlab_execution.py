@@ -116,7 +116,7 @@ def call_matlab_via_cli(
 
 def run_matlab_batch_command(
     command: str,
-    matlab_script_path: Optional[str] = "/homes/5/kc1708/localhome/code/psoct-renew/",
+    matlab_script_path: Optional[str] = "/space/megaera/1/users/kchai/code/psoct-renew/",
     working_dir: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """

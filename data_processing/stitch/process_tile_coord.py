@@ -216,8 +216,9 @@ class Grid:
             if t is None:
                 continue
             reliable = (t.avg_signal is not None and t.avg_signal >= signal_threshold)
-            t.derived_coord = t.stitched_coord if reliable else None
-
+            t.derived_coord = None
+            # t.derived_coord = t.stitched_coord if reliable else None
+        self._tile_at(0, 0).derived_coord = (0.0, 0.0)
         changed = True
         max_passes = max(1, max(self.num_rows, self.num_cols) * 3)
         pass_num = 0
@@ -494,7 +495,6 @@ def load_tile_info(
     return tile_objects
 
 
-# ---------------- New: run_pipeline function ----------------
 def process_tile_coord(
     ideal_coord_file: str,
     stitched_coord_file: str,
