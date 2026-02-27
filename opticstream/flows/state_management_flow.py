@@ -7,7 +7,7 @@ at different levels: batch, mosaic, and slice.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from prefect import flow, task
 from prefect.artifacts import create_table_artifact
@@ -22,7 +22,7 @@ from workflow.events import (
     SLICE_READY,
     get_event_trigger,
 )
-from workflow.state import MosaicState, SliceState
+from opticstream.state import MosaicState, SliceState
 from workflow.utils.utils import get_mosaic_paths
 
 

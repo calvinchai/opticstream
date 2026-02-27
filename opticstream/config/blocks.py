@@ -12,7 +12,7 @@ from typing import List, Optional, Tuple
 from prefect.blocks.core import Block
 
 from workflow.config.constants import TileSavingType
-from niizarr.multizarr.zarr_config import ZarrConfig
+from niizarr import ZarrConfig
 
 class PSOCTScanConfig(Block):
     """

@@ -5,7 +5,7 @@ Abstracts batch state flag operations so flows express intent
 rather than filesystem mechanics.
 """
 
-from workflow.state.flags import (
+from opticstream.state import (
     ARCHIVED,
     PROCESSED,
     STARTED,

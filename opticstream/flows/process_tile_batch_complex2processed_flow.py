@@ -9,7 +9,7 @@ from workflow.flows.state_management_flow import (
     check_completion_and_emit_mosaic_ready_task,
     update_mosaic_artifact_task,
 )
-from workflow.state.batch_state_utils import is_batch_processed, mark_batch_processed
+from opticstream.state import is_batch_processed, mark_batch_processed
 from workflow.utils.filename_utils import replace_spectral_with_complex_in_path
 from workflow.utils.matlab_execution import run_matlab_batch_command
 from workflow.utils.utils import get_mosaic_paths

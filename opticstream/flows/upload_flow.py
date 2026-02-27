@@ -12,7 +12,7 @@ from workflow.events import (
     MOSAIC_VOLUME_STITCHED,
     get_event_trigger,
 )
-from workflow.state.flags import UPLOADED, get_batch_flag_path
+from opticstream.state import UPLOADED, get_batch_flag_path
 from workflow.tasks.common_tasks import (
     upload_to_dandi_task,
     upload_to_linc_batch_task,

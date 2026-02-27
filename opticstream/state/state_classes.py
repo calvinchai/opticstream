@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from workflow.config.blocks import PSOCTScanConfig
 from workflow.config.project_config import get_grid_size_x, get_project_config_block
-from workflow.state.flags import (
+from opticstream.state import (
     ARCHIVED,
     PROCESSED,
     REGISTERED,

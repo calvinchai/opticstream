@@ -18,8 +18,9 @@ from linc_convert.modalities.psoct.mosaic import mosaic2d
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from data_processing.stitch import fiji_stitch, fit_coord_files, generate_mask
-from data_processing.stitch.process_tile_coord import process_tile_coord
+from opticstream.data_processing.stitch import (fiji_stitch, fit_coord_files,
+                                                generate_mask)
+from opticstream.data_processing.stitch.process_tile_coord import process_tile_coord
 from workflow.config.project_config import (
     get_grid_size_x,
     get_mask_threshold,

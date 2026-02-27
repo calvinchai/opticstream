@@ -18,15 +18,14 @@ from prefect.logging import get_run_logger
 from linc_convert.utils.zarr_config import ZarrConfig
 from scripts import find_tile_plane, find_volume_surface
 from scripts.filter_tiles_by_signal import filter_tiles_by_signal
-from scripts.find_tile_region import find_tile_region
-from workflow.config.project_config import (
+from opticstream.config.project_config import (
     get_project_config_block,
     resolve_config,
 )
-from workflow.events import MOSAIC_STITCHED, MOSAIC_VOLUME_STITCHED
-from workflow.events.utils import emit_mosaic_event
-from workflow.flows.mosaic_processing_flow import generate_tile_info_file_task
-from workflow.utils.utils import (
+from opticstream.events import MOSAIC_STITCHED, MOSAIC_VOLUME_STITCHED
+from opticstream.events.utils import emit_mosaic_event
+from opticstream.flows.mosaic_processing_flow import generate_tile_info_file_task
+from opticstream.utils.utils import (
     get_dandi_slice_path,
     get_modality_stitching_filename,
     get_mosaic_paths,

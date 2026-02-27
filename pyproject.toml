@@ -1,0 +1,16 @@
+[project]
+name = "opticstream"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "linc-convert[all]",
+    "matplotlib>=3.10.8",
+    "nifti-zarr",
+    "prefect[shell,slack]>=3.6.20",
+]
+
+[tool.uv.sources]
+linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert" }
+nifti-zarr = { path = "/space/megaera/1/users/kchai/nifti-zarr" }

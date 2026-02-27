@@ -17,7 +17,7 @@ from workflow.flows.state_management_flow import (
     check_completion_and_emit_mosaic_ready_task,
     update_mosaic_artifact_task,
 )
-from workflow.state.batch_state_utils import (
+from opticstream.state import (
     is_batch_archived,
     mark_batch_archived,
     mark_batch_started,
