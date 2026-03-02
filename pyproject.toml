@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 opticstream = "opticstream.cli:main"
+ops = "opticstream.cli:main"
 
 [tool.uv.sources]
 linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert" }
