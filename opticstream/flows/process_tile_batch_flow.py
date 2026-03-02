@@ -17,7 +17,7 @@ from opticstream.flows.state_management_flow import (
     check_completion_and_emit_mosaic_ready_task,
     update_mosaic_artifact_task,
 )
-from opticstream.state import (
+from opticstream.state.batch_state_utils import (
     is_batch_archived,
     mark_batch_archived,
     mark_batch_started,

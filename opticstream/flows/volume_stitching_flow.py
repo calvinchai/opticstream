@@ -16,8 +16,8 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from linc_convert.utils.zarr_config import ZarrConfig
-from scripts import find_tile_plane, find_volume_surface
-from scripts.filter_tiles_by_signal import filter_tiles_by_signal
+from opticstream.scripts import find_tile_plane, find_volume_surface
+from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
 from opticstream.config.project_config import (
     get_project_config_block,
     resolve_config,

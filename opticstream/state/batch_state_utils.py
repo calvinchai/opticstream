@@ -5,7 +5,7 @@ Abstracts batch state flag operations so flows express intent
 rather than filesystem mechanics.
 """
 
-from opticstream.state import (
+from opticstream.state.flags import (
     ARCHIVED,
     PROCESSED,
     STARTED,

@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from opticstream.config.blocks import PSOCTScanConfig
 from opticstream.config.project_config import get_grid_size_x, get_project_config_block
-from opticstream.state import (
+from opticstream.state.flags import (
     ARCHIVED,
     PROCESSED,
     REGISTERED,
