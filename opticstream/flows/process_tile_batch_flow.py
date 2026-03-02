@@ -6,14 +6,14 @@ from typing import Any, Dict, List, Optional
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from workflow.config.constants import TileSavingType
-from workflow.config.project_config import resolve_config
-from workflow.events import (
+from opticstream.config.constants import TileSavingType
+from opticstream.config.project_config import resolve_config
+from opticstream.events import (
     BATCH_ARCHIVED,
     BATCH_COMPLEXED,
 )
-from workflow.events.batch_event_utils import emit_batch_event
-from workflow.flows.state_management_flow import (
+from opticstream.events.batch_event_utils import emit_batch_event
+from opticstream.flows.state_management_flow import (
     check_completion_and_emit_mosaic_ready_task,
     update_mosaic_artifact_task,
 )
@@ -22,14 +22,14 @@ from opticstream.state import (
     mark_batch_archived,
     mark_batch_started,
 )
-from workflow.utils.filename_utils import (
+from opticstream.utils.filename_utils import (
     complex_to_complex_filename,
     extract_tile_index_from_filename,
     spectral_to_complex_filename,
 )
-from workflow.tasks.common_tasks import archive_tile_task
-from workflow.utils.matlab_execution import run_matlab_batch_command
-from workflow.utils.utils import get_mosaic_paths
+from opticstream.tasks.common_tasks import archive_tile_task
+from opticstream.utils.matlab_execution import run_matlab_batch_command
+from opticstream.utils.utils import get_mosaic_paths
 
 
 @task(

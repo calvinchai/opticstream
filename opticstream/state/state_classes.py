@@ -15,8 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from workflow.config.blocks import PSOCTScanConfig
-from workflow.config.project_config import get_grid_size_x, get_project_config_block
+from opticstream.config.blocks import PSOCTScanConfig
+from opticstream.config.project_config import get_grid_size_x, get_project_config_block
 from opticstream.state import (
     ARCHIVED,
     PROCESSED,
@@ -30,7 +30,7 @@ from opticstream.state import (
     get_mosaic_flag_path,
     get_slice_flag_path,
 )
-from workflow.utils.utils import (
+from opticstream.utils.utils import (
     get_mosaic_paths,
     get_slice_paths,
     mosaic_id_to_slice_number,

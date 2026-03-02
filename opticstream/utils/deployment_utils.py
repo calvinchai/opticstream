@@ -9,7 +9,7 @@ from typing import List, Optional
 
 from prefect import Flow
 
-from workflow.events import get_event_trigger
+from opticstream.events import get_event_trigger
 
 
 def create_event_deployment(

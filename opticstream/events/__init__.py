@@ -5,7 +5,7 @@ This module provides event constants and utilities following the design document
 naming convention: linc.oct.{hierarchy}.{state}
 """
 
-from workflow.events.constants import (
+from opticstream.events.constants import (
     BATCH_ARCHIVED,
     BATCH_PROCESSED,
     BATCH_READY,
@@ -18,7 +18,7 @@ from workflow.events.constants import (
     SLICE_READY,
     SLICE_REGISTERED,
 )
-from workflow.events.utils import get_event_trigger
+from opticstream.events.utils import get_event_trigger
 
 __all__ = [
     # Event constants

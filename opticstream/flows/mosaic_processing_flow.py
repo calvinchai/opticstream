@@ -21,18 +21,18 @@ from prefect.logging import get_run_logger
 from opticstream.data_processing.stitch import (fiji_stitch, fit_coord_files,
                                                 generate_mask)
 from opticstream.data_processing.stitch.process_tile_coord import process_tile_coord
-from workflow.config.project_config import (
+from opticstream.config.project_config import (
     get_grid_size_x,
     get_mask_threshold,
     get_project_config_block,
     resolve_config,
 )
-from workflow.events import (
+from opticstream.events import (
     MOSAIC_READY,
     MOSAIC_STITCHED,
 )
-from workflow.events.utils import emit_mosaic_event
-from workflow.utils.utils import (
+from opticstream.events.utils import emit_mosaic_event
+from opticstream.utils.utils import (
     get_dandi_slice_path,
     get_illumination,
     get_mosaic_paths,
@@ -1095,7 +1095,7 @@ def process_mosaic_event_flow(
 
 # Deployment configuration for event-driven triggering
 if __name__ == "__main__":
-    from workflow.utils.deployment_utils import create_event_deployment
+    from opticstream.utils.deployment_utils import create_event_deployment
 
     process_mosaic_event_flow_deployment = create_event_deployment(
         flow=process_mosaic_event_flow,

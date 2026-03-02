@@ -16,13 +16,13 @@ from typing import Any, Dict, Optional
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from workflow.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
-from workflow.events.utils import emit_slice_event
-from workflow.utils.matlab_execution import (
+from opticstream.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
+from opticstream.events.utils import emit_slice_event
+from opticstream.utils.matlab_execution import (
     call_matlab_via_cli,
     get_matlab_engine,
 )
-from workflow.utils.utils import get_mosaic_paths
+from opticstream.utils.utils import get_mosaic_paths
 
 
 @task

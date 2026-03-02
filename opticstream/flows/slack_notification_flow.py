@@ -14,7 +14,7 @@ from prefect.logging import get_run_logger
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from workflow.events import MOSAIC_STITCHED, get_event_trigger
+from opticstream.events import MOSAIC_STITCHED, get_event_trigger
 
 
 @task(retries=2, retry_delay_seconds=5)

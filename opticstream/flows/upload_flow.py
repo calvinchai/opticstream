@@ -5,7 +5,7 @@ from prefect import flow
 from prefect.events import emit_event
 from prefect.logging import get_run_logger
 
-from workflow.events import (
+from opticstream.events import (
     BATCH_ARCHIVED,
     BATCH_UPLOADED,
     MOSAIC_STITCHED,
@@ -13,12 +13,12 @@ from workflow.events import (
     get_event_trigger,
 )
 from opticstream.state import UPLOADED, get_batch_flag_path
-from workflow.tasks.common_tasks import (
+from opticstream.tasks.common_tasks import (
     upload_to_dandi_task,
     upload_to_linc_batch_task,
     upload_to_linc_task,
 )
-from workflow.utils.utils import (
+from opticstream.utils.utils import (
     get_mosaic_paths,
 )
 

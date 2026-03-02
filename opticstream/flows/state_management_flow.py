@@ -14,7 +14,7 @@ from prefect.artifacts import create_table_artifact
 from prefect.events import DeploymentEventTrigger, emit_event
 from prefect.logging import get_run_logger
 
-from workflow.events import (
+from opticstream.events import (
     BATCH_ARCHIVED,
     BATCH_PROCESSED,
     MOSAIC_READY,
@@ -23,7 +23,7 @@ from workflow.events import (
     get_event_trigger,
 )
 from opticstream.state import MosaicState, SliceState
-from workflow.utils.utils import get_mosaic_paths
+from opticstream.utils.utils import get_mosaic_paths
 
 
 @task(task_run_name="{project_name}-mosaic-{mosaic_id}-check-batch-state")

@@ -445,7 +445,7 @@ def stitch_volume_event_flow(
 
 
 if __name__ == "__main__":
-    from workflow.utils.deployment_utils import create_event_deployment
+    from opticstream.utils.deployment_utils import create_event_deployment
 
     stitch_volume_event_flow_deployment = create_event_deployment(
         flow=stitch_volume_event_flow,

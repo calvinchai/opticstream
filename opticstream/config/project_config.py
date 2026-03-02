@@ -6,8 +6,8 @@ See: https://docs.prefect.io/v3/concepts/blocks
 
 from typing import Any, Callable, Dict, List, Optional
 
-from workflow.config.blocks import PSOCTScanConfig
-from workflow.config.constants import TileSavingType
+from opticstream.config.blocks import PSOCTScanConfig
+from opticstream.config.constants import TileSavingType
 
 
 def get_project_config_block(project_name: str) -> Optional[PSOCTScanConfig]:

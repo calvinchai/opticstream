@@ -9,10 +9,11 @@ See: https://docs.prefect.io/v3/concepts/blocks
 
 from typing import List, Optional, Tuple
 
+from niizarr import ZarrConfig
 from prefect.blocks.core import Block
 
-from workflow.config.constants import TileSavingType
-from niizarr import ZarrConfig
+from opticstream.config.constants import TileSavingType
+
 
 class PSOCTScanConfig(Block):
     """

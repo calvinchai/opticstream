@@ -3,16 +3,16 @@ from typing import Any, Dict, List
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from workflow.events import BATCH_PROCESSED
-from workflow.events.batch_event_utils import emit_batch_event
-from workflow.flows.state_management_flow import (
+from opticstream.events import BATCH_PROCESSED
+from opticstream.events.batch_event_utils import emit_batch_event
+from opticstream.flows.state_management_flow import (
     check_completion_and_emit_mosaic_ready_task,
     update_mosaic_artifact_task,
 )
 from opticstream.state import is_batch_processed, mark_batch_processed
-from workflow.utils.filename_utils import replace_spectral_with_complex_in_path
-from workflow.utils.matlab_execution import run_matlab_batch_command
-from workflow.utils.utils import get_mosaic_paths
+from opticstream.utils.filename_utils import replace_spectral_with_complex_in_path
+from opticstream.utils.matlab_execution import run_matlab_batch_command
+from opticstream.utils.utils import get_mosaic_paths
 
 
 @task(
