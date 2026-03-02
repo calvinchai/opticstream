@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 """
 Root Cyclopts App definitions for the opticstream CLI.
 """
+from __future__ import annotations
 
 from cyclopts import App
 
