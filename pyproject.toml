@@ -5,12 +5,25 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "cyclopts>=3.3.0",
     "linc-convert[all]",
     "matplotlib>=3.10.8",
     "nifti-zarr",
     "prefect[shell,slack]>=3.6.20",
+    "watchdog"
 ]
+
+[project.scripts]
+opticstream = "opticstream.cli:main"
 
 [tool.uv.sources]
 linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert" }
 nifti-zarr = { path = "/space/megaera/1/users/kchai/nifti-zarr" }
+
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["opticstream*"]
+exclude = ["notebooks*"]
