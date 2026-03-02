@@ -1,0 +1,1 @@
+# after all strips are done, stich the mip quickly for qc
