@@ -32,20 +32,23 @@ dandi_bin: str = "dandi") -> None:
     command = f"{dandi_bin} upload " 
     if dandi_instance != "dandi":
         command += f"-i {dandi_instance} "
-    command += f"'{file_path}' -J 10:10 --allow-any-path --existing overwrite --validation skip"
+    command += f"{file_path} -J 10:10 --allow-any-path --existing overwrite --validation skip"
+    logger.info(command)
     with ShellOperation(
         commands=[command],
         env=env,
         working_dir=os.path.dirname(file_path),
     ) as upload_operation:
-        upload_operation.trigger()
+        upload_operation_process= upload_operation.trigger()
+        upload_operation_process.wait_for_completion()
+        logger.info(upload_operation_process.fetch_result())
 
 @flow(flow_run_name="{project_name}-process-slice-{slice_number}-strip-{strip_number}-upload-to-dandi")
 def upload_strip_to_dandi_flow(
     project_name: str,
     slice_number: int,
     strip_number: int,
-    strip_path: str,
+    output_path: str,
     dandi_instance: str = "linc",
     dandi_bin: str = "dandi") -> None:
     """
@@ -53,7 +56,7 @@ def upload_strip_to_dandi_flow(
     """
     logger = get_run_logger()
     logger.info(f"Uploading strip {strip_number} of slice {slice_number} to DANDI")
-    upload_to_dandi_task(strip_path, dandi_instance, dandi_bin)
+    upload_to_dandi_task(output_path, dandi_instance, dandi_bin)
     logger.info(f"Successfully uploaded strip {strip_number} of slice {slice_number} to DANDI")
 
 
@@ -88,16 +91,18 @@ def resolve_config(payload: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
             value = getattr(project_config, key)
         else:
             continue  # Omit key if not found
+    return resolved
 
 
-
-@flow(flow_run_name="{project_name}-process-slice-{slice_number}-strip-{strip_number}-upload-to-dandi-event")
+@flow
 def upload_strip_to_dandi_event_flow(payload: Dict[str, Any]) -> None:
     """
     Event wrapper flow for uploading the strip to DANDI.
     """
-    config = resolve_config(payload, ["dandi_instance", "dandi_bin"])
-
+    # config = resolve_config(payload, ["dandi_instance", "dandi_bin"])
+    config = payload
+    payload["dandi_instance"] = "linc"
+    payload["dandi_bin"] = "dandi"
     return upload_strip_to_dandi_flow(
         **config,
     )

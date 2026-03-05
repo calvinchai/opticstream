@@ -10,6 +10,7 @@ from cyclopts import App
 from niizarr.multizarr import ZarrConfig
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
+from prefect.deployments import run_deployment
 
 from opticstream.cli.watch.cli import watch_cli
 from opticstream.config.blocks import LSMScanConfig
@@ -127,20 +128,37 @@ def _consumer_loop(
             )
             start = time.perf_counter()
 
-            process_strip_flow(
-                project_name=project_name,
-                slice_number=slice_number,
-                strip_number=strip_number,
-                strip_path=str(folder),
-                output_path=str(base_output),
-                info_file=str(info_file),
-                zarr_config=scan_config.zarr_config,
-                output_format=scan_config.output_format,
-                output_mip_format=scan_config.output_mip_format,
-                archive_path=str(archive_path) if archive_path is not None else None,
-                output_mip=scan_config.output_mip,
-                delete_strip=scan_config.delete_strip,
-            )
+            # process_strip_flow(
+            #     project_name=project_name,
+            #     slice_number=slice_number,
+            #     strip_number=strip_number,
+            #     strip_path=str(folder),
+            #     output_path=str(base_output),
+            #     info_file=str(info_file),
+            #     zarr_config=scan_config.zarr_config,
+            #     output_format=scan_config.output_format,
+            #     output_mip_format=scan_config.output_mip_format,
+            #     archive_path=str(archive_path) if archive_path is not None else None,
+            #     output_mip=scan_config.output_mip,
+            #     delete_strip=scan_config.delete_strip,
+            # )
+            run_deployment(
+                "process_strip_flow/process_strip_flow_deployment",
+                parameters={
+                    "project_name": project_name,
+                    "slice_number": slice_number,
+                    "strip_number": strip_number,
+                    "strip_path": str(folder),
+                    "output_path": str(base_output),
+                    "info_file": str(info_file),
+                    "zarr_config": scan_config.zarr_config,
+                    "output_format": scan_config.output_format,
+                    "output_mip_format": scan_config.output_mip_format,
+                    "archive_path": str(archive_path) if archive_path is not None else None,
+                    "output_mip": scan_config.output_mip,
+                    "delete_strip": scan_config.delete_strip,
+                },
+                timeout=0)
 
             elapsed = time.perf_counter() - start
             print(
@@ -308,11 +326,14 @@ def setup(
         "dandi_instance": dandi_instance,
         "zarr_config": zarr_config,
     }
+    keys= []
     for key, value in config.items():
         if value is None:
-            del config[key]
+            keys.append(key)
+    for key in keys:
+        del config[key]
     scan_config = LSMScanConfig(**config)
-    scan_config.save(f"{project_name}-lsm-config")
+    scan_config.save(f"{project_name}-lsm-config",overwrite=True)
 
     created: list[Path] = []
     verified: list[Path] = []

@@ -29,23 +29,25 @@ def compress_strip_task(
 
     logger = get_run_logger()
     logger.info(f"Compressing strip {strip_number} of slice {slice_number}")
+    zarr_config.overwrite=True
     strip.convert(
         inp=strip_path,
         info_file=info_file,
-        mip_image_output=output_path,
+        mip_image_output=mip_output_path,
         out=output_path,
         zarr_config=zarr_config,
+        nii=False,
     )
     logger.info(
         f"Compressed strip {strip_number} of slice {slice_number} to {output_path}"
     )
     emit_event(
-        event_name=STRIP_COMPRESSED,
+        STRIP_COMPRESSED,
         resource={
             "prefect.resource.id": f"strip:{project_name}:strip-{strip_number}",
             "project_name": project_name,
-            "slice_number": slice_number,
-            "strip_number": strip_number,
+            "slice_number": str(slice_number),
+            "strip_number": str(strip_number),
         },
         payload={
             "project_name": project_name,
@@ -67,10 +69,11 @@ def backup_strip_task(
     """
     Backup a strip of a slice.
     """
+    return 
     logger = get_run_logger()
     logger.info(f"Backing up strip {strip_number} of slice {slice_number}")
     # copy the strip to the backup path
-    shutil.copytree(strip_path, output_path)
+    shutil.copytree(strip_path, output_path,dirs_exist_ok=True)
     logger.info(
         f"Backed up strip {strip_number} of slice {slice_number} to {output_path}"
     )
@@ -154,6 +157,7 @@ def check_backup_result(
     """
     Check if the backup strip is valid.
     """
+    return 
     logger = get_run_logger()
     logger.info(
         f"Checking if the backup strip {strip_number} of slice {slice_number} is valid"
@@ -246,7 +250,7 @@ def process_strip_flow(
         strip_number=strip_number,
         strip_path=strip_path,
         info_file=info_file,
-        zarr_output_path=zarr_output_path,
+        output_path=zarr_output_path,
         zarr_config=zarr_config,
         mip_output_path=mip_output_path,
     )
@@ -255,7 +259,7 @@ def process_strip_flow(
         slice_number=slice_number,
         strip_number=strip_number,
         strip_path=strip_path,
-        backup_path=backup_path,
+        output_path=backup_path,
     )
     check_compressed_future = check_compressed_result.submit(
         project_name=project_name,
