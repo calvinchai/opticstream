@@ -6,8 +6,7 @@ Blocks provide typed configuration schemas with validation and UI management.
 
 See: https://docs.prefect.io/v3/concepts/blocks
 """
-
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from niizarr import ZarrConfig
 from prefect.blocks.core import Block
@@ -55,12 +54,12 @@ class PSOCTScanConfig(Block):
     grid_size_y: int
     tile_size_x_normal: int = 350
     tile_size_x_tilted: int = 200
-    tile_size_y: int = 350 
+    tile_size_y: int = 350
 
     tile_overlap: float = 20.0 # overlap between tiles in pixels, in percentage
     mask_threshold_normal: float = 60.0 # mask threshold for normal illumination
     mask_threshold_tilted: float = 55.0 # mask threshold for tilted illumination
-    scan_resolution_3d: Tuple[float, float, float] = (0.01, 0.01, 0.0025) # scan resolution for 3D volumes
+    scan_resolution_3d: List[float] = [0.01, 0.01, 0.0025] # scan resolution for 3D volumes
     tile_saving_type: TileSavingType = TileSavingType.SPECTRAL # the input tile saving type
     dandiset_path: Optional[str] = None # which dandi set this should be uploaded to
     archive_path: Optional[str] = None # where to store the archived file
@@ -83,21 +82,4 @@ class PSOCTScanConfig(Block):
 
     crop_focus_plane_depth: int = 700  # depth of the cropped volume
     crop_focus_plane_offset: int = 0 # offset from the focus plane to crop the volume
-
-
 # PSOCTScanConfig.register_type_and_schema()
-class LSMScanConfig(Block):
-    zarr_config: ZarrConfig
-
-    project_base_path: str
-    info_file: str
-    output_path: str
-    output_mip: bool = True
-    output_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}.ome.zarr"
-    output_mip_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
-
-    archive_path: Optional[str] = None
-    delete_strip: bool = False
-
-    dandi_bin: Optional[str] = None
-    dandi_instance: Optional[str] = None
