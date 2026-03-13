@@ -45,8 +45,8 @@ def get_event_trigger(
             },
         },
     }
-    if project_name is not None:
-        trigger_params["project_name"] = project_name
+    # Do not add project_name to trigger_params: event flows take only payload.
+    # project_name is used below only for the match filter (which events trigger).
 
     # Schema per https://docs.prefect.io/v3/concepts/event-triggers: expect is array of strings, match filters on resource labels
     trigger_kwargs: Dict[str, Any] = {

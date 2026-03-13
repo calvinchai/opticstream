@@ -6,7 +6,7 @@ from prefect import flow, get_run_logger, task
 from prefect.blocks.system import Secret
 from prefect_shell import ShellOperation
 
-from opticstream.config.blocks import LSMScanConfig
+from opticstream.config.lsm_scan_config import LSMScanConfig
 from opticstream.events import get_event_trigger
 from opticstream.flows.lsm.event import STRIP_COMPRESSED
 

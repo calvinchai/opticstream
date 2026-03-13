@@ -206,7 +206,7 @@ class Grid:
             vertical_drift = tuple(
                 np.median(np.array(vertical_drifts), axis=0).tolist())
 
-        print(f"\nComputed drifts:")
+        print("\nComputed drifts:")
         print(
             f"  horizontal_drift per column step = (dx={horizontal_drift[0]:.3f}, dy={horizontal_drift[1]:.3f})")
         print(

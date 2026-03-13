@@ -1,20 +1,16 @@
 from __future__ import annotations
-
-import threading
-import time
 from pathlib import Path
+import time
+import threading
 from queue import Empty, Queue
 from typing import Optional
 
-from cyclopts import App
-from niizarr.multizarr import ZarrConfig
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 from prefect.deployments import run_deployment
 
-from opticstream.cli.watch.cli import watch_cli
-from opticstream.config.blocks import LSMScanConfig
-from opticstream.flows.lsm.process_strip_flow import process_strip_flow
+from opticstream.config import LSMScanConfig
+from opticstream.cli.lsm.cli import lsm_cli
 
 
 def wait_until_stable(folder: Path, stable_seconds: int) -> None:
@@ -128,20 +124,6 @@ def _consumer_loop(
             )
             start = time.perf_counter()
 
-            # process_strip_flow(
-            #     project_name=project_name,
-            #     slice_number=slice_number,
-            #     strip_number=strip_number,
-            #     strip_path=str(folder),
-            #     output_path=str(base_output),
-            #     info_file=str(info_file),
-            #     zarr_config=scan_config.zarr_config,
-            #     output_format=scan_config.output_format,
-            #     output_mip_format=scan_config.output_mip_format,
-            #     archive_path=str(archive_path) if archive_path is not None else None,
-            #     output_mip=scan_config.output_mip,
-            #     delete_strip=scan_config.delete_strip,
-            # )
             run_deployment(
                 "process_strip_flow/process_strip_flow_deployment",
                 parameters={
@@ -246,33 +228,25 @@ def watch_lsm(
     observer.join()
 
 
-lsm_cli = watch_cli.command(App(name="lsm"))
-
-
 @lsm_cli.command
 def run(
     project_name: str,
     slice_number: int,
     *,
-    config_block_name: Optional[str] = None,
+    config_block_name: str | None = None,
     strip_start: int = 1,
     stability_seconds: int = 15,
     poll_interval: int = 30,
 ) -> None:
-    """
-    Watch an LSM acquisition directory and dispatch Prefect strip-processing flows.
+    from pathlib import Path
 
-    This command relies on an `LSMScanConfig` Prefect Block to provide paths and
-    zarr configuration. By default, it loads a block named
-    `\"{project_name}-lsm-config\"` unless `config_block_name` is provided.
-    """
-    scan_config = LSMScanConfig.load(f"{project_name}-lsm-config")
+    scan_config = LSMScanConfig.load(config_block_name or f"{project_name}-lsm-config")
 
     base_dir = Path(scan_config.project_base_path)
     if not base_dir.exists():
         raise ValueError(
             f"Project base path '{base_dir}' does not exist. "
-            "Run 'opticstream watch lsm setup-dirs' first or create it manually."
+            "Run 'opticstream lsm watch setup' first or create it manually."
         )
 
     watch_lsm(
@@ -284,86 +258,3 @@ def run(
         poll_interval=poll_interval,
     )
 
-
-@lsm_cli.command
-def setup(
-    project_name: str,
-    *,
-    config_block_name: Optional[str] = None,
-    zarr_config: ZarrConfig,
-    project_base_path: str,
-    info_file: str,
-    output_path: str,
-    output_mip: Optional[bool] = None,
-    output_format: Optional[str] = None,
-    output_mip_format: Optional[str] = None,
-    archive_path: Optional[str] = None,
-    delete_strip: Optional[bool] = None,
-    dandi_bin: Optional[str] = None,
-    dandi_instance: Optional[str] = None
-) -> None:
-    """
-    Create and verify directories used by the LSM watcher.
-
-    Uses `LSMScanConfig` to determine:
-    - `project_base_path` (directory to watch for strip folders)
-    - `output_path` (compressed strip outputs)
-    - `archive_path` (optional backup location)
-    - parent directory of `info_file`
-    """
-    block_name = config_block_name or f"{project_name}-lsm-config"
-    LSMScanConfig.register_type_and_schema()
-    config = {
-        "project_base_path": project_base_path,
-        "info_file": info_file,
-        "output_path": output_path,
-        "output_mip": output_mip,
-        "output_format": output_format,
-        "output_mip_format": output_mip_format,
-        "archive_path": archive_path,
-        "delete_strip": delete_strip,
-        "dandi_bin": dandi_bin,
-        "dandi_instance": dandi_instance,
-        "zarr_config": zarr_config,
-    }
-    keys= []
-    for key, value in config.items():
-        if value is None:
-            keys.append(key)
-    for key in keys:
-        del config[key]
-    scan_config = LSMScanConfig(**config)
-    scan_config.save(f"{project_name}-lsm-config",overwrite=True)
-
-    created: list[Path] = []
-    verified: list[Path] = []
-
-    def _ensure_dir(path: Optional[str]) -> None:
-        if not path:
-            return
-        p = Path(path)
-        if not p.exists():
-            p.mkdir(parents=True, exist_ok=True)
-            created.append(p)
-        else:
-            verified.append(p)
-
-    _ensure_dir(scan_config.project_base_path)
-    _ensure_dir(scan_config.output_path)
-    _ensure_dir(scan_config.archive_path)
-
-    # Ensure parent directory of the info file exists so users can place it there.
-    if scan_config.info_file:
-        info_parent = Path(scan_config.info_file).parent
-        _ensure_dir(str(info_parent))
-
-    if created:
-        print("Created directories:")
-        for p in created:
-            print(f"  - {p}")
-    if verified:
-        print("Verified existing directories:")
-        for p in verified:
-            print(f"  - {p}")
-    if not created and not verified:
-        print("No directories to create or verify from LSMScanConfig.")

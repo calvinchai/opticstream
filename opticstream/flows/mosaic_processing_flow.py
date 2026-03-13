@@ -1103,3 +1103,4 @@ if __name__ == "__main__":
         event_name=MOSAIC_READY,
         tags=["event-driven", "mosaic-processing", "stitching"],
     )
+    

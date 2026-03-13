@@ -14,7 +14,6 @@ from opticstream.events import (
 )
 from opticstream.events.batch_event_utils import emit_batch_event
 from opticstream.flows.state_management_flow import (
-    check_completion_and_emit_mosaic_ready_task,
     update_mosaic_artifact_task,
 )
 from opticstream.state.batch_state_utils import (
