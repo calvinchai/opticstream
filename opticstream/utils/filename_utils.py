@@ -163,3 +163,57 @@ def replace_spectral_with_complex_in_path(file_path: str) -> str:
         File path with 'spectral' replaced by 'complex'
     """
     return file_path.replace("spectral", "complex")
+
+
+# Pattern: Run<run> or Run<run>_<strip_suffix> or Run<run>_C2 or Run<run>_C2_<strip_suffix>
+_LSM_RUN_FOLDER_RE = re.compile(r"^Run(\d+)(_C2)?(_(\d+))?$", re.IGNORECASE)
+
+
+def parse_lsm_run_folder_name(folder_name: str) -> tuple[int, int, int]:
+    """
+    Parse an LSM run folder name into run_index, strip_index, and channel_index.
+
+    Folder names follow the format:
+    - Run<N>           → run_index=N, strip_index=1, channel_index=1
+    - Run<N>_<s>       → run_index=N, strip_index=s+1, channel_index=1
+    - Run<N>_C2        → run_index=N, strip_index=1, channel_index=2
+    - Run<N>_C2_<s>    → run_index=N, strip_index=s+1, channel_index=2
+
+    Parameters
+    ----------
+    folder_name : str
+        Folder name or path (e.g. "Run1", "Run1_2", "Run1_C2", "Run1_C2_3").
+        Trailing slashes and parent path are ignored; only the basename is parsed.
+
+    Returns
+    -------
+    tuple of (int, int, int)
+        (run_index, strip_index, channel_index)
+
+    Raises
+    ------
+    ValueError
+        If folder_name does not match the expected pattern.
+
+    Examples
+    --------
+    >>> parse_lsm_run_folder_name("Run1")
+    (1, 1, 1)
+    >>> parse_lsm_run_folder_name("Run1_1")
+    (1, 2, 1)
+    >>> parse_lsm_run_folder_name("Run1_4")
+    (1, 5, 1)
+    >>> parse_lsm_run_folder_name("Run1_C2")
+    (1, 1, 2)
+    >>> parse_lsm_run_folder_name("Run1_C2_3")
+    (1, 4, 2)
+    """
+    name = op.basename(folder_name.rstrip(op.sep))
+    m = _LSM_RUN_FOLDER_RE.match(name)
+    if not m:
+        raise ValueError(f"Folder name does not match LSM run pattern 'Run<N>[_C2][_<suffix>]': {folder_name!r}")
+    run_index = int(m.group(1))
+    channel_index = 2 if m.group(2) else 1
+    suffix = m.group(4)
+    strip_index = int(suffix) + 1 if suffix is not None else 1
+    return (run_index, strip_index, channel_index)
