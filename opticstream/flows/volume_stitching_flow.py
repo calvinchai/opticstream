@@ -11,11 +11,10 @@ are stitched. It handles:
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from linc_convert.modalities.psoct.mosaic import mosaic2d
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from linc_convert.utils.zarr_config import ZarrConfig
+from niizarr.multizarr import ZarrConfig
 from opticstream.scripts import find_tile_plane, find_volume_surface
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
 from opticstream.config.project_config import (
@@ -58,6 +57,7 @@ def stitch_mosaic3d_task(
     logger = get_run_logger()
     logger.info(f"Stitching mosaic 3D from {tile_info_file}")
 
+    from linc_convert.modalities.psoct.mosaic import mosaic2d
     # Prepare arguments for mosaic2d
     mosaic_kwargs = (kwargs or {}).copy()
     if zarr_config is not None:

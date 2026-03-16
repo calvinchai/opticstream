@@ -1,0 +1,214 @@
+OCT Pipeline Workflow Flowchart (Text Version)
+===============================================
+
+BATCH LEVEL PROCESSING
+------------------------
+
+[Batch Detected]
+    |
+    v
+[Emit: BATCH_READY]
+    |
+    v
+[process_tile_batch_flow]
+    |
+    +---> [Archive Tiles] (parallel)
+    |         |
+    |         v
+    |    [Emit: BATCH_ARCHIVED]
+    |         |
+    |         +---> [upload_to_linc_batch_flow]
+    |         |         |
+    |         |         v
+    |         |    [Emit: BATCH_UPLOADED]
+    |         |
+    |         +---> [State Management Flow]
+    |
+    +---> [Convert Task] (parallel)
+            |
+            +---> [SPECTRAL] -> [Spectral to Complex]
+            |                      |
+            |                      v
+            |                 [Emit: BATCH_COMPLEXED]
+            |
+            +---> [COMPLEX] -> [Link Complex Files]
+                                 |
+                                 v
+                            [Emit: BATCH_COMPLEXED]
+                                 |
+                                 v
+                            [complex_to_processed_batch_flow]
+                                 |
+                                 v
+                            [Emit: BATCH_PROCESSED]
+                                 |
+                                 v
+                            [State Management Flow]
+
+STATE MANAGEMENT (Batch Level)
+-------------------------------
+
+[State Management Flow] (triggered by BATCH_PROCESSED or BATCH_ARCHIVED)
+    |
+    v
+[Check Batch State]
+    |
+    v
+[Update Mosaic Artifact]
+    |
+    v
+{All Batches Processed?}
+    |
+    +---> [NO] -> [End]
+    |
+    +---> [YES]
+            |
+            v
+        {Already Stitched?}
+            |
+            +---> [YES] -> [Skip Event] -> [End]
+            |
+            +---> [NO]
+                    |
+                    v
+                [Emit: MOSAIC_READY]
+
+MOSAIC LEVEL PROCESSING
+------------------------
+
+[Emit: MOSAIC_READY]
+    |
+    v
+[process_mosaic_flow]
+    |
+    v
+{First Slice? (mosaic_id <= 2)}
+    |
+    +---> [YES]
+    |       |
+    |       v
+    |   [Process Coordinates]
+    |   - Fiji Stitch
+    |   - Process Tile Coordinates
+    |   - Generate Template
+    |       |
+    |       v
+    |   [Template Ready]
+    |
+    +---> [NO]
+            |
+            v
+        [Use Existing Template]
+            |
+            v
+        [Template Ready]
+            |
+            v
+        [Stitch AIP & MIP] (parallel)
+            |
+            v
+        [Generate Mask from MIP]
+            |
+            v
+        [Stitch Enface Modalities] (parallel)
+        - ret, ori, biref, surf
+            |
+            v
+        [Emit: MOSAIC_STITCHED]
+            |
+            +---> [State Management Flow]
+            |
+            +---> [Slack Notification Flow]
+
+STATE MANAGEMENT (Slice Level)
+-------------------------------
+
+[State Management Flow] (triggered by MOSAIC_STITCHED)
+    |
+    v
+[Check Slice State]
+    |
+    v
+[Update Slice Artifact]
+    |
+    v
+{Both Mosaics Stitched?}
+    |
+    +---> [NO] -> [End]
+    |
+    +---> [YES]
+            |
+            v
+        [Emit: SLICE_READY]
+
+SLICE LEVEL PROCESSING
+-----------------------
+
+[Emit: SLICE_READY]
+    |
+    v
+[register_slice_flow]
+    |
+    v
+[Thruplane Registration]
+- Align normal and tilted illuminations
+- Generate 3D axis vectors
+    |
+    v
+[Emit: SLICE_REGISTERED]
+
+VOLUME PROCESSING (Optional)
+-----------------------------
+
+[process_mosaic_flow]
+    |
+    v
+{Stitch 3D Volumes?}
+    |
+    +---> [NO] -> [Skip]
+    |
+    +---> [YES]
+            |
+            v
+        [Stitch Volume Modalities] (parallel)
+        - dBI, R3D, O3D
+            |
+            v
+        [Emit: MOSAIC_VOLUME_STITCHED]
+
+CONDITIONS SUMMARY
+==================
+
+Batch Level:
+- All Batches Processed: processed_batches == total_batches
+- Already Stitched: flag file exists OR AIP file exists
+
+Mosaic Level:
+- First Slice: mosaic_id <= 2 OR force_refresh_coords == True
+- Stitch 3D Volumes: stitch_3d_volumes == True AND volume_modalities not empty
+
+Slice Level:
+- Both Mosaics Stitched: 
+  * Normal mosaic stitched (check_mosaic_stitched_task)
+  * Tilted mosaic stitched (check_mosaic_stitched_task)
+
+EVENT CATALOG
+=============
+
+Batch Events:
+- BATCH_READY: Batch detected
+- BATCH_COMPLEXED: Complex data ready
+- BATCH_PROCESSED: Batch processing complete
+- BATCH_ARCHIVED: Tiles archived
+- BATCH_UPLOADED: Batch uploaded to LINC
+
+Mosaic Events:
+- MOSAIC_READY: All batches processed
+- MOSAIC_STITCHED: Enface modalities stitched
+- MOSAIC_VOLUME_STITCHED: Volume modalities stitched
+- MOSAIC_VOLUME_UPLOADED: Volumes uploaded
+
+Slice Events:
+- SLICE_READY: Both mosaics stitched
+- SLICE_REGISTERED: Slice registration complete
+

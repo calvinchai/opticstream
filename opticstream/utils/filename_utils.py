@@ -5,9 +5,11 @@ These are regular Python functions (not Prefect tasks) for filename operations
 used across multiple tasks.
 """
 
+import os
 import os.path as op
 import re
 from pathlib import Path
+from typing import Tuple
 
 
 def spectral_to_complex_filename(spectral_file: str, complex_path: Path) -> str:
@@ -217,3 +219,58 @@ def parse_lsm_run_folder_name(folder_name: str) -> tuple[int, int, int]:
     suffix = m.group(4)
     strip_index = int(suffix) + 1 if suffix is not None else 1
     return (run_index, strip_index, channel_index)
+
+def parse_lsm_strip_index(strip_index: int, channel_index: int, strips_per_slice: int) -> Tuple[int, int, int]:
+    """
+    Parse an LSM strip index into a slice index, strip index, and channel index.
+
+    Parameters
+    ----------
+    strip_index : int
+        1-based strip index within the entire acquisition.
+    channel_index : int
+        Channel index (e.g. 1 or 2).
+    strips_per_slice : int
+        Number of strips acquired per slice.
+
+    Returns
+    -------
+    Tuple[int, int, int]
+        (slice_index, strip_index_within_slice, channel_index)
+    """
+    slice_index = (strip_index-1) // strips_per_slice + 1
+    strip_index_within_slice = (strip_index-1) % strips_per_slice + 1
+    return (slice_index, strip_index_within_slice, channel_index)
+
+
+def parse_lsm_strip_index_from_filename(
+    folder_name: str,
+    strips_per_slice: int = 1,
+) -> Tuple[int, int, int]:
+    """
+    Parse LSM slice/strip/channel indices from a run folder name.
+
+    This combines `parse_lsm_run_folder_name` and `parse_lsm_strip_index`:
+
+    - First, the folder name is interpreted as an LSM run folder, e.g.:
+      - ``Run1``, ``Run1_2``, ``Run1_C2``, ``Run1_C2_3``.
+    - Then the resulting strip index is split into a slice index and a strip index
+      within that slice using ``strips_per_slice``.
+
+    Parameters
+    ----------
+    folder_name : str
+        Folder name or path; only the basename is parsed.
+    strips_per_slice : int, optional
+        Number of strips acquired per slice. Defaults to 1.
+
+    Returns
+    -------
+    Tuple[int, int, int]
+        (slice_index, strip_index_within_slice, channel_index)
+    """
+    run_index, strip_index, channel_index = parse_lsm_run_folder_name(
+        os.path.basename(folder_name)
+    )
+    # Currently, run_index is not used here but is preserved for future extensions.
+    return parse_lsm_strip_index(strip_index, channel_index, strips_per_slice)

@@ -3,6 +3,14 @@
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
 
+
+@lsm_cli.command
+def update_block() -> None:
+    """
+    Update the LSMScanConfig block.
+    """
+    LSMScanConfig.register_type_and_schema()
+
 @lsm_cli.command
 def setup(
     project_name: str,
@@ -11,13 +19,6 @@ def setup(
     project_base_path: str,
     info_file: str,
     output_path: str,
-    output_mip: bool | None = None,
-    output_format: str | None = None,
-    output_mip_format: str | None = None,
-    archive_path: str | None = None,
-    delete_strip: bool | None = None,
-    dandi_bin: str | None = None,
-    dandi_instance: str | None = None,
 ) -> None:
     from pathlib import Path
 
@@ -28,13 +29,6 @@ def setup(
         "project_base_path": project_base_path,
         "info_file": info_file,
         "output_path": output_path,
-        "output_mip": output_mip,
-        "output_format": output_format,
-        "output_mip_format": output_mip_format,
-        "archive_path": archive_path,
-        "delete_strip": delete_strip,
-        "dandi_bin": dandi_bin,
-        "dandi_instance": dandi_instance,
     }
 
     for key in [k for k, v in list(config.items()) if v is None]:

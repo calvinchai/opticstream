@@ -5,12 +5,15 @@ Centralizes MATLAB subprocess execution with consistent error handling.
 Includes MATLAB engine initialization and command-line fallback utilities.
 """
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
-import os
+
 from prefect.logging import get_run_logger
 from prefect_shell import ShellOperation
+
+from opticstream.utils.matlab_package import resolve_matlab_package_path
 
 
 def get_matlab_engine():
@@ -87,12 +90,21 @@ def call_matlab_via_cli(
         else:
             matlab_args.append(str(arg))
 
-    # Add path if provided
+    # Resolve MATLAB script path (if provided or from env/managed clone)
     path_cmd = ""
-    if matlab_script_path:
-        path_cmd = f"addpath(genpath('{matlab_script_path}')); "
-        # Also add registration subdirectory
-        registration_path = Path(matlab_script_path) / "registration"
+    resolved_path: Optional[str] = None
+    try:
+        resolved_path = resolve_matlab_package_path(
+            explicit_path=matlab_script_path,
+            allow_missing=True,
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning(f"Failed to resolve MATLAB package path: {exc}")
+
+    if resolved_path:
+        path_cmd = f"addpath(genpath('{resolved_path}')); "
+        # Also add registration subdirectory when present
+        registration_path = Path(resolved_path) / "registration"
         if registration_path.exists():
             path_cmd += f"addpath('{registration_path}'); "
 
@@ -116,7 +128,7 @@ def call_matlab_via_cli(
 
 def run_matlab_batch_command(
     command: str,
-    matlab_script_path: Optional[str] = "/space/megaera/1/users/kchai/code/psoct-renew/",
+    matlab_script_path: Optional[str] = None,
     working_dir: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
@@ -143,8 +155,11 @@ def run_matlab_batch_command(
         If MATLAB command returns non-zero exit code
     """
     logger = get_run_logger()
-    matlab_cmd = f"addpath(genpath('{matlab_script_path}'));{command}"
-    full_command = ["matlab", "-batch", matlab_cmd]
+    resolved_path = resolve_matlab_package_path(
+        explicit_path=matlab_script_path,
+        allow_missing=False,
+    )
+    matlab_cmd = f"addpath(genpath('{resolved_path}'));{command}"
 
     # Build full command - escape double quotes in matlab_cmd for shell
     # MATLAB commands use single quotes, so we wrap the whole thing in double quotes

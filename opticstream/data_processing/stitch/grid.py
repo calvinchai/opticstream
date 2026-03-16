@@ -11,7 +11,7 @@ set_file_path to set filepath for all tiles (template or list).
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, List, Optional, Tuple, Union
 
 import yaml
 

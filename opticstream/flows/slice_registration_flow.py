@@ -22,6 +22,7 @@ from opticstream.utils.matlab_execution import (
     call_matlab_via_cli,
     get_matlab_engine,
 )
+from opticstream.utils.matlab_package import resolve_matlab_package_path
 from opticstream.utils.utils import get_mosaic_paths
 
 
@@ -117,23 +118,17 @@ def thruplane_from_files_task(
         # Get MATLAB engine
         eng = get_matlab_engine()
 
-        # Add MATLAB script path if provided
-        if matlab_script_path:
-            eng.addpath(matlab_script_path, nargout=0)
-            # Also add registration subdirectory
-            registration_path = Path(matlab_script_path) / "registration"
-            if registration_path.exists():
-                eng.addpath(str(registration_path), nargout=0)
-        else:
-            # Try to find MATLAB scripts in common locations
-            possible_paths = [
-                Path("/space/megaera/1/users/kchai/code/psoct-renew"),
-                Path("/space/megaera/1/users/kchai/code/psoct-renew/registration"),
-            ]
-            for path in possible_paths:
-                if path.exists():
-                    eng.addpath(str(path), nargout=0)
-                    logger.info(f"Added MATLAB path: {path}")
+        # Resolve MATLAB script path (explicit, env, or managed clone)
+        resolved_path = resolve_matlab_package_path(
+            explicit_path=matlab_script_path,
+            allow_missing=False,
+        )
+        eng.addpath(resolved_path, nargout=0)
+        # Also add registration subdirectory when present
+        registration_path = Path(resolved_path) / "registration"
+        if registration_path.exists():
+            eng.addpath(str(registration_path), nargout=0)
+            logger.info(f"Added MATLAB registration path: {registration_path}")
 
         # Call MATLAB function
         logger.info(

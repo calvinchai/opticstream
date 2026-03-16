@@ -1,5 +1,0 @@
-linc-convert 
-prefect
-prefect-slack
-prefect-shell 
-slack-sdk

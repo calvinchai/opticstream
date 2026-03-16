@@ -3,7 +3,7 @@ from __future__ import annotations
 import prefect
 
 from opticstream.cli.lsm.cli import lsm_cli
-from opticstream.flows.lsm.process_strip_flow import process_strip_flow
+from opticstream.flows.lsm.process_strip_flow import process_strip_event, process_strip_flow
 from opticstream.flows.lsm.upload_strip_flow import (
     upload_strip_to_dandi_event_flow_deployment,
     upload_strip_to_dandi_flow_deployment,
@@ -19,8 +19,14 @@ def serve(
         tags=["lsm", "process-strip"],
         concurrency_limit=concurrent_workers,
     )
+    process_strip_event_flow_deployment = process_strip_event.to_deployment(
+        name="process_strip_event_flow_deployment",
+        tags=["lsm", "process-strip"],
+        concurrency_limit=concurrent_workers,
+    )
     prefect.serve(
         process_strip_flow_deployment,
+        process_strip_event_flow_deployment,
         upload_strip_to_dandi_flow_deployment,
         upload_strip_to_dandi_event_flow_deployment,
     )

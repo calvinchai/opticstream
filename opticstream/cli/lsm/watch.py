@@ -11,6 +11,16 @@ from prefect.deployments import run_deployment
 
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
+from opticstream.utils.filename_utils import parse_lsm_strip_index_from_filename
+
+
+def _should_process_folder(path: Path) -> bool:
+    """
+    Return True if the folder should be processed by the watcher.
+
+    By default, folders must have a name that starts with "Run" (case-insensitive).
+    """
+    return path.name.lower().startswith("run")
 
 
 def wait_until_stable(folder: Path, stable_seconds: int) -> None:
@@ -44,7 +54,12 @@ class NewFolderHandler(FileSystemEventHandler):
     Watchdog handler that enqueues newly created subdirectories exactly once.
     """
 
-    def __init__(self, queue: Queue, seen: set[Path], lock: threading.Lock) -> None:
+    def __init__(
+        self,
+        queue: Queue,
+        seen: set[Path],
+        lock: threading.Lock,
+    ) -> None:
         self.queue = queue
         self.seen = seen
         self.lock = lock
@@ -52,6 +67,8 @@ class NewFolderHandler(FileSystemEventHandler):
     def on_created(self, event) -> None:  # type: ignore[override]
         if event.is_directory:
             path = Path(event.src_path)
+            if not _should_process_folder(path):
+                return
             with self.lock:
                 if path not in self.seen:
                     print(f"[NEW ] (watchdog) {path.name}")
@@ -63,7 +80,7 @@ def polling_scanner(
     queue: Queue,
     seen: set[Path],
     lock: threading.Lock,
-    base_dir: Path,
+    watch_dir: Path,
     poll_interval: int,
 ) -> None:
     """
@@ -71,8 +88,8 @@ def polling_scanner(
     """
     while True:
         try:
-            for d in base_dir.iterdir():
-                if not d.is_dir():
+            for d in watch_dir.iterdir():
+                if not d.is_dir() or not _should_process_folder(d):
                     continue
                 with lock:
                     if d not in seen:
@@ -88,16 +105,13 @@ def polling_scanner(
 def _consumer_loop(
     queue: Queue,
     project_name: str,
-    slice_number: int,
     scan_config: LSMScanConfig,
     stability_time: int,
-    strip_start: int,
+    slice_offset: int,
 ) -> None:
     """
     Consume folders from the queue and dispatch Prefect flows.
     """
-    next_strip_number = strip_start
-
     base_output = Path(scan_config.output_path)
     info_file = Path(scan_config.info_file)
     archive_path: Optional[Path] = (
@@ -114,37 +128,43 @@ def _consumer_loop(
             print(f"[WAIT] Stability check: {folder.name}")
             wait_until_stable(folder, stability_time)
 
-            strip_number = next_strip_number
-            next_strip_number += 1
+            try:
+                slice_index, strip_index, channel_index = parse_lsm_strip_index_from_filename(
+                    folder.name
+                )
+            except Exception as exc:
+                print(f"[WARN] Skipping folder {folder.name!r}: cannot parse indices ({exc})")
+                continue
+
+            slice_id = slice_index + slice_offset
+
+            print(
+                "[FLOW] Parsed indices for folder "
+                f"name={folder.name}, slice={slice_id} (base={slice_index}, offset={slice_offset}), "
+                f"strip={strip_index}, channel={channel_index}"
+            )
 
             print(
                 f"[FLOW] Starting process_strip_flow for "
-                f"project={project_name}, slice={slice_number}, strip={strip_number}, "
+                f"project={project_name}, slice={slice_id}, strip={strip_index}, "
                 f"path={folder}"
             )
             start = time.perf_counter()
 
             run_deployment(
-                "process_strip_flow/process_strip_flow_deployment",
+                "process-strip-flow/process_strip_flow_deployment",
                 parameters={
                     "project_name": project_name,
-                    "slice_number": slice_number,
-                    "strip_number": strip_number,
+                    "slice_id": slice_id,
+                    "strip_id": strip_index,
                     "strip_path": str(folder),
-                    "output_path": str(base_output),
-                    "info_file": str(info_file),
-                    "zarr_config": scan_config.zarr_config,
-                    "output_format": scan_config.output_format,
-                    "output_mip_format": scan_config.output_mip_format,
-                    "archive_path": str(archive_path) if archive_path is not None else None,
-                    "output_mip": scan_config.output_mip,
-                    "delete_strip": scan_config.delete_strip,
+                    "scan_config": scan_config,
                 },
                 timeout=0)
 
             elapsed = time.perf_counter() - start
             print(
-                f"[FLOW] Completed process_strip_flow for strip={strip_number} "
+                f"[FLOW] Completed process_strip_flow for strip={strip_index} "
                 f"in {elapsed:.2f} s"
             )
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -153,10 +173,10 @@ def _consumer_loop(
 
 def watch_lsm(
     project_name: str,
-    slice_number: int,
     *,
     scan_config: LSMScanConfig,
-    strip_start: int = 1,
+    watch_dir: Path,
+    slice_offset: int = 0,
     stability_time: int = 15,
     poll_interval: int = 30,
 ) -> None:
@@ -167,26 +187,25 @@ def watch_lsm(
     ----------
     project_name:
         Project identifier (used by Prefect flows and config blocks).
-    slice_number:
-        Slice index for which strips are being acquired.
     scan_config:
-        `LSMScanConfig` block instance providing base paths and zarr configuration.
-    strip_start:
-        Starting strip number; incremented for each new folder discovered.
+        `LSMScanConfig` block instance providing output/info/archive paths and zarr configuration.
+    watch_dir:
+        Base directory to watch for new strip folders. Only immediate subdirectories whose
+        names start with "Run" (case-insensitive) are processed.
+    slice_offset:
+        Integer offset added to the slice index parsed from each folder name.
     stability_time:
         Seconds a folder must be unchanged before processing.
     poll_interval:
         Seconds between polling scans for new folders.
     """
-    base_dir = Path(scan_config.project_base_path)
-
     queue: Queue = Queue()
     seen: set[Path] = set()
     lock = threading.Lock()
 
     # Seed existing folders so we process anything already on disk.
-    for d in base_dir.iterdir():
-        if d.is_dir():
+    for d in watch_dir.iterdir():
+        if d.is_dir() and _should_process_folder(d):
             seen.add(d)
             queue.put(d)
 
@@ -194,7 +213,7 @@ def watch_lsm(
     observer = Observer()
     observer.schedule(
         NewFolderHandler(queue, seen, lock),
-        str(base_dir),
+        str(watch_dir),
         recursive=False,
     )
     observer.start()
@@ -202,7 +221,7 @@ def watch_lsm(
     # Polling fallback.
     polling_thread = threading.Thread(
         target=polling_scanner,
-        args=(queue, seen, lock, base_dir, poll_interval),
+        args=(queue, seen, lock, watch_dir, poll_interval),
         daemon=True,
     )
     polling_thread.start()
@@ -210,7 +229,7 @@ def watch_lsm(
     # Consumer loop in its own thread so the main thread can handle KeyboardInterrupt.
     consumer_thread = threading.Thread(
         target=_consumer_loop,
-        args=(queue, project_name, slice_number, scan_config, stability_time, strip_start),
+        args=(queue, project_name, scan_config, stability_time, slice_offset),
         daemon=True,
     )
     consumer_thread.start()
@@ -229,31 +248,28 @@ def watch_lsm(
 
 
 @lsm_cli.command
-def run(
+def watch(
     project_name: str,
-    slice_number: int,
     *,
     config_block_name: str | None = None,
-    strip_start: int = 1,
+    watch_dir: str = ".",
+    slice_offset: int = 0,
     stability_seconds: int = 15,
     poll_interval: int = 30,
 ) -> None:
-    from pathlib import Path
 
     scan_config = LSMScanConfig.load(config_block_name or f"{project_name}-lsm-config")
 
-    base_dir = Path(scan_config.project_base_path)
-    if not base_dir.exists():
-        raise ValueError(
-            f"Project base path '{base_dir}' does not exist. "
-            "Run 'opticstream lsm watch setup' first or create it manually."
-        )
+    watch_dir = Path(watch_dir)
+
+    if not watch_dir.exists():
+        raise ValueError(f"Watch directory {watch_dir} does not exist")
 
     watch_lsm(
         project_name=project_name,
-        slice_number=slice_number,
         scan_config=scan_config,
-        strip_start=strip_start,
+        watch_dir=watch_dir,
+        slice_offset=slice_offset,
         stability_time=stability_seconds,
         poll_interval=poll_interval,
     )

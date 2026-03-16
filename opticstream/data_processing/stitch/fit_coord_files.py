@@ -69,7 +69,7 @@ def convert_yaml_format(
         tiles = input_data['tiles']
     else:
         raise ValueError(
-            f"Unexpected input format. Expected list or dict with 'tiles' key.")
+            "Unexpected input format. Expected list or dict with 'tiles' key.")
 
     # Apply filepath replacements
     if filepath_replacements:

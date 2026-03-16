@@ -1,0 +1,49 @@
+site_name: OpticStream
+site_url: https://calvinchai.github.io/opticstream/
+repo_url: https://github.com/calvinchai/opticstream
+
+docs_dir: docs
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: numpy
+            show_source: true
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Configuration: getting-started/configuration.md
+  - User guides:
+      - LSM workflow: user-guides/lsm_workflow.md
+      - PS-OCT workflow: user-guides/psoct_workflow.md
+      - Deployment: user-guides/deployment.md
+      - Troubleshooting: user-guides/troubleshooting.md
+  - Concepts:
+      - Project overview: concepts/project_overview.md
+      - Scan configurations: concepts/scan_configurations.md
+      - Flows and state models: concepts/flows_and_state_models.md
+      - Data processing pipeline: concepts/data_processing_pipeline.md
+  - Developer:
+      - Architecture: developer/architecture.md
+      - Code layout: developer/code_layout.md
+      - CLI overview: developer/cli_overview.md
+      - Testing and CI: developer/testing_and_ci.md
+      - Contributing: developer/contributing.md
+  - Reference:
+      - CLI commands: reference/cli_commands.md
+      - Python API: reference/python_api.md
+      - Modules:
+          - opticstream.cli: reference/modules/opticstream_cli.md
+          - opticstream.flows.lsm: reference/modules/opticstream_flows_lsm.md
+          - opticstream.config: reference/modules/opticstream_config.md
+          - opticstream.utils: reference/modules/opticstream_utils.md
+

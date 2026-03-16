@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional
 
 import jinja2
 import yaml
-from linc_convert.modalities.psoct.mosaic import mosaic2d
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
@@ -363,6 +362,7 @@ def stitch_mosaic2d_task(
     logger = get_run_logger()
     logger.info(f"Stitching mosaic from {tile_info_file}")
 
+    from linc_convert.modalities.psoct.mosaic import mosaic2d
     mosaic2d(
         tile_info_file=tile_info_file,
         nifti_output=nifti_output,

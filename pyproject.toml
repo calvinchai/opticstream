@@ -6,20 +6,39 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "cyclopts>=3.3.0",
-    "linc-convert[all]",
+    "linc-convert[all] @ git+https://github.com/lincbrain/linc-convert.git@lsm-features",
+    "nifti-zarr @ git+https://github.com/calvinchai/nifti-zarr-py.git@port-multizarr",
     "matplotlib>=3.10.8",
-    "nifti-zarr",
     "prefect[shell,slack]>=3.6.20",
-    "watchdog"
+    "watchdog",
+    "psutil",
+    "slack-sdk",
+    "pydantic",
+    "jinja2",
+    "PyYAML",
+    "dask",
+    "nibabel",
+    "numpy",
+
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+    "mkdocs-git-revision-date-localized-plugin",
 ]
 
 [project.scripts]
 opticstream = "opticstream.cli:main"
 ops = "opticstream.cli:main"
 
-[tool.uv.sources]
-linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert" }
-nifti-zarr = { path = "/space/megaera/1/users/kchai/nifti-zarr" }
+# [tool.uv.sources]
+# linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert" }
+# nifti-zarr = { path = "/space/megaera/1/users/kchai/nifti-zarr" }
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]

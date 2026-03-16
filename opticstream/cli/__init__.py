@@ -10,12 +10,10 @@ utils_cmds).
 """
 
 from .root import app
-from .serve import serve_cli
-from .watch import watch_cli
 from .init import init_cli
 from .oct import oct_cli
 from .lsm import lsm_cli  # noqa: F401
-
+from .utils import utils_cli  # noqa: F401
 def main() -> None:
     """
     Entry point for the `opticstream` console script.
