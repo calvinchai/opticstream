@@ -60,7 +60,7 @@ def spectral_to_complex_filename(spectral_file: str, complex_path: Path) -> str:
 
 
 def normalize_image_index(filename: str) -> str:
-    """
+    r"""
     Normalize image index in filename to 4-digit padding.
 
     Handles `mosaic_(\d{3})_image_(\d{3,4})` → `mosaic_(\d{3})_image_(\d{4})`
