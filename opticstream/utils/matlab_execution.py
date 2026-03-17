@@ -13,7 +13,36 @@ from typing import Optional
 from prefect.logging import get_run_logger
 from prefect_shell import ShellOperation
 
-from opticstream.utils.matlab_package import resolve_matlab_package_path
+import psoct_toolbox
+
+
+def get_default_matlab_root() -> str:
+    """
+    Return the default MATLAB toolbox root from the installed psoct_toolbox.
+    """
+    try:
+        return psoct_toolbox.get_matlab_root()
+    except Exception as exc:  # pragma: no cover - defensive
+        raise RuntimeError(
+            "Failed to determine MATLAB toolbox root from psoct_toolbox. "
+            "Ensure the psoct_toolbox package is installed and "
+            "get_matlab_root() is available."
+        ) from exc
+
+
+def resolve_matlab_root(override: Optional[str] = None) -> str:
+    """
+    Resolve the MATLAB toolbox root, using an explicit override when provided.
+
+    Parameters
+    ----------
+    override :
+        Optional explicit filesystem path. When provided, it is used directly;
+        otherwise the path is obtained from psoct_toolbox.get_matlab_root().
+    """
+    if override:
+        return str(Path(override).expanduser())
+    return get_default_matlab_root()
 
 
 def get_matlab_engine():
@@ -90,23 +119,13 @@ def call_matlab_via_cli(
         else:
             matlab_args.append(str(arg))
 
-    # Resolve MATLAB script path (if provided or from env/managed clone)
-    path_cmd = ""
-    resolved_path: Optional[str] = None
-    try:
-        resolved_path = resolve_matlab_package_path(
-            explicit_path=matlab_script_path,
-            allow_missing=True,
-        )
-    except Exception as exc:  # pragma: no cover - defensive logging
-        logger.warning(f"Failed to resolve MATLAB package path: {exc}")
-
-    if resolved_path:
-        path_cmd = f"addpath(genpath('{resolved_path}')); "
-        # Also add registration subdirectory when present
-        registration_path = Path(resolved_path) / "registration"
-        if registration_path.exists():
-            path_cmd += f"addpath('{registration_path}'); "
+    # Resolve MATLAB script path (explicit override or psoct_toolbox default)
+    resolved_path = resolve_matlab_root(matlab_script_path)
+    path_cmd = f"addpath(genpath('{resolved_path}')); "
+    # Also add registration subdirectory when present
+    registration_path = Path(resolved_path) / "registration"
+    if registration_path.exists():
+        path_cmd += f"addpath('{registration_path}'); "
 
     # Build MATLAB command
     args_str = ", ".join(matlab_args)
@@ -155,10 +174,7 @@ def run_matlab_batch_command(
         If MATLAB command returns non-zero exit code
     """
     logger = get_run_logger()
-    resolved_path = resolve_matlab_package_path(
-        explicit_path=matlab_script_path,
-        allow_missing=False,
-    )
+    resolved_path = resolve_matlab_root(matlab_script_path)
     matlab_cmd = f"addpath(genpath('{resolved_path}'));{command}"
 
     # Build full command - escape double quotes in matlab_cmd for shell

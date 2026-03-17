@@ -21,8 +21,8 @@ from opticstream.events.utils import emit_slice_event
 from opticstream.utils.matlab_execution import (
     call_matlab_via_cli,
     get_matlab_engine,
+    resolve_matlab_root,
 )
-from opticstream.utils.matlab_package import resolve_matlab_package_path
 from opticstream.utils.utils import get_mosaic_paths
 
 
@@ -118,11 +118,8 @@ def thruplane_from_files_task(
         # Get MATLAB engine
         eng = get_matlab_engine()
 
-        # Resolve MATLAB script path (explicit, env, or managed clone)
-        resolved_path = resolve_matlab_package_path(
-            explicit_path=matlab_script_path,
-            allow_missing=False,
-        )
+        # Resolve MATLAB script path (explicit override or psoct_toolbox default)
+        resolved_path = resolve_matlab_root(matlab_script_path)
         eng.addpath(resolved_path, nargout=0)
         # Also add registration subdirectory when present
         registration_path = Path(resolved_path) / "registration"
@@ -200,7 +197,7 @@ def register_slice_flow(
     normal_mosaic_id: int,
     tilted_mosaic_id: int,
     gamma: float = -15.0,
-    matlab_script_path: str = "/space/megaera/1/users/kchai/code/psoct-renew",
+    matlab_script_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Register a slice after both mosaics are stitched.
@@ -223,8 +220,9 @@ def register_slice_flow(
         Tilted illumination mosaic ID (2n)
     gamma : float
         Tilt angle parameter for registration (default: -15.0)
-    matlab_script_path : str
-        Path to MATLAB script directory (default: psoct-renew path)
+    matlab_script_path : str, optional
+        Optional override for MATLAB script directory. When omitted, the
+        default root from psoct_toolbox is used.
 
     Returns
     -------
@@ -340,10 +338,7 @@ def register_slice_event_flow(
     normal_mosaic_id = int(payload["normal_mosaic_id"])
     tilted_mosaic_id = int(payload["tilted_mosaic_id"])
     gamma = float(payload.get("gamma", -15.0))
-    matlab_script_path = payload.get(
-        "matlab_script_path",
-        "/space/megaera/1/users/kchai/code/psoct-renew",
-    )
+    matlab_script_path = payload.get("matlab_script_path")
 
     return register_slice_flow(
         project_name=payload["project_name"],

@@ -12,6 +12,7 @@ from prefect.deployments import run_deployment
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
 from opticstream.utils.filename_utils import parse_lsm_strip_index_from_filename
+from opticstream.state.lsm_project_state import LSMProjectStateService
 
 
 def _should_process_folder(path: Path) -> bool:
@@ -111,12 +112,12 @@ def _consumer_loop(
 ) -> None:
     """
     Consume folders from the queue and dispatch Prefect flows.
+
+    Updates the project-level strip state JSON file (RUNNING before flow,
+    COMPLETED on success, FAILED on exception) under scan_config.output_path.
     """
     base_output = Path(scan_config.output_path)
-    info_file = Path(scan_config.info_file)
-    archive_path: Optional[Path] = (
-        Path(scan_config.archive_path) if scan_config.archive_path is not None else None
-    )
+    state_service = LSMProjectStateService()
 
     while True:
         try:
@@ -124,6 +125,7 @@ def _consumer_loop(
         except Empty:
             continue
 
+        strip_indices: Optional[tuple[int, int, int]] = None
         try:
             print(f"[WAIT] Stability check: {folder.name}")
             wait_until_stable(folder, stability_time)
@@ -137,6 +139,15 @@ def _consumer_loop(
                 continue
 
             slice_id = slice_index + slice_offset
+            strip_indices = (slice_id, strip_index, channel_index)
+
+            # Mark strip RUNNING in Prefect-backed LSM project state
+            state_service.mark_strip_started(
+                project_name,
+                slice_id=slice_id,
+                strip_id=strip_index,
+                channel_id=channel_index,
+            )
 
             print(
                 "[FLOW] Parsed indices for folder "
@@ -167,8 +178,27 @@ def _consumer_loop(
                 f"[FLOW] Completed process_strip_flow for strip={strip_index} "
                 f"in {elapsed:.2f} s"
             )
+
+            # Mark strip COMPLETED
+            state_service.mark_strip_completed(
+                project_name,
+                slice_id=slice_id,
+                strip_id=strip_index,
+                channel_id=channel_index,
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             print(f"[ERROR] {folder.name}: {exc}")
+            if strip_indices is not None:
+                slice_id, strip_index, channel_index = strip_indices
+                try:
+                    state_service.mark_strip_failed(
+                        project_name,
+                        slice_id=slice_id,
+                        strip_id=strip_index,
+                        channel_id=channel_index,
+                    )
+                except Exception:
+                    pass
 
 
 def watch_lsm(
@@ -182,6 +212,9 @@ def watch_lsm(
 ) -> None:
     """
     Watch an LSM directory for new strip folders and dispatch Prefect flows.
+
+    Per-project strip state is tracked in Prefect Variables via
+    ``LSMProjectStateService``.
 
     Parameters
     ----------

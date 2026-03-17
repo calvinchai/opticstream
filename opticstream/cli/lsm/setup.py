@@ -2,7 +2,7 @@
 
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
-
+from opticstream.state.lsm_project_state import ensure_lock
 
 @lsm_cli.command
 def update_block() -> None:
@@ -10,6 +10,15 @@ def update_block() -> None:
     Update the LSMScanConfig block.
     """
     LSMScanConfig.register_type_and_schema()
+
+@lsm_cli.command
+def create_lock(
+    project_name: str,
+) -> None:
+    """
+    Create the LSM project state lock.
+    """
+    ensure_lock(project_name)
 
 @lsm_cli.command
 def setup(

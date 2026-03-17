@@ -7,11 +7,19 @@ Blocks provide typed configuration schemas with validation and UI management.
 See: https://docs.prefect.io/v3/concepts/blocks
 """
 from typing import List, Optional
+from enum import Enum
 
 from niizarr import ZarrConfig
 from prefect.blocks.core import Block
 
-from opticstream.config.constants import TileSavingType
+
+class TileSavingType(str, Enum):
+    """
+    Enumeration of tile saving types.
+    """
+
+    COMPLEX = "complex"
+    SPECTRAL = "spectral"
 
 
 class PSOCTScanConfig(Block):
@@ -82,4 +90,5 @@ class PSOCTScanConfig(Block):
 
     crop_focus_plane_depth: int = 700  # depth of the cropped volume
     crop_focus_plane_offset: int = 0 # offset from the focus plane to crop the volume
+    matlab_root: Optional[str] = None  # Optional override for MATLAB toolbox root (defaults to psoct_toolbox.get_matlab_root())
 # PSOCTScanConfig.register_type_and_schema()

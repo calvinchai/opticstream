@@ -11,7 +11,7 @@ from opticstream.flows.state_management_flow import (
 )
 from opticstream.state import is_batch_processed, mark_batch_processed
 from opticstream.utils.filename_utils import replace_spectral_with_complex_in_path
-from opticstream.utils.matlab_execution import run_matlab_batch_command
+from opticstream.utils.matlab_execution import run_matlab_batch_command, resolve_matlab_root
 from opticstream.utils.utils import get_mosaic_paths
 
 

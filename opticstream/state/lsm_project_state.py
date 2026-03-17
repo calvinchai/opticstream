@@ -65,7 +65,6 @@ class LSMStripId(BaseModel):
 
 class LSMStateView(BaseModel):
     model_config = ConfigDict(frozen=True)
-    project_name: str = Field(..., min_length=1)
     processing_state: ProcessingState = ProcessingState.PENDING
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -102,18 +101,24 @@ class LSMStripStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
     strip_id: int = Field(..., ge=0)
     channel_id: int = Field(..., ge=0)
-    uploaded: bool = False
     backed_up: bool = False
+    compressed: bool = False
+    uploaded: bool = False
+
 
 class LSMStripState(LSMStateMutationsMixin, LSMStripStateView):
     model_config = ConfigDict(frozen=False)
 
-    def set_uploaded(self, value: bool = True) -> None:
-        self.uploaded = value
-        self.touch()
-
     def set_backed_up(self, value: bool = True) -> None:
         self.backed_up = value
+        self.touch()
+    
+    def set_compressed(self, value: bool = True) -> None:
+        self.compressed = value
+        self.touch()
+    
+    def set_uploaded(self, value: bool = True) -> None:
+        self.uploaded = value
         self.touch()
 
     def to_view(self) -> LSMStripStateView:
@@ -141,7 +146,6 @@ class LSMChannelState(LSMStateMutationsMixin, LSMChannelStateView):
     def get_or_create_strip(self, strip_id: int) -> LSMStripState:
         if strip_id not in self.strips:
             self.strips[strip_id] = LSMStripState(
-                project_name=self.project_name,
                 slice_id=self.slice_id,
                 channel_id=self.channel_id,
                 strip_id=strip_id,
@@ -167,7 +171,6 @@ class LSMSliceState(LSMStateMutationsMixin, LSMSliceStateView):
     def get_or_create_channel(self, channel_id: int) -> LSMChannelState:
         if channel_id not in self.channels:
             self.channels[channel_id] = LSMChannelState(
-                project_name=self.project_name,
                 slice_id=self.slice_id,
                 channel_id=channel_id,
             )
@@ -218,7 +221,6 @@ class LSMProjectState(LSMStateMutationsMixin, LSMProjectStateView):
     def get_or_create_slice(self, slice_id: int) -> LSMSliceState:
         if slice_id not in self.slices:
             self.slices[slice_id] = LSMSliceState(
-                project_name=self.project_name,
                 slice_id=slice_id,
             )
         return self.slices[slice_id]

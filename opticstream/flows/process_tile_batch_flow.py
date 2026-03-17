@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from opticstream.config.constants import TileSavingType
+from opticstream.config.psoct_scan_config import TileSavingType
 from opticstream.config.project_config import resolve_config
 from opticstream.events import (
     BATCH_ARCHIVED,

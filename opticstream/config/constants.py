@@ -1,10 +1,7 @@
-from enum import Enum
 
+SLACK_WEBHOOK_BLOCK_NAME = "watchdog"
+SLACK_API_TOKEN_BLOCK_NAME = "watchdog"
 
-class TileSavingType(str, Enum):
-    """
-    Enumeration of tile saving types.
-    """
+DANDI_API_TOKEN_BLOCK_NAME = "dandi-api-key"
+LINC_API_TOKEN_BLOCK_NAME = "linc-api-key"
 
-    COMPLEX = "complex"
-    SPECTRAL = "spectral"
