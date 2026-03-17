@@ -1,8 +1,18 @@
 # Distributed OCT Data Acquisition & Real-Time Processing System
 
+> Audience: advanced users and maintainers who need a detailed view of the
+> distributed OCT pipeline. For a high-level introduction to OpticStream and
+> its components, see the
+> [project overview](concepts/project_overview.md) and
+> [architecture](developer/architecture.md) pages.
+
 ## 1. Overview
 
-This document describes the design of a distributed, event-driven data acquisition and real-time processing system for Optical Coherence Tomography (OCT) data. The system uses **Prefect** as the workflow orchestration engine and supports scalable, fault-tolerant processing across tiles, mosaics, slices, and whole datasets.
+This document describes the design of a distributed, event-driven data
+acquisition and real-time processing system for Optical Coherence
+Tomography (OCT) data. The system uses **Prefect** as the workflow
+orchestration engine and supports scalable, fault-tolerant processing
+across tiles, mosaics, slices, and whole datasets.
 
 The primary goals of the system are:
 
@@ -596,58 +606,35 @@ The grid configuration defines how tiles are organized for MATLAB batch processi
 
 ### 10.3 Why Batches Are Used
 
-Batch processing is used specifically because MATLAB processing is more efficient when processing multiple tiles together:
+Batch processing is used specifically because MATLAB processing is more
+efficient when processing multiple tiles together:
 
+* Reduces MATLAB startup overhead by processing many tiles per session
+* Enables better use of MATLAB's parallel operations
+* Reduces the number of MATLAB processes and improves resource utilization
 
-* **MATLAB Startup Overhead**: Starting MATLAB for each individual tile is inefficient. Processing multiple tiles in a single MATLAB session reduces overhead.
-* **Parallization**: MATLAB can process multiple tiles more efficiently when given as a batch, enabling better use of MATLAB's parallel operations.
-* **Resource Efficiency**: Batching reduces the number of MATLAB processes and improves resource utilization.
+### 10.4 Batch Organization and State Tracking
 
-
-### 10.4 Batch Organization
-
-Tiles are organized into batches based on their position in the acquisition grid:
-* Each column (grid_size_x) becomes a batch
-* Each batch contains grid_size_y tiles (rows)
+Tiles are organized into batches based on their position in the acquisition
+grid:
+* Each column (`grid_size_x`) becomes a batch
+* Each batch contains `grid_size_y` tiles (rows)
 * Batches are processed in parallel for efficiency
-* Once MATLAB processing completes, the system operates on individual tiles again
 
-### 10.5 Batch State Tracking
+Batch completion is tracked using flag files stored in the `state/`
+directory. See Section 7.1 for comprehensive details on flag file
+structure, lifecycle, and benefits. The batch-level flag files
+(`batch-{batch_id}.started`, `.archived`, `.processed`, `.uploaded`) enable
+progress tracking, idempotency, and crash recovery for MATLAB batch
+processing.
 
-Batch completion is tracked using flag files stored in the `state/` directory. See Section 7.1 for comprehensive details on flag file structure, lifecycle, and benefits. The batch-level flag files (`batch-{batch_id}.started`, `.archived`, `.processed`, `.uploaded`) enable progress tracking, idempotency, and crash recovery for MATLAB batch processing.
+### 10.5 Post-MATLAB Processing
 
-### 10.6 Post-MATLAB Processing
-
-Once MATLAB batch processing completes, the system operates on individual tiles again:
-* Stitching uses individual tile files
-* QC validation operates on individual tiles
-* Coordinate determination uses individual tile enface images
-* The batch grouping is only relevant during MATLAB processing
-
-
-Batch processing exists as an implementation optimization for MATLAB efficiency, not as a data hierarchy level.
-
-#### Why Batches Are Used
-
-* **MATLAB Startup Overhead**: Starting MATLAB for each individual tile is inefficient. Processing multiple tiles in a single MATLAB session reduces overhead.
-* **Parallization**: MATLAB can process multiple tiles more efficiently when given as a batch, enabling better use of MATLAB's parallel operations.
-* **Resource Efficiency**: Batching reduces the number of MATLAB processes and improves resource utilization.
-
-#### Batch Organization
-
-* **grid_size_x**: Number of batches (columns) per mosaic
-* **grid_size_y**: Number of tiles per batch (rows)
-* Tiles are organized into batches based on their position in the acquisition grid
-* Normal and tilted illuminations share the same `grid_size_y` (rows)
-
-Once MATLAB processing completes, the system operates on individual tiles again for downstream processing (stitching, QC, etc.).
-
-#### Future Considerations
-
-When MATLAB steps are migrated to Python-native implementations:
-* Batch processing may no longer be necessary (Python can process tiles individually more efficiently)
-* Data hierarchy remains Tile → Mosaic (no change to fundamental structure)
-* Processing efficiency may improve (no MATLAB startup overhead)
+Once MATLAB batch processing completes, the system operates on individual
+tiles again for downstream processing (stitching, QC, coordinate
+determination). The batch grouping is only relevant during MATLAB
+processing and exists purely as an implementation optimization; tiles
+remain the atomic data unit in the hierarchy.
 ---
 
 ## 11. Upload Strategy

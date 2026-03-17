@@ -4,7 +4,13 @@ title: Architecture
 
 # Architecture
 
-At a high level, OpticStream is organized into:
+This page describes the package-level structure of OpticStream. For a
+product-level introduction and major components, see the
+[project overview](../concepts/project_overview.md). For details on the OCT
+processing design and event-driven pipeline, see the
+[design](../design.md) document.
+
+At a high level, the Python packages are:
 
 - `opticstream.config`: configuration models and Prefect Blocks
 - `opticstream.flows`: Prefect flows for LSM, PS-OCT, stitching, upload, and state management
@@ -12,5 +18,5 @@ At a high level, OpticStream is organized into:
 - `opticstream.data_processing`: lower-level stitching and grid utilities
 - `opticstream.utils`: shared helper utilities
 
-Subsequent pages in this section describe the code layout, CLI, and testing strategy in more detail.
-
+Subsequent pages in this section describe the code layout, CLI, and testing
+strategy in more detail.
