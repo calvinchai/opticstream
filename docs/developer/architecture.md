@@ -8,7 +8,8 @@ This page describes the package-level structure of OpticStream. For a
 product-level introduction and major components, see the
 [project overview](../concepts/project_overview.md). For details on the OCT
 processing design and event-driven pipeline, see the
-[design](../design.md) document.
+[design](../design.md) document and the OCT developer design docs under
+`developer/oct_*.md`.
 
 At a high level, the Python packages are:
 
@@ -17,6 +18,8 @@ At a high level, the Python packages are:
 - `opticstream.cli`: command-line interface for deploying and operating flows
 - `opticstream.data_processing`: lower-level stitching and grid utilities
 - `opticstream.utils`: shared helper utilities
+
+For details on the Prefect Variable–backed project state design (including locks, views, and the `open_*` / `read_*` / `peek_*` APIs), see the [Prefect state design](prefect_state_design.md) developer document.
 
 Subsequent pages in this section describe the code layout, CLI, and testing
 strategy in more detail.
