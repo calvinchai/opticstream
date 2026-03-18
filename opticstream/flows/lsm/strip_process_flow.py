@@ -1,5 +1,3 @@
-from asyncio import Future
-from datetime import datetime
 import os
 import os.path as op
 import shutil
@@ -13,19 +11,23 @@ import dask
 import psutil
 from niizarr.multizarr import ZarrConfig
 from prefect import flow, get_run_logger, task
-from prefect.artifacts import create_table_artifact
 from prefect.events import emit_event
+from prefect.futures import PrefectFuture
 
-from opticstream.config.lsm_scan_config import LSMScanConfigModel, get_lsm_scan_config
-from opticstream.flows.lsm.event import CHANNEL_READY, STRIP_COMPRESSED
+from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticstream.flows.lsm.event import STRIP_COMPRESSED
+from opticstream.flows.lsm.paths import strip_mip_output_path, strip_zarr_output_path
+from opticstream.flows.lsm.state_guards import (
+    force_rerun_from_payload,
+    prepare_idempotent_strip_milestone,
+    skip_top_level_flow,
+)
+from opticstream.flows.lsm.utils import load_scan_config_for_payload, strip_ident_from_payload
 from opticstream.state.lsm_project_state import (
-    LSMChannelId,
-    LSMProjectStateView,
     LSMStripId,
     LSM_STATE_SERVICE,
     ProcessingState,
 )
-from opticstream.utils.filename_utils import parse_lsm_run_folder_name
 from opticstream.utils.slack_notification import notify_slack
 
 
@@ -68,6 +70,40 @@ def get_dir_manifest(path: str) -> DirManifest:
     )
 
 
+def validate_zarr_directory(
+    logger,
+    path: str,
+    zarr_size_threshold: int,
+    *,
+    context: str,
+    missing_reason: str,
+    empty_reason: str,
+    below_threshold_reason: str,
+) -> ValidationResult:
+    """
+    Validate a zarr tree: exists, optional min file count when threshold<=0, else min total bytes.
+    """
+    if not os.path.exists(path):
+        logger.error(f"Zarr path does not exist for {context}: {path}")
+        return ValidationResult(ok=False, size_bytes=0, reason=missing_reason)
+    manifest = get_dir_manifest(path)
+    if zarr_size_threshold <= 0:
+        if manifest.file_count < 1:
+            logger.error(f"Zarr directory empty for {context}: {path}")
+            return ValidationResult(ok=False, size_bytes=0, reason=empty_reason)
+        logger.info(f"Zarr valid for {context} ({manifest.total_bytes} bytes)")
+        return ValidationResult(ok=True, size_bytes=manifest.total_bytes)
+    if manifest.total_bytes < zarr_size_threshold:
+        logger.error(f"Zarr below size threshold for {context}: {path}")
+        return ValidationResult(
+            ok=False,
+            size_bytes=manifest.total_bytes,
+            reason=below_threshold_reason,
+        )
+    logger.info(f"Zarr valid for {context} ({manifest.total_bytes} bytes)")
+    return ValidationResult(ok=True, size_bytes=manifest.total_bytes)
+
+
 def compare_dir_manifests(
     source_manifest: DirManifest,
     dest_manifest: DirManifest,
@@ -98,11 +134,12 @@ def format_bytes(num_bytes: int) -> str:
     """
     Format a byte count into a human-readable string.
     """
+    n = float(num_bytes)
     for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if num_bytes < 1024.0:
-            return f"{num_bytes:3.1f} {unit}"
-        num_bytes /= 1024.0
-    return f"{num_bytes:.1f} PB"
+        if n < 1024.0:
+            return f"{n:3.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} PB"
 
 
 def build_status_message(
@@ -202,17 +239,20 @@ def compress_strip(
     strip_view = LSM_STATE_SERVICE.peek_strip(
         strip_ident=strip_ident,
     )
-    if strip_view is not None and strip_view.compressed:
-        if not force_rerun:
-            logger.info(
-                "%s already marked compressed; skipping compression", strip_ident
-            )
-            return
-        else:
-            logger.info("%s already marked compressed; forcing rerun", strip_ident)
-
-    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        strip_state.reset_compressed()
+    compressed = bool(strip_view and strip_view.compressed)
+    if (
+        prepare_idempotent_strip_milestone(
+            logger,
+            milestone_done=compressed,
+            force_rerun=force_rerun,
+            skip_log=f"{strip_ident} already marked compressed; skipping compression",
+            force_log=f"{strip_ident} already marked compressed; forcing rerun",
+            strip_ident=strip_ident,
+            reset_strip=lambda s: s.reset_compressed(),
+        )
+        == "skip"
+    ):
+        return
     if cpu_affinity is not None:
         p = psutil.Process(os.getpid())
         p.cpu_affinity(list(range(*cpu_affinity)))
@@ -227,7 +267,7 @@ def compress_strip(
             zarr_config=zarr_config,
             nii=False,
         )
-    logger.info("Compressed %s to %s", strip_ident, output_path)
+    logger.info(f"Compressed {strip_ident} to {output_path}")
 
 
 @task(task_run_name="backup-{strip_ident}")
@@ -241,22 +281,27 @@ def archive_strip(
     Backup a strip of a slice.
     """
     logger = get_run_logger()
-    logger.info("Backing up %s", strip_ident)
+    logger.info(f"Backing up {strip_ident}")
 
     strip_view = LSM_STATE_SERVICE.peek_strip(
         strip_ident=strip_ident,
     )
-    if strip_view is not None and strip_view.archived:
-        if not force_rerun:
-            logger.info(
-                "%s already marked archived; skipping backup because force_rerun is False",
-                strip_ident,
-            )
-            return
-        else:
-            logger.info("%s already marked archived; forcing rerun", strip_ident)
-    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        strip_state.reset_archived()
+    archived = bool(strip_view and strip_view.archived)
+    if (
+        prepare_idempotent_strip_milestone(
+            logger,
+            milestone_done=archived,
+            force_rerun=force_rerun,
+            skip_log=(
+                f"{strip_ident} already marked archived; skipping backup because force_rerun is False"
+            ),
+            force_log=f"{strip_ident} already marked archived; forcing rerun",
+            strip_ident=strip_ident,
+            reset_strip=lambda s: s.reset_archived(),
+        )
+        == "skip"
+    ):
+        return
     if invalid_path(output_path):
         raise ValueError(f"Refusing unsafe archive destination: {output_path}")
     rsync_path = shutil.which("rsync")
@@ -273,7 +318,7 @@ def archive_strip(
             dirs_exist_ok=True,
             copy_function=shutil.copy2,
         )
-    logger.info("Backed up %s to %s", strip_ident, output_path)
+    logger.info(f"Backed up {strip_ident} to {output_path}")
 
 
 @task(task_run_name="check-compressed-{strip_ident}")
@@ -293,21 +338,21 @@ def check_compressed_result(
     # check mip 
     if generate_mip:
         if invalid_path(mip_output_path):
-            logger.error("MIP output path is not set for %s", strip_ident)
+            logger.error(f"MIP output path is not set for {strip_ident}")
             return ValidationResult(
                 ok=False,
                 size_bytes=0,
                 reason="mip output path is not set",
             )
         if not os.path.exists(mip_output_path):
-            logger.error("MIP output %s does not exist", mip_output_path)
+            logger.error(f"MIP output {mip_output_path} does not exist")
             return ValidationResult(
                 ok=False,
                 size_bytes=0,
                 reason="mip output does not exist",
             )
         if os.path.getsize(mip_output_path) < mip_size_threshold:
-            logger.error("MIP output %s is smaller than the threshold", mip_output_path)
+            logger.error(f"MIP output {mip_output_path} is smaller than the threshold")
             return ValidationResult(
                 ok=False,
                 size_bytes=0,
@@ -315,34 +360,29 @@ def check_compressed_result(
             )
     zarr_size_bytes = 0
     if generate_zarr:
-        logger.info("Checking if the compressed strip %s is valid", strip_ident)
-        if not os.path.exists(output_path):
-            logger.error("Compressed strip %s does not exist", strip_ident)
-            return ValidationResult(
-                ok=False,
-                size_bytes=0,
-                reason="compressed output missing",
-            )
+        logger.info(f"Checking if the compressed strip {strip_ident} is valid")
+        zr = validate_zarr_directory(
+            logger,
+            output_path,
+            zarr_size_threshold,
+            context=str(strip_ident),
+            missing_reason="compressed output missing",
+            empty_reason="compressed output empty",
+            below_threshold_reason="compressed output below size threshold",
+        )
+        if not zr.ok:
+            return zr
+        zarr_size_bytes = zr.size_bytes
 
-        manifest = get_dir_manifest(output_path)
-        zarr_size_bytes = manifest.total_bytes
-        if zarr_size_bytes < zarr_size_threshold:
-            logger.error("Compressed strip %s is smaller than the threshold", strip_ident)
-            return ValidationResult(
-                ok=False,
-                size_bytes=zarr_size_bytes,
-                reason="compressed output below size threshold",
-            )
-
+    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
+        strip_state.set_compressed(True)
     emit_event(
         STRIP_COMPRESSED,
         resource={
             "prefect.resource.id": f"{strip_ident}",
         },
         payload={
-            "project_name": strip_ident.project_name,
-            "strip_ident": strip_ident,
-            "output_path": output_path,
+            "strip_ident": strip_ident.model_dump(mode="json"),
         },
     )
     return ValidationResult(ok=True, size_bytes=zarr_size_bytes)
@@ -358,14 +398,14 @@ def check_backup_result(
     Check if the backup strip is valid.
     """
     logger = get_run_logger()
-    logger.info("Checking if backup for %s is valid", strip_ident)
+    logger.info(f"Checking if backup for {strip_ident} is valid")
 
     if backup_path is None:
-        logger.warning("Backup path is not set for %s", strip_ident)
+        logger.warning(f"Backup path is not set for {strip_ident}")
         return ValidationResult(ok=True, size_bytes=0)
 
     if not os.path.exists(backup_path):
-        logger.error("Backup strip %s does not exist", strip_ident)
+        logger.error(f"Backup strip {strip_ident} does not exist")
         return ValidationResult(
             ok=False,
             size_bytes=0,
@@ -376,7 +416,7 @@ def check_backup_result(
     backup_manifest = get_dir_manifest(backup_path)
 
     if not compare_dir_manifests(source_manifest, backup_manifest, logger=logger):
-        logger.error("Backup strip %s is not the same as the strip path", strip_ident)
+        logger.error(f"Backup strip {strip_ident} is not the same as the strip path")
         return ValidationResult(
             ok=False,
             size_bytes=backup_manifest.total_bytes,
@@ -396,16 +436,16 @@ def rename_strip_task(
     Rename a strip of a slice.
     """
     logger = get_run_logger()
-    logger.info("Renaming %s", strip_ident)
+    logger.info(f"Renaming {strip_ident}")
     if not do_rename:
-        logger.info("Skipping renaming of %s", strip_ident)
+        logger.info(f"Skipping renaming of {strip_ident}")
         return
     parent_path, basename = os.path.split(strip_path)
     processed_folder = op.join(parent_path, "processed")
     os.makedirs(processed_folder, exist_ok=True)
     new_strip_path = op.join(processed_folder, basename)
     os.rename(strip_path, new_strip_path)
-    logger.info("Renamed %s to %s", strip_ident, new_strip_path)
+    logger.info(f"Renamed {strip_ident} to {new_strip_path}")
 
 
 @task(task_run_name="delete-strip-{strip_ident}")
@@ -419,9 +459,9 @@ def delete_strip_task(
     """
     logger = get_run_logger()
     if not do_delete:
-        logger.info("Skipping deletion of %s", strip_ident)
+        logger.info(f"Skipping deletion of {strip_ident}")
         return
-    logger.info("Deleting %s", strip_ident)
+    logger.info(f"Deleting {strip_ident}")
     shutil.rmtree(strip_path)
 
 
@@ -439,111 +479,12 @@ def invalid_path(path: Optional[str]) -> bool:
     return path is None or path in {"/", ".", ""}
 
 
-def strip_ident_from_payload(payload: Dict[str, Any]) -> LSMStripId:
-    """Build LSMStripId from an event payload or post-processing callback."""
-    raw = payload.get("strip_ident")
-    if isinstance(raw, LSMStripId):
-        return raw
-    if isinstance(raw, dict):
-        return LSMStripId(**raw)
-    return LSMStripId(
-        project_name=payload["project_name"],
-        slice_id=int(payload["slice_id"]),
-        strip_id=int(payload["strip_id"]),
-        channel_id=int(payload.get("camera_id") or payload.get("channel_id") or 1),
-    )
-
-
-@task(task_run_name="{project_name}-lsm-strip-artifact")
-def update_lsm_strip_artifact_task(
-    project_name: str,
-    state: LSMProjectStateView,
-    strips_per_slice: int,
-) -> str:
-    """
-    Publish a Prefect table artifact summarizing LSM strip progress from project state.
-    """
-    logger = get_run_logger()
-    artifact_key = f"{project_name.lower().replace('_', '-')}-lsm-strip-progress"
-    table_data: List[Dict[str, Any]] = []
-    total_completed_strips = 0
-    total_strip_slots = 0
-
-    for slice_id in sorted(state.slices.keys()):
-        slice_view = state.slices[slice_id]
-        for channel_id in sorted(slice_view.channels.keys()):
-            channel_view = slice_view.channels[channel_id]
-            total = strips_per_slice
-            compressed = archived = uploaded = completed = 0
-            for strip_id in range(1, total + 1):
-                sv = channel_view.strips.get(strip_id)
-                if sv is None:
-                    continue
-                if sv.compressed:
-                    compressed += 1
-                if sv.archived:
-                    archived += 1
-                if sv.uploaded:
-                    uploaded += 1
-                if sv.processing_state == ProcessingState.COMPLETED:
-                    completed += 1
-            pct = (completed / total * 100.0) if total else 0.0
-            table_data.append(
-                {
-                    "Slice": slice_id,
-                    "Channel": channel_id,
-                    "Total Strips": total,
-                    "Compressed": compressed,
-                    "Archived": archived,
-                    "Uploaded": uploaded,
-                    "Completed": completed,
-                    "Progress": f"{pct:.1f}%",
-                }
-            )
-            total_completed_strips += completed
-            total_strip_slots += total
-
-    if not table_data:
-        logger.warning(
-            "No slice/channel rows in LSM state for artifact %s", artifact_key
-        )
-        return ""
-
-    overall_pct = (
-        total_completed_strips / total_strip_slots * 100.0
-        if total_strip_slots
-        else 0.0
-    )
-    milestones = [
-        "✅" if overall_pct >= 25 else "⏳",
-        "✅" if overall_pct >= 50 else "⏳",
-        "✅" if overall_pct >= 75 else "⏳",
-        "✅" if overall_pct >= 100 else "⏳",
-    ]
-    description = f"""LSM strip processing progress
-
-Project: {project_name}
-Last Updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-
-Overall completed strip slots: {total_completed_strips}/{total_strip_slots} ({overall_pct:.1f}%)
-
-Milestones:
-- {milestones[0]} 25% Complete
-- {milestones[1]} 50% Complete
-- {milestones[2]} 75% Complete
-- {milestones[3]} 100% Complete
-"""
-
-    create_table_artifact(key=artifact_key, table=table_data, description=description)
-    logger.info("Updated LSM strip artifact %s", artifact_key)
-    return artifact_key
-
 def run_cleanup_tasks(
     delete_strip: bool,
     rename_strip: bool,
     strip_ident: LSMStripId,
     strip_path: str,
-) -> Optional[Future]:
+) -> Optional[PrefectFuture]:
     """
     Run cleanup tasks synchronously according to delete/rename flags.
     """
@@ -579,27 +520,24 @@ def process_strip(
     logger = get_run_logger()
     logger.info(f"Processing strip path: {strip_path}")
 
-    logger.info("Processing %s", strip_ident)
+    logger.info(f"Processing {strip_ident}")
     project_name = strip_ident.project_name
     slice_id = strip_ident.slice_id
     strip_id = strip_ident.strip_id
     channel_id = strip_ident.channel_id
 
     existing_strip = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
-    if (
-        existing_strip is not None
-        and existing_strip.processing_state == ProcessingState.COMPLETED
-    ):
-        if not force_rerun:
-            logger.info(
-                f"Strip {strip_id} of slice {slice_id} already completed; "
-                "skipping processing because force_rerun is False"
-            )
-            return None
-        else:
-            logger.info(
-                f"Strip {strip_id} of slice {slice_id} already completed; forcing rerun"
-            )
+    pst = existing_strip.processing_state if existing_strip else None
+    if skip_top_level_flow(pst, force_rerun=force_rerun, skip_if_running=False):
+        logger.info(
+            f"Strip {strip_id} of slice {slice_id} already completed; "
+            f"skipping processing because force_rerun is False"
+        )
+        return None
+    if pst == ProcessingState.COMPLETED and force_rerun:
+        logger.info(
+            f"Strip {strip_id} of slice {slice_id} already completed; forcing rerun"
+        )
 
     with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
         strip_state.mark_started()
@@ -611,33 +549,17 @@ def process_strip(
     )
 
     acq = f"camera-{channel_id:02d}"
-    logger.info("Processing %s (acq=%s)", strip_ident, acq)
+    logger.info(f"Processing {strip_ident} (acq={acq})")
 
     archive_path = scan_config.archive_path
     delete_raw_strip = scan_config.delete_strip
     rename_raw_strip = scan_config.rename_strip
 
-    zarr_output_path = op.join(
-        scan_config.output_path,
-        scan_config.output_format.format(
-            project_name=project_name,
-            slice_id=slice_id,
-            strip_id=strip_id,
-            acq=acq,
-        ),
-    )
+    zarr_output_path = strip_zarr_output_path(strip_ident, scan_config)
 
     mip_output_path = None
     if scan_config.generate_mip:
-        mip_output_path = op.join(
-            scan_config.output_path,
-            scan_config.output_mip_format.format(
-                project_name=project_name,
-                slice_id=slice_id,
-                strip_id=strip_id,
-                acq=acq,
-            ),
-        )
+        mip_output_path = strip_mip_output_path(strip_ident, scan_config)
 
     backup_path = None
     if scan_config.generate_archive and archive_path is not None:
@@ -724,8 +646,6 @@ def process_strip(
     )
 
     with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        if compress_result.ok and compress_future:
-            strip_state.set_compressed(True)
         if backup_result.ok and backup_path is not None:
             strip_state.set_archived(True)
         if success:
@@ -767,151 +687,25 @@ def process_strip(
     )
     if cleanup_future:
         cleanup_future.wait()
-    # if cleanup ok, mark cleaned
 
-    return [compress_future, backup_future, check_compressed_future, check_backup_future, cleanup_future]
+    return None
 
 
 @flow
 def process_strip_event(payload: Dict[str, Any]) -> None:
     """
     Process a strip of a slice.
+
+    Payload must include ``strip_ident`` (dict) and ``strip_path``.
     """
-    lsm_scan_config = get_lsm_scan_config(
-        payload["project_name"],
-        override_config_name=payload.get("override_config"),
-    )
-    strip_ident = LSMStripId(
-        project_name=payload["project_name"],
-        slice_id=payload["slice_id"],
-        strip_id=payload["strip_id"],
-        channel_id=payload.get("camera_id") or payload.get("channel_id") or 1,
-    )
+    strip_ident = strip_ident_from_payload(payload)
+    if "strip_path" not in payload:
+        raise KeyError("payload must include strip_path")
+    lsm_scan_config = load_scan_config_for_payload(strip_ident.project_name, payload)
     process_strip(
         strip_ident=strip_ident,
         strip_path=payload["strip_path"],
         scan_config=lsm_scan_config,
-        force_rerun=payload.get("force_rerun", False),
+        force_rerun=force_rerun_from_payload(payload),
     )
-    
 
-# process_strip_flow_deployment = process_strip_flow.to_deployment(
-#     name="process_strip_flow_deployment",
-#     tags=["lsm", "process-strip"],
-# )
-
-
-@task(task_run_name="check-channel-ready-{channel_ident}")
-def check_channel_ready(
-    channel_ident: LSMChannelId,
-    strips_per_slice: int,
-) -> None:
-    """
-    If every strip in the channel has been compressed, emit CHANNEL_READY.
-    """
-    channel_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
-    if channel_view is None:
-        return
-    if channel_view.all_compressed(total_strips=strips_per_slice):
-        emit_event(
-            CHANNEL_READY,
-            resource={
-                "prefect.resource.id": f"{channel_ident}",
-                "linc.opticstream.project": channel_ident.project_name,
-            },
-            payload={
-                "channel_ident": channel_ident,
-            },
-        )
-
-
-
-@flow
-def on_strip_events(event: str, payload: Dict[str, Any]) -> None:
-    """
-    Refresh the LSM strip progress Prefect artifact from current project state.
-    """
-    project_name = payload["project_name"]
-    channel_ident = channel_ident_from_payload(payload)
-    state = LSM_STATE_SERVICE.peek_project_by_parts(project_name)
-    cfg = get_lsm_scan_config(
-        project_name,
-    )
-    update_lsm_strip_artifact_task(
-        project_name=project_name,
-        state=state,
-        strips_per_slice=cfg.strips_per_slice,
-    )
-    if event == STRIP_COMPRESSED:
-        check_channel_ready(channel_ident, cfg.strips_per_slice)
-
-
-
-def process_channel(
-    channel_ident: LSMChannelId,
-    scan_config: LSMScanConfigModel,
-    *,
-    force_rerun: bool = False,
-):
-    """
-    Process a channel.
-    """
-    logger = get_run_logger()
-    logger.info(f"Processing channel: {channel_ident}")
-    channel_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
-    if channel_view is not None:
-        if channel_view.processing_state == ProcessingState.COMPLETED:
-            if not force_rerun:
-                logger.info(
-                    f"Channel {channel_ident} already completed; skipping processing because force_rerun is False"
-                )
-                return
-
-            else:
-                logger.info(f"Channel {channel_ident} already completed; forcing rerun")
-        elif channel_view.processing_state == ProcessingState.RUNNING:
-            if not force_rerun:
-                logger.info(
-                    f"Channel {channel_ident} already running; skipping processing because force_rerun is False"
-                )
-                return
-            else:
-                logger.info(f"Channel {channel_ident} already running; forcing rerun")
-
-    with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as channel_state:
-        channel_state.mark_started()
-    if scan_config.generate_mip:
-        # stitch mip
-        # submit the task with linc-convert pipeline
-        # actually use synchronous version of the task
-        
-        stitch_mip_future = stitch_mip.submit()
-        convert_image_future = convert_image.submit(wait_for=[stitch_mip_future])
-        send_to_slack_future = send_to_slack.submit(wait_for=[convert_image_future])
-        
-        check_result
-        if not check_result.ok:
-            failed
-        # mark mip stitched
-    # if not stitched 3d, mark channel finished/failed
-    # if sittched 3d, let 3d handles the rest
-    # emit 2d stitched
-      
-    emit_channel_done
-    mark_channel_done
-
-def stitch_channel_volume():
-
-    # on channel stitched
-    # stitch channel volume
-    # check not stitched yet
-    # mark channel volume stitched
-    # emit channel volume stitched
-    pass
-
-def upload_channel_volume():
-    # on channel volume stitched
-    # upload the volume
-    # mark channel volume uploaded
-    # emit channel volume uploaded
-    pass

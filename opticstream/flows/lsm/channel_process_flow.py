@@ -1,28 +1,37 @@
 """
 Channel-level LSM processing flows.
 
-After all strips in a given (slice, channel) are finished, we stitch
-per-strip MIP outputs into a quick QC mosaic for that channel.
+After all strips in a given (slice, channel) are compressed, we synchronously
+stitch per-strip MIP outputs for QC. If volume stitching is enabled, we emit
+CHANNEL_MIP_STITCHED so channel_volume_flow can run 3D stitching afterward.
 """
 
 from __future__ import annotations
 
 import os
-import os.path as op
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from prefect import flow, get_run_logger, task
 
-from opticstream.config.lsm_scan_config import (
-    LSMScanConfigModel,
-    get_lsm_scan_config,
+from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticstream.flows.lsm.paths import strip_mip_output_path
+from opticstream.flows.lsm.event import CHANNEL_MIP_STITCHED
+from opticstream.flows.lsm.prefect_events import emit_channel_lsm_event
+from opticstream.flows.lsm.state_guards import (
+    force_rerun_from_payload,
+    skip_top_level_flow,
 )
-from opticstream.flows.lsm.event import STRIP_COMPRESSED
+from opticstream.flows.lsm.utils import (
+    channel_ident_from_payload,
+    load_scan_config_for_payload,
+)
 from opticstream.state.lsm_project_state import (
     LSMChannelId,
+    LSMStripId,
     LSM_STATE_SERVICE,
 )
-from opticstream.events import get_event_trigger
+from opticstream.state.project_state_core import ProcessingState
+from opticstream.utils.slack_notification import notify_slack
 
 
 @task
@@ -39,27 +48,21 @@ def _collect_channel_mip_paths(
     """
     logger = get_run_logger()
 
-    output_root = scan_config.output_path or scan_config.project_base_path
-    acq = f"camera-{channel_ident.channel_id:02d}"
-
     mip_paths: List[str] = []
     for strip_id in range(1, scan_config.strips_per_slice + 1):
-        mip_name = scan_config.output_mip_format.format(
+        sid = LSMStripId(
             project_name=channel_ident.project_name,
             slice_id=channel_ident.slice_id,
+            channel_id=channel_ident.channel_id,
             strip_id=strip_id,
-            acq=acq,
         )
-        mip_path = op.join(output_root, mip_name)
+        mip_path = strip_mip_output_path(sid, scan_config)
         if os.path.exists(mip_path):
             mip_paths.append(mip_path)
         else:
             logger.warning(
-                "Expected MIP not found for slice %s strip %s channel %s at %s",
-                channel_ident.slice_id,
-                strip_id,
-                channel_ident.channel_id,
-                mip_path,
+                f"Expected MIP not found for slice {channel_ident.slice_id} "
+                f"strip {strip_id} channel {channel_ident.channel_id} at {mip_path}"
             )
 
     return mip_paths
@@ -82,75 +85,144 @@ def _stitch_channel_mips(
 
     if not mip_paths:
         logger.warning(
-            "No MIP images found to stitch for slice %s channel %s in project %s",
-            channel_ident.slice_id,
-            channel_ident.channel_id,
-            channel_ident.project_name,
+            f"No MIP images found to stitch for slice {channel_ident.slice_id} "
+            f"channel {channel_ident.channel_id} in project {channel_ident.project_name}"
         )
         return None
 
     logger.info(
-        "Stitching %d MIP images for slice %s channel %s in project %s",
-        len(mip_paths),
-        channel_ident.slice_id,
-        channel_ident.channel_id,
-        channel_ident.project_name,
+        f"Stitching {len(mip_paths)} MIP images for slice {channel_ident.slice_id} "
+        f"channel {channel_ident.channel_id} in project {channel_ident.project_name}"
     )
 
     # TODO: replace this placeholder with actual stitching logic.
-    # For now, we simply record the path where a stitched QC image would go.
+    import os.path as op
+
     output_root = scan_config.output_path or scan_config.project_base_path
     stitched_name = (
-        f"{channel_ident.project_name}_slice-{channel_ident.slice_id:02d}_channel-{channel_ident.channel_id:02d}_mip_qc.tiff"
+        f"{channel_ident.project_name}_slice-{channel_ident.slice_id:02d}_"
+        f"channel-{channel_ident.channel_id:02d}_mip_qc.tiff"
     )
     stitched_path = op.join(output_root, stitched_name)
 
     logger.info(
-        "Channel-level stitched QC image would be written to %s", stitched_path
+        f"Channel-level stitched QC image would be written to {stitched_path}"
     )
     return stitched_path
 
 
-@flow
-def process_channel_flow(
+@task(task_run_name="notify-mip-{channel_ident}")
+def _notify_channel_mip_stitched(
+    channel_ident: LSMChannelId,
+    stitched_path: Optional[str],
+) -> None:
+    """Slack notification after MIP stitch (placeholder path until real write)."""
+    if stitched_path is None:
+        return
+    notify_slack(
+        status="success",
+        message=(
+            f"MIP QC stitch finished for slice {channel_ident.slice_id} "
+            f"channel {channel_ident.channel_id}"
+        ),
+        details={
+            "project_name": channel_ident.project_name,
+            "stitched_path": stitched_path,
+        },
+    )
+
+
+@flow(flow_run_name="process-channel-{channel_ident}")
+def process_channel(
     channel_ident: LSMChannelId,
     scan_config: LSMScanConfigModel,
+    *,
+    force_rerun: bool = False,
 ) -> Optional[str]:
     """
-    Process a single (slice, channel) once all strips are finished.
-
-    Currently this means stitching per-strip MIP images for quick QC and
-    marking the channel as stitched/completed in the LSM project state.
+    Process a (slice, channel) after strips are ready: synchronous MIP stitch,
+    then either complete the channel or emit CHANNEL_MIP_STITCHED for volume flow.
     """
     logger = get_run_logger()
-    logger.info(f"Starting channel-level processing for {channel_ident}")
+    logger.info(f"Processing channel: {channel_ident}")
 
-    mip_paths = _collect_channel_mip_paths(
-        channel_ident=channel_ident,
-        scan_config=scan_config,
-    )
+    channel_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
+    pst = channel_view.processing_state if channel_view else None
+    if skip_top_level_flow(
+        pst, force_rerun=force_rerun, skip_if_running=True
+    ):
+        if pst == ProcessingState.COMPLETED:
+            logger.info(
+                f"Channel {channel_ident} already completed; skipping (force_rerun=False)"
+            )
+        else:
+            logger.info(
+                f"Channel {channel_ident} already running; skipping (force_rerun=False)"
+            )
+        return None
+    if force_rerun and channel_view and pst in (
+        ProcessingState.COMPLETED,
+        ProcessingState.RUNNING,
+    ):
+        logger.info(f"Channel {channel_ident} forcing rerun")
 
-    stitched_path = _stitch_channel_mips(
-        channel_ident=channel_ident,
-        mip_paths=mip_paths,
-        scan_config=scan_config,
-    )
+    with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as ch:
+        ch.mark_started()
+        ch.reset_mip_stitched()
 
-    # Update channel state to mark it as stitched/completed.
-    with LSM_STATE_SERVICE.open_channel(
-        channel_ident=channel_ident,
-    ) as channel_state:
-        channel_state.set_stitched(True)
-        channel_state.mark_completed()
+    mip_stitched_path: Optional[str] = None
 
+    if scan_config.generate_mip:
+        mip_paths = _collect_channel_mip_paths(
+            channel_ident=channel_ident,
+            scan_config=scan_config,
+        )
+        mip_stitched_path = _stitch_channel_mips(
+            channel_ident=channel_ident,
+            mip_paths=mip_paths,
+            scan_config=scan_config,
+        )
+        _notify_channel_mip_stitched(
+            channel_ident=channel_ident,
+            stitched_path=mip_stitched_path,
+        )
+
+        expected = scan_config.strips_per_slice
+        if len(mip_paths) < expected or mip_stitched_path is None:
+            with LSM_STATE_SERVICE.open_channel(
+                channel_ident=channel_ident
+            ) as ch:
+                ch.mark_failed()
+            raise RuntimeError(
+                f"MIP stitch failed for {channel_ident}: "
+                f"found {len(mip_paths)}/{expected} MIPs, stitched_path={mip_stitched_path!r}"
+            )
+
+    with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as ch:
+        ch.set_mip_stitched(True)
+        if not scan_config.stitch_volume:
+            ch.set_volume_stitched(True)
+            ch.mark_completed()
+
+    if not scan_config.stitch_volume:
+        logger.info(f"Completed channel {channel_ident} (no volume stitch)")
+        return mip_stitched_path
+
+    emit_channel_lsm_event(CHANNEL_MIP_STITCHED, channel_ident)
     logger.info(
-        "Completed channel-level processing for project=%s slice=%s channel=%s",
-        channel_ident.project_name,
-        channel_ident.slice_id,
-        channel_ident.channel_id,
+        f"Emitted {CHANNEL_MIP_STITCHED} for {channel_ident}; "
+        f"volume flow will complete the channel"
     )
-    return stitched_path
+    return mip_stitched_path
+
 
 @flow
 def process_channel_event(payload: Dict[str, Any]) -> None:
-    pass 
+    """Event entrypoint (e.g. on CHANNEL_READY)."""
+    channel_ident = channel_ident_from_payload(payload)
+    cfg = load_scan_config_for_payload(channel_ident.project_name, payload)
+    process_channel(
+        channel_ident=channel_ident,
+        scan_config=cfg,
+        force_rerun=force_rerun_from_payload(payload),
+    )

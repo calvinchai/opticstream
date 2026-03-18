@@ -127,7 +127,9 @@ class OCTBatchStateView(OCTStateView):
     slice_number: int = Field(..., ge=0)
     mosaic_id: int = Field(..., ge=0)
     batch_id: int = Field(..., ge=0)
-    processed: bool = False
+    complexed: bool = False
+    volume_processed: bool = False
+    enface_processed: bool = False
     uploaded: bool = False
     archived: bool = False
 
@@ -136,8 +138,9 @@ class OCTBatchState(OCTStateMutationsMixin, OCTBatchStateView, ToViewMixin[OCTBa
     model_config = ConfigDict(frozen=False)
     VIEW_MODEL: ClassVar[type[OCTBatchStateView]] = OCTBatchStateView
 
-    def set_processed(self, value: bool = True) -> None:
-        self.processed = value
+    def reset_archived(self) -> None:
+        self.archived = False
+        self.uploaded = False
         self.touch()
 
     def set_uploaded(self, value: bool = True) -> None:
@@ -148,6 +151,31 @@ class OCTBatchState(OCTStateMutationsMixin, OCTBatchStateView, ToViewMixin[OCTBa
         self.archived = value
         self.touch()
 
+    def set_complexed(self, value: bool = True) -> None:
+        self.complexed = value
+        self.touch()
+    
+    def set_volume_processed(self, value: bool = True) -> None:
+        self.volume_processed = value
+        self.touch()
+    
+    def set_enface_processed(self, value: bool = True) -> None:
+        self.enface_processed = value
+        self.touch()
+    
+    def reset_complexed(self) -> None:
+        self.complexed = False
+        self.volume_processed = False
+        self.enface_processed = False
+        self.touch()
+    
+    def reset_volume_processed(self) -> None:
+        self.volume_processed = False
+        self.touch()
+    
+    def reset_enface_processed(self) -> None:
+        self.enface_processed = False
+        self.touch()
 
 class OCTMosaicStateView(OCTStateView):
     """Readonly view for one OCT mosaic; batches are keyed by batch_id."""

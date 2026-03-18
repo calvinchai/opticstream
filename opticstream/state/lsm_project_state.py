@@ -143,7 +143,9 @@ class LSMChannelStateView(LSMStateView):
     channel_id: int = Field(1, ge=0)
 
     strips: dict[int, LSMStripStateView] = Field(default_factory=dict)
-    stitched: bool = False
+    mip_stitched: bool = False
+    volume_stitched: bool = False
+    volume_uploaded: bool = False
 
     def all_completed(self, total_strips: int) -> bool:
         return all(
@@ -167,8 +169,31 @@ class LSMChannelState(
     VIEW_MODEL: ClassVar[type[LSMChannelStateView]] = LSMChannelStateView
     strips: dict[int, LSMStripState] = Field(default_factory=dict)
 
-    def set_stitched(self, value: bool = True) -> None:
-        self.stitched = value
+    def set_mip_stitched(self, value: bool = True) -> None:
+        self.mip_stitched = value
+        self.touch()
+
+    def set_volume_stitched(self, value: bool = True) -> None:
+        self.volume_stitched = value
+        self.touch()
+
+    def reset_mip_stitched(self) -> None:
+        self.mip_stitched = False
+        self.volume_stitched = False
+        self.volume_uploaded = False
+        self.touch()
+
+    def reset_volume_stitched(self) -> None:
+        self.volume_stitched = False
+        self.volume_uploaded = False
+        self.touch()
+
+    def set_volume_uploaded(self, value: bool = True) -> None:
+        self.volume_uploaded = value
+        self.touch()
+
+    def reset_volume_uploaded(self) -> None:
+        self.volume_uploaded = False
         self.touch()
 
     def get_or_create_strip(self, strip_id: int) -> LSMStripState:

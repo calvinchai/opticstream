@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from niizarr import ZarrConfig
 from prefect.blocks.core import Block
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from opticstream.config.utils import with_positions
 
@@ -42,6 +42,17 @@ class LSMScanConfigModel(BaseModel):
     num_workers: int = Field(default=6, description="Number of workers to use for compression")
 
     stitch_volume: bool = Field(default=False, description="Whether to stitch the volume from the strips")
+    channel_volume_zarr_size_threshold: int = Field(
+        default=10**9,
+        description="Min total bytes for stitched channel volume zarr when validation runs",
+    )
+    skip_channel_volume_zarr_validation: bool = Field(
+        default=True,
+        description=(
+            "If True, only ensure volume output dir exists after stitch (placeholder-friendly). "
+            "Set False when volume stitch writes a real zarr to enforce size threshold."
+        ),
+    )
 
 
 class LSMScanConfig(LSMScanConfigModel, Block):
@@ -75,31 +86,6 @@ class LSMScanConfig(LSMScanConfigModel, Block):
         DANDI instance to use for upload (default: None)
     """
 
-    # project_base_path: str
-    # info_file: str
-    # generate_zarr: bool = True
-    # output_path: Optional[str] = None
-    # output_format: Optional[str] = None
-    # generate_mip: bool = True
-    # output_mip_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
-    # generate_archive: bool = True
-    # archive_path: str | None = None
-    # delete_strip: bool = False
-    # rename_strip: bool = True
-    # strips_per_slice: int = 100
-
-    # # Zarr configuration
-    # zarr_config: ZarrConfig = Field(default_factory=ZarrConfig)
-    
-    # dandi_bin: str = "dandi"
-    # dandi_instance: str = "linc"
-    # dandiset_path: str = "000052@draft/"
-
-    # # CPU affinity configuration
-    # cpu_affinity: List[int] = Field(default_factory=list, description="Range of CPU cores to use for processing. If empty, all cores will be used.")
-    # num_workers: int = 6
-    
-
 
 class LSMScanConfigOverrides(BaseModel):
     project_base_path: Optional[str] = None
@@ -123,7 +109,10 @@ class LSMScanConfigOverrides(BaseModel):
 
     cpu_affinity: Optional[List[int]] = Field(default=None)
     num_workers: Optional[int] = None
-    
+    stitch_volume: Optional[bool] = None
+    channel_volume_zarr_size_threshold: Optional[int] = None
+    skip_channel_volume_zarr_validation: Optional[bool] = None
+
 def get_lsm_scan_config(project_name: str, override_config_name: Optional[str] = None) -> LSMScanConfig:
     """
     Get the scan configuration for a project.

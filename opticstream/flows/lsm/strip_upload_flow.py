@@ -1,12 +1,20 @@
 import os
+import shlex
 from typing import Any, Dict, List
+
 from prefect import flow, get_run_logger, task
 from prefect.blocks.system import Secret
 from prefect_shell import ShellOperation
 
-from opticstream.config.lsm_scan_config import LSMScanConfig
+from opticstream.config.lsm_scan_config import LSMScanConfig, get_lsm_scan_config
 from opticstream.events import get_event_trigger
 from opticstream.flows.lsm.event import STRIP_COMPRESSED
+from opticstream.flows.lsm.paths import strip_zarr_output_path
+from opticstream.flows.lsm.state_guards import (
+    force_rerun_from_payload,
+    prepare_idempotent_strip_milestone,
+)
+from opticstream.flows.lsm.utils import strip_ident_from_payload
 from opticstream.state.lsm_project_state import LSM_STATE_SERVICE, LSMStripId
 from opticstream.config.constants import DANDI_API_TOKEN_BLOCK_NAME, LINC_API_TOKEN_BLOCK_NAME
 
@@ -28,11 +36,11 @@ def upload_to_dandi_task(
             "DANDI_API_KEY": Secret.load(DANDI_API_TOKEN_BLOCK_NAME, validate=False).get(),
         }
     env["DANDI_DEVEL"] = "1"
-    command = f"{dandi_bin} upload "
+    command = f"{shlex.quote(dandi_bin)} upload "
     if dandi_instance != "dandi":
-        command += f"-i {dandi_instance} "
+        command += f"-i {shlex.quote(dandi_instance)} "
     command += (
-        f"{file_path} -J 10:10 --allow-any-path --existing overwrite --validation skip"
+        f"{shlex.quote(file_path)} -J 10:10 --allow-any-path --existing overwrite --validation skip"
     )
     logger.info(command)
     with ShellOperation(
@@ -57,77 +65,68 @@ def upload_strip_to_dandi_flow(
     Upload the strip to DANDI.
     """
     logger = get_run_logger()
-    logger.info("Uploading %s to DANDI", strip_ident)
+    logger.info(f"Uploading {strip_ident} to DANDI")
     strip_view = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
-    if strip_view is not None and strip_view.uploaded:
-        if not force_rerun:
-            logger.info(
-                "%s already marked uploaded; skipping upload because force_rerun is False",
-                strip_ident,
-            )
-            return
-        else:
-            logger.info("%s already marked uploaded; forcing rerun", strip_ident)
-    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        strip_state.reset_uploaded()
+    uploaded = bool(strip_view and strip_view.uploaded)
+    if (
+        prepare_idempotent_strip_milestone(
+            logger,
+            milestone_done=uploaded,
+            force_rerun=force_rerun,
+            skip_log=(
+                f"{strip_ident} already marked uploaded; skipping upload because force_rerun is False"
+            ),
+            force_log=f"{strip_ident} already marked uploaded; forcing rerun",
+            strip_ident=strip_ident,
+            reset_strip=lambda s: s.reset_uploaded(),
+        )
+        == "skip"
+    ):
+        return
     upload_to_dandi_task(output_path, dandi_instance, dandi_bin)
     with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
         strip_state.set_uploaded(True)
-    logger.info(
-        "Successfully uploaded %s to DANDI",
-        strip_ident,
-    )
+    logger.info(f"Successfully uploaded {strip_ident} to DANDI")
 
 
-def resolve_config(payload: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
+def resolve_config(
+    payload: Dict[str, Any], keys: List[str]
+) -> tuple[Dict[str, Any], LSMScanConfig]:
     """
     Resolve configuration values from payload and project config.
 
     Priority: payload[key] → project_config.key → omit key
 
-    Does not apply defaults - defaults must be in processing flow signature.
-
-    Parameters
-    ----------
-    payload : Dict[str, Any]
-        Event payload dictionary (must contain "project_name")
-    keys : List[str]
-        List of configuration keys to resolve
-
-    Returns
-    -------
-    Dict[str, Any]
-        Dictionary with resolved configuration values (only keys that were found)
+    Returns resolved dict and the loaded scan config (single load per call).
     """
-    project_name = payload["project_name"]
-    project_config = LSMScanConfig.load(f"{project_name}-lsm-config")
-
-    resolved = {}
+    strip_ident = strip_ident_from_payload(payload)
+    project_name = strip_ident.project_name
+    cfg = get_lsm_scan_config(
+        project_name, override_config_name=payload.get("override_config")
+    )
+    resolved: Dict[str, Any] = {}
     for key in keys:
         if key in payload:
-            value = payload[key]
-        elif project_config is not None and hasattr(project_config, key):
-            value = getattr(project_config, key)
-        else:
-            continue  # Omit key if not found
-    return resolved
+            resolved[key] = payload[key]
+        elif hasattr(cfg, key):
+            resolved[key] = getattr(cfg, key)
+    return resolved, cfg
 
 
 @flow
 def upload_strip_to_dandi_event_flow(payload: Dict[str, Any]) -> None:
     """
     Event wrapper flow for uploading the strip to DANDI.
+
+    Payload requires ``strip_ident`` (dict); zarr path is derived from config.
     """
-    config = resolve_config(payload, ["dandi_instance", "dandi_bin"])
-    strip_ident = LSMStripId(
-        project_name=payload["project_name"],
-        slice_id=payload["slice_id"],
-        strip_id=payload["strip_id"],
-        channel_id=payload.get("camera_id") or payload.get("channel_id") or 1,
-    )
+    strip_ident = strip_ident_from_payload(payload)
+    config, cfg = resolve_config(payload, ["dandi_instance", "dandi_bin"])
+    output_path = strip_zarr_output_path(strip_ident, cfg)
     return upload_strip_to_dandi_flow(
         strip_ident=strip_ident,
-        output_path=payload["output_path"],
+        output_path=output_path,
+        force_rerun=force_rerun_from_payload(payload),
         **config,
     )
 

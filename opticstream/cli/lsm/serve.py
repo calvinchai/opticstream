@@ -3,11 +3,12 @@ from __future__ import annotations
 import prefect
 
 from opticstream.cli.lsm.cli import lsm_cli
-from opticstream.flows.lsm.process_strip_flow import process_strip_event, process_strip
-from opticstream.flows.lsm.upload_strip_flow import (
+from opticstream.flows.lsm import (
+    lsm_strip_update_event_flow_deployment,
     upload_strip_to_dandi_event_flow_deployment,
     upload_strip_to_dandi_flow_deployment,
 )
+from opticstream.flows.lsm.strip_process_flow import process_strip, process_strip_event
 
 
 @lsm_cli.command
@@ -31,5 +32,6 @@ def serve(
         process_strip_event_flow_deployment,
         upload_strip_to_dandi_flow_deployment,
         upload_strip_to_dandi_event_flow_deployment,
+        lsm_strip_update_event_flow_deployment,
     )
 
