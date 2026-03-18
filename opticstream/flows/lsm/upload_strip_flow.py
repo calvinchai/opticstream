@@ -7,7 +7,7 @@ from prefect_shell import ShellOperation
 from opticstream.config.lsm_scan_config import LSMScanConfig
 from opticstream.events import get_event_trigger
 from opticstream.flows.lsm.event import STRIP_COMPRESSED
-from opticstream.state.lsm_project_state import LSMStripId
+from opticstream.state.lsm_project_state import LSM_STATE_SERVICE, LSMStripId
 from opticstream.config.constants import DANDI_API_TOKEN_BLOCK_NAME, LINC_API_TOKEN_BLOCK_NAME
 
 @task(tags=["dandi-upload"], retries=1)
@@ -51,13 +51,28 @@ def upload_strip_to_dandi_flow(
     output_path: str,
     dandi_instance: str = "linc",
     dandi_bin: str = "dandi",
+    force_rerun: bool = False,
 ) -> None:
     """
     Upload the strip to DANDI.
     """
     logger = get_run_logger()
     logger.info("Uploading %s to DANDI", strip_ident)
+    strip_view = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
+    if strip_view is not None and strip_view.uploaded:
+        if not force_rerun:
+            logger.info(
+                "%s already marked uploaded; skipping upload because force_rerun is False",
+                strip_ident,
+            )
+            return
+        else:
+            logger.info("%s already marked uploaded; forcing rerun", strip_ident)
+    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
+        strip_state.reset_uploaded()
     upload_to_dandi_task(output_path, dandi_instance, dandi_bin)
+    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
+        strip_state.set_uploaded(True)
     logger.info(
         "Successfully uploaded %s to DANDI",
         strip_ident,
@@ -116,15 +131,16 @@ def upload_strip_to_dandi_event_flow(payload: Dict[str, Any]) -> None:
         **config,
     )
 
-
-upload_strip_to_dandi_flow_deployment = upload_strip_to_dandi_flow.to_deployment(
-    name="upload_strip_to_dandi_flow"
-)
-upload_strip_to_dandi_event_flow_deployment = (
-    upload_strip_to_dandi_event_flow.to_deployment(
-        name="upload_strip_to_dandi_event_flow",
-        triggers=[
-            get_event_trigger(STRIP_COMPRESSED),
-        ],
+def to_deployment():
+    upload_strip_to_dandi_flow_deployment = upload_strip_to_dandi_flow.to_deployment(
+        name="upload_strip_to_dandi_flow"
     )
-)
+    upload_strip_to_dandi_event_flow_deployment = (
+        upload_strip_to_dandi_event_flow.to_deployment(
+            name="upload_strip_to_dandi_event_flow",
+            triggers=[
+                get_event_trigger(STRIP_COMPRESSED),
+            ],
+        )
+    )
+    return upload_strip_to_dandi_flow_deployment, upload_strip_to_dandi_event_flow_deployment

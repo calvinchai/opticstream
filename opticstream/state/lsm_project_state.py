@@ -125,6 +125,18 @@ class LSMStripState(LSMStateMutationsMixin, LSMStripStateView, ToViewMixin[LSMSt
         self.uploaded = value
         self.touch()
 
+    def reset_compressed(self) -> None:
+        self.compressed = False
+        self.uploaded = False
+        self.touch()
+
+    def reset_uploaded(self) -> None:
+        self.uploaded = False
+        self.touch()
+    
+    def reset_archived(self) -> None:
+        self.archived = False
+        self.touch()
 
 class LSMChannelStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
