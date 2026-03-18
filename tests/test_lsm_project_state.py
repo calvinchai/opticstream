@@ -1,4 +1,3 @@
-import time
 from contextlib import contextmanager
 from datetime import datetime
 
@@ -6,11 +5,14 @@ import pytest
 from pydantic import ValidationError
 
 from opticstream.state.lsm_project_state import (
+    LSMChannelId,
     LSMChannelState,
     LSMChannelStateView,
+    LSMProjectId,
     LSMProjectState,
     LSMProjectStateService,
     LSMProjectStateView,
+    LSMSliceId,
     LSMSliceState,
     LSMSliceStateView,
     LSMStateView,
@@ -46,9 +48,9 @@ def state_service() -> LSMProjectStateService:
                 self._states[project_name] = LSMProjectState()
             return self._states[project_name]
 
-        def save(self, state: LSMProjectState) -> None:  # pragma: no cover - no-op
+        def save(self, project_name: str, state: LSMProjectState) -> None:  # pragma: no cover - no-op
             # The state objects are kept by reference in _states; nothing to do.
-            return None
+            self._states[project_name] = state
 
     class DummyLock:
         @contextmanager
@@ -69,7 +71,7 @@ def real_state_service() -> LSMProjectStateService:
     fixed_project_name = "pytest"
 
     class TestPrefectRepository(PrefectVariableProjectStateRepository[LSMProjectState]):
-        def save(self, state: LSMProjectState) -> None:  # type: ignore[override]
+        def save(self, project_name: str, state: LSMProjectState) -> None:  # type: ignore[override]
             key = self._key_fn(fixed_project_name)
             Variable.set(key, state.model_dump(mode="json"), overwrite=True)
 
@@ -143,8 +145,8 @@ def test_strip_channel_slice_project_hierarchy_identity():
     assert project.slices[1].channels[1] is chan_first
 
     # get_or_create_strip threads through channel
-    strip_first = project.get_or_create_strip(1, 1, channel_id=1)
-    strip_second = project.get_or_create_strip(1, 1, channel_id=1)
+    strip_first = project.get_or_create_strip_by_parts(1, 1, channel_id=1)
+    strip_second = project.get_or_create_strip_by_parts(1, 1, channel_id=1)
     assert strip_first is strip_second
     assert isinstance(strip_first, LSMStripState)
     assert project.slices[1].channels[1].strips[1] is strip_first
@@ -169,7 +171,7 @@ def test_completion_helpers_across_hierarchy():
     # Channel-level all_finished
     channel = LSMChannelState(slice_id=1, channel_id=1)
     # total_strips = 2, but initially none are present
-    assert channel.to_view().all_finished(total_strips=2) is False
+    assert channel.to_view().all_completed(total_strips=2) is False
 
     s1 = channel.get_or_create_strip(1)
     s2 = channel.get_or_create_strip(2)
@@ -192,7 +194,7 @@ def test_completion_helpers_across_hierarchy():
     slice_view = slice_state.to_view()
     assert 1 in slice_view.channels
     channel_view_from_slice = slice_view.channels[1]
-    assert channel_view_from_slice.all_finished(total_strips=2) is True
+    assert channel_view_from_slice.all_completed(total_strips=2) is True
 
     # Project-level helpers: similar to slice-level, the project aggregates the
     # slice.finished flag. We only require that the slice hierarchy is present
@@ -204,33 +206,35 @@ def test_completion_helpers_across_hierarchy():
     slice_view_from_project = project_view.slices[1]
     assert 1 in slice_view_from_project.channels
     channel_view_from_project = slice_view_from_project.channels[1]
-    assert channel_view_from_project.all_finished(total_strips=2) is True
+    assert channel_view_from_project.all_completed(total_strips=2) is True
 
 
 def test_project_view_lookup_and_iteration_helpers():
     project = LSMProjectState()
-    strip = project.get_or_create_strip(slice_id=1, strip_id=1, channel_id=2)
+    strip = project.get_or_create_strip_by_parts(slice_id=1, strip_id=1, channel_id=2)
     strip.mark_started()
 
     view = project.to_view()
 
     # get_strip and get_strip_by_id happy path
-    by_coords = view.get_strip(slice_id=1, strip_id=1, channel_id=2)
+    by_coords = view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=2)
     assert by_coords is not None
     assert by_coords.slice_id == 1
     assert by_coords.strip_id == 1
     assert by_coords.channel_id == 2
 
-    by_id = view.get_strip_by_id(LSMStripId(slice_id=1, strip_id=1, channel_id=2))
+    by_id = view.get_strip(
+        LSMStripId(project_name="test", slice_id=1, channel_id=2, strip_id=1)
+    )
     assert by_id is not None
     assert by_id.slice_id == 1
     assert by_id.strip_id == 1
     assert by_id.channel_id == 2
 
     # Missing entities should return None
-    assert view.get_strip(slice_id=2, strip_id=1, channel_id=2) is None
-    assert view.get_strip(slice_id=1, strip_id=2, channel_id=2) is None
-    assert view.get_strip(slice_id=1, strip_id=1, channel_id=3) is None
+    assert view.get_strip_by_parts(slice_id=2, strip_id=1, channel_id=2) is None
+    assert view.get_strip_by_parts(slice_id=1, strip_id=2, channel_id=2) is None
+    assert view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=3) is None
 
     # iter_strips should see our single strip
     strips = list(view.iter_strips())
@@ -242,17 +246,17 @@ def test_project_view_lookup_and_iteration_helpers():
 
 
 def test_default_channel_behaviour_in_strip_id_and_helpers():
-    strip_id = LSMStripId(slice_id=1, strip_id=2)
+    strip_id = LSMStripId(project_name="test", slice_id=1, channel_id=1, strip_id=2)
     assert strip_id.channel_id == 1
 
     project = LSMProjectState()
-    strip = project.get_or_create_strip_by_id(strip_id)
+    strip = project.get_or_create_strip(strip_id)
     assert strip.slice_id == 1
     assert strip.strip_id == 2
     assert strip.channel_id == 1
 
     view = project.to_view()
-    looked_up = view.get_strip_by_id(strip_id)
+    looked_up = view.get_strip(strip_id)
     assert looked_up is not None
     assert looked_up.slice_id == 1
     assert looked_up.channel_id == 1
@@ -260,7 +264,7 @@ def test_default_channel_behaviour_in_strip_id_and_helpers():
 
 def test_pydantic_validation_boundaries():
     with pytest.raises(ValidationError):
-        LSMStripId(slice_id=-1, strip_id=0, channel_id=1)
+        LSMStripId(project_name="test", slice_id=-1, channel_id=1, strip_id=0)
 
     with pytest.raises(ValidationError):
         LSMStripState(slice_id=-1, strip_id=0, channel_id=1)
@@ -282,28 +286,30 @@ def test_naming_helpers_and_ensure_lock_do_not_crash(project_name: str):
 
 
 def test_service_open_and_read_round_trip(project_name: str, state_service: LSMProjectStateService):
-    with state_service.open_project(project_name) as project:
+    project_ident = LSMProjectId(project_name=project_name)
+    with state_service.open_project(project_ident) as project:
         assert isinstance(project, LSMProjectState)
-        strip = project.get_or_create_strip(slice_id=1, strip_id=1, channel_id=1)
+        strip = project.get_or_create_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
         strip.mark_completed()
 
-    project_view = state_service.read_project(project_name)
+    project_view = state_service.read_project(project_ident)
     assert isinstance(project_view, LSMProjectStateView)
-    strip_view = project_view.get_strip(slice_id=1, strip_id=1, channel_id=1)
+    strip_view = project_view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
     assert strip_view is not None
     assert strip_view.processing_state == ProcessingState.COMPLETED
 
 
 @pytest.mark.integration
 def test_real_prefect_store_open_and_read_round_trip(real_state_service: LSMProjectStateService):
-    with real_state_service.open_project("pytest") as project:
+    project_ident = LSMProjectId(project_name="pytest")
+    with real_state_service.open_project(project_ident) as project:
         assert isinstance(project, LSMProjectState)
-        strip = project.get_or_create_strip(slice_id=1, strip_id=1, channel_id=1)
+        strip = project.get_or_create_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
         strip.mark_completed()
 
-    project_view = real_state_service.read_project("pytest")
+    project_view = real_state_service.read_project(project_ident)
     assert isinstance(project_view, LSMProjectStateView)
-    strip_view = project_view.get_strip(slice_id=1, strip_id=1, channel_id=1)
+    strip_view = project_view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
     assert strip_view is not None
     assert strip_view.processing_state == ProcessingState.COMPLETED
 
@@ -311,34 +317,49 @@ def test_real_prefect_store_open_and_read_round_trip(real_state_service: LSMProj
 def test_service_open_slice_channel_strip_create_and_persist(
     project_name: str, state_service: LSMProjectStateService
 ):
-    with state_service.open_slice(project_name, slice_id=1) as slice_state:
+    slice_ident = LSMSliceId(project_name=project_name, slice_id=1)
+    with state_service.open_slice(slice_ident) as slice_state:
         assert isinstance(slice_state, LSMSliceState)
         chan = slice_state.get_or_create_channel(1)
         strip = chan.get_or_create_strip(1)
         strip.set_uploaded(True)
 
     # open_channel should see existing state and allow further mutation
-    with state_service.open_channel(project_name, slice_id=1, channel_id=1) as channel:
+    channel_ident = LSMChannelId(project_name=project_name, slice_id=1, channel_id=1)
+    with state_service.open_channel(channel_ident) as channel:
         assert isinstance(channel, LSMChannelState)
         strip = channel.get_or_create_strip(1)
-        strip.set_backed_up(True)
+        strip.set_archived(True)
 
     # open_strip on a non-existent strip should create it
-    with state_service.open_strip(project_name, slice_id=1, strip_id=2, channel_id=1) as strip2:
+    strip_ident = LSMStripId(
+        project_name=project_name,
+        slice_id=1,
+        channel_id=1,
+        strip_id=2,
+    )
+    with state_service.open_strip(strip_ident) as strip2:
         assert isinstance(strip2, LSMStripState)
         strip2.set_compressed(True)
 
     # Verify persisted state via read_* views
-    slice_view = state_service.read_slice(project_name, slice_id=1)
+    slice_view = state_service.read_slice(slice_ident)
     assert isinstance(slice_view, LSMSliceStateView)
-    channel_view = state_service.read_channel(project_name, slice_id=1, channel_id=1)
+    channel_view = state_service.read_channel(channel_ident)
     assert isinstance(channel_view, LSMChannelStateView)
-    strip1_view = state_service.read_strip(project_name, slice_id=1, strip_id=1, channel_id=1)
-    strip2_view = state_service.read_strip(project_name, slice_id=1, strip_id=2, channel_id=1)
+    strip1_ident = LSMStripId(
+        project_name=project_name,
+        slice_id=1,
+        channel_id=1,
+        strip_id=1,
+    )
+    strip2_ident = strip_ident
+    strip1_view = state_service.read_strip(strip1_ident)
+    strip2_view = state_service.read_strip(strip2_ident)
 
     assert strip1_view is not None
     assert strip1_view.uploaded is True
-    assert strip1_view.backed_up is True
+    assert strip1_view.archived is True
 
     assert strip2_view is not None
     assert strip2_view.compressed is True
@@ -347,20 +368,23 @@ def test_service_open_slice_channel_strip_create_and_persist(
 @pytest.mark.integration
 def test_real_prefect_store_read_and_peek(real_state_service: LSMProjectStateService):
     # Mutate state under the real Prefect-backed store.
-    with real_state_service.open_strip(
-        "pytest", slice_id=2, strip_id=3, channel_id=1
-    ) as strip:
+    strip_ident = LSMStripId(
+        project_name="pytest",
+        slice_id=2,
+        channel_id=1,
+        strip_id=3,
+    )
+    with real_state_service.open_strip(strip_ident) as strip:
         strip.mark_started()
 
-    strip_view = real_state_service.read_strip(
-        "pytest", slice_id=2, strip_id=3, channel_id=1
-    )
+    strip_view = real_state_service.read_strip(strip_ident)
     assert strip_view is not None
     assert strip_view.processing_state == ProcessingState.RUNNING
 
-    peek_view = real_state_service.peek_project("pytest")
+    project_ident = LSMProjectId(project_name="pytest")
+    peek_view = real_state_service.peek_project(project_ident)
     assert isinstance(peek_view, LSMProjectStateView)
-    peek_strip = peek_view.get_strip(slice_id=2, strip_id=3, channel_id=1)
+    peek_strip = peek_view.get_strip_by_parts(slice_id=2, strip_id=3, channel_id=1)
     assert peek_strip is not None
     assert peek_strip.processing_state == ProcessingState.RUNNING
 
@@ -369,26 +393,36 @@ def test_service_read_and_peek_missing_entities_return_none(
     project_name: str, state_service: LSMProjectStateService
 ):
     # Seed an empty project by a read; this should not create any slices/channels/strips.
-    empty_view = state_service.read_project(project_name)
+    project_ident = LSMProjectId(project_name=project_name)
+    empty_view = state_service.read_project(project_ident)
     assert isinstance(empty_view, LSMProjectStateView)
 
-    assert state_service.read_slice(project_name, slice_id=1) is None
-    assert state_service.read_channel(project_name, slice_id=1, channel_id=1) is None
-    assert state_service.read_strip(project_name, slice_id=1, strip_id=1, channel_id=1) is None
+    slice_ident = LSMSliceId(project_name=project_name, slice_id=1)
+    channel_ident = LSMChannelId(project_name=project_name, slice_id=1, channel_id=1)
+    strip_ident = LSMStripId(
+        project_name=project_name,
+        slice_id=1,
+        channel_id=1,
+        strip_id=1,
+    )
 
-    assert state_service.peek_slice(project_name, slice_id=1) is None
-    assert state_service.peek_channel(project_name, slice_id=1, channel_id=1) is None
-    assert state_service.peek_strip(project_name, slice_id=1, strip_id=1, channel_id=1) is None
+    assert state_service.read_slice(slice_ident) is None
+    assert state_service.read_channel(channel_ident) is None
+    assert state_service.read_strip(strip_ident) is None
+
+    assert state_service.peek_slice(slice_ident) is None
+    assert state_service.peek_channel(channel_ident) is None
+    assert state_service.peek_strip(strip_ident) is None
 
     # After mutating via open_project, peek_project should reflect the latest
     # state without further modification.
-    with state_service.open_project(project_name) as project:
-        strip = project.get_or_create_strip(slice_id=1, strip_id=1, channel_id=1)
+    with state_service.open_project(project_ident) as project:
+        strip = project.get_or_create_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
         strip.mark_started()
 
-    peek_view = state_service.peek_project(project_name)
+    peek_view = state_service.peek_project(project_ident)
     assert isinstance(peek_view, LSMProjectStateView)
-    strip_view = peek_view.get_strip(slice_id=1, strip_id=1, channel_id=1)
+    strip_view = peek_view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
     assert strip_view is not None
     assert strip_view.processing_state == ProcessingState.RUNNING
 

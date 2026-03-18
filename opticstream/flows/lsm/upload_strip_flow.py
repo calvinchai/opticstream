@@ -7,7 +7,8 @@ from prefect_shell import ShellOperation
 from opticstream.config.lsm_scan_config import LSMScanConfig
 from opticstream.events import get_event_trigger
 from opticstream.flows.lsm.event import STRIP_COMPRESSED
-
+from opticstream.state.lsm_project_state import LSMStripId
+from opticstream.config.constants import DANDI_API_TOKEN_BLOCK_NAME, LINC_API_TOKEN_BLOCK_NAME
 
 @task(tags=["dandi-upload"], retries=1)
 def upload_to_dandi_task(
@@ -19,12 +20,12 @@ def upload_to_dandi_task(
     logger = get_run_logger()
     if dandi_instance == "linc":
         env = {
-            "LINC_API_KEY": Secret.load("linc-api-key", validate=False).get(),
-            "DANDI_API_KEY": Secret.load("linc-api-key", validate=False).get(),
+            "LINC_API_KEY": Secret.load(LINC_API_TOKEN_BLOCK_NAME, validate=False).get(),
+            "DANDI_API_KEY": Secret.load(LINC_API_TOKEN_BLOCK_NAME, validate=False).get(),
         }
     elif dandi_instance == "dandi":
         env = {
-            "DANDI_API_KEY": Secret.load("dandi-api-key", validate=False).get(),
+            "DANDI_API_KEY": Secret.load(DANDI_API_TOKEN_BLOCK_NAME, validate=False).get(),
         }
     env["DANDI_DEVEL"] = "1"
     command = f"{dandi_bin} upload "
@@ -44,15 +45,10 @@ def upload_to_dandi_task(
         logger.info(upload_operation_process.fetch_result())
 
 
-@flow(
-    flow_run_name="{project_name}-process-slice-{slice_number}-strip-{strip_number}-camera-{camera_id}-upload-to-dandi"
-)
+@flow(flow_run_name="upload-to-dandi-{strip_ident}")
 def upload_strip_to_dandi_flow(
-    project_name: str,
-    slice_number: int,
-    strip_number: int,
+    strip_ident: LSMStripId,
     output_path: str,
-    camera_id: int,
     dandi_instance: str = "linc",
     dandi_bin: str = "dandi",
 ) -> None:
@@ -60,10 +56,11 @@ def upload_strip_to_dandi_flow(
     Upload the strip to DANDI.
     """
     logger = get_run_logger()
-    logger.info(f"Uploading strip {strip_number} of slice {slice_number} to DANDI")
+    logger.info("Uploading %s to DANDI", strip_ident)
     upload_to_dandi_task(output_path, dandi_instance, dandi_bin)
     logger.info(
-        f"Successfully uploaded strip {strip_number} of slice {slice_number} to DANDI"
+        "Successfully uploaded %s to DANDI",
+        strip_ident,
     )
 
 
@@ -106,11 +103,16 @@ def upload_strip_to_dandi_event_flow(payload: Dict[str, Any]) -> None:
     """
     Event wrapper flow for uploading the strip to DANDI.
     """
-    # config = resolve_config(payload, ["dandi_instance", "dandi_bin"])
-    config = payload
-    payload["dandi_instance"] = "linc"
-    payload["dandi_bin"] = "dandi"
+    config = resolve_config(payload, ["dandi_instance", "dandi_bin"])
+    strip_ident = LSMStripId(
+        project_name=payload["project_name"],
+        slice_id=payload["slice_id"],
+        strip_id=payload["strip_id"],
+        channel_id=payload.get("camera_id") or payload.get("channel_id") or 1,
+    )
     return upload_strip_to_dandi_flow(
+        strip_ident=strip_ident,
+        output_path=payload["output_path"],
         **config,
     )
 

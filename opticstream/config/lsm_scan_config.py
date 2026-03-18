@@ -4,14 +4,7 @@ from niizarr import ZarrConfig
 from prefect.blocks.core import Block
 from pydantic import BaseModel, Field
 
-def with_positions(cls: type[BaseModel]) -> type[BaseModel]:
-    # Make sure model_fields is built
-    cls.model_rebuild()
-    for i, (name, field) in enumerate(cls.model_fields.items()):
-        extra = dict(field.json_schema_extra or {})
-        extra["position"] = i
-        field.json_schema_extra = extra
-    return cls
+from opticstream.config.utils import with_positions
 
 @with_positions
 class LSMScanConfigModel(BaseModel):

@@ -8,10 +8,11 @@ See: https://docs.prefect.io/v3/concepts/blocks
 """
 from typing import List, Optional
 from enum import Enum
-
 from niizarr import ZarrConfig
 from prefect.blocks.core import Block
+from pydantic import BaseModel
 
+from opticstream.config.utils import with_positions
 
 class TileSavingType(str, Enum):
     """
@@ -20,9 +21,10 @@ class TileSavingType(str, Enum):
 
     COMPLEX = "complex"
     SPECTRAL = "spectral"
+    
 
-
-class PSOCTScanConfig(Block):
+@with_positions
+class PSOCTScanConfigModel(BaseModel):
     """
     Project-level configuration block.
 
@@ -53,8 +55,6 @@ class PSOCTScanConfig(Block):
     crop_focus_plane_offset : int, optional
         Focus-plane crop offset for 3D volume stitching (default: 30)
     """
-
-    zarr_config: ZarrConfig
 
     project_base_path: str
     grid_size_x_normal: int
@@ -91,4 +91,15 @@ class PSOCTScanConfig(Block):
     crop_focus_plane_depth: int = 700  # depth of the cropped volume
     crop_focus_plane_offset: int = 0 # offset from the focus plane to crop the volume
     matlab_root: Optional[str] = None  # Optional override for MATLAB toolbox root (defaults to psoct_toolbox.get_matlab_root())
-# PSOCTScanConfig.register_type_and_schema()
+    # enface_opts: EnfaceOpts 
+    zarr_config: ZarrConfig
+
+class PSOCTScanConfig(PSOCTScanConfigModel, Block):
+    """
+    Project-level configuration block.
+
+    Stores all project-specific parameters needed for processing workflows.
+    Block instances should be saved with name: "{project_name}-config"
+    """
+
+    # PSOCTScanConfig.register_type_and_schema()

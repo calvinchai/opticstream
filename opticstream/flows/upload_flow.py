@@ -12,14 +12,11 @@ from opticstream.events import (
     MOSAIC_VOLUME_STITCHED,
     get_event_trigger,
 )
-from opticstream.state import UPLOADED, get_batch_flag_path
+from opticstream.state.oct_project_state import OCT_STATE_SERVICE
 from opticstream.tasks.common_tasks import (
     upload_to_dandi_task,
     upload_to_linc_batch_task,
     upload_to_linc_task,
-)
-from opticstream.utils.utils import (
-    get_mosaic_paths,
 )
 
 
@@ -49,14 +46,6 @@ def upload_to_linc_batch_flow(
     payload. Emits 'linc.oct.batch.uploaded' event upon completion.
     """
     logger = get_run_logger()
-    # Use slice-based structure
-    _, _, _, state_path = get_mosaic_paths(project_base_path, mosaic_id)
-    state_path.mkdir(parents=True, exist_ok=True)
-
-    batch_uploaded_path = get_batch_flag_path(state_path, batch_id, UPLOADED)
-    if batch_uploaded_path.exists():
-        logger.info(f"Batch {batch_id} already uploaded")
-        return
 
     if not archived_file_paths:
         logger.warning(
@@ -72,8 +61,14 @@ def upload_to_linc_batch_flow(
     # Run upload_to_linc_batch_task with the file list from event payload
     upload_to_linc_batch_task(file_list=archived_file_paths)
 
-    # Mark batch as uploaded
-    batch_uploaded_path.touch()
+    # Mark batch as uploaded in OCT project state
+    with OCT_STATE_SERVICE.open_batch(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+        batch_id=batch_id,
+    ) as batch_state:
+        batch_state.set_uploaded(True)
+
     logger.info(f"Batch {batch_id} uploaded successfully")
 
     # Emit upload completion event (per Section 6.2)
@@ -155,6 +150,13 @@ def upload_mosaic_enface_to_dandi_flow(
     upload_to_linc_batch_task(file_list=list(enface_outputs.values()), realpath=False)
     logger.info(f"Successfully uploaded enface files for mosaic {mosaic_id} to DANDI")
 
+    # Mark enface outputs as uploaded in OCT project state
+    with OCT_STATE_SERVICE.open_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    ) as mosaic_state:
+        mosaic_state.set_enface_uploaded(True)
+
     return {
         "mosaic_id": mosaic_id,
         "uploaded": True,
@@ -224,6 +226,13 @@ def upload_mosaic_volume_to_dandi_flow(
 
     upload_to_linc_batch_task(file_list=file_paths, realpath=False)
     logger.info(f"Successfully uploaded volume files for mosaic {mosaic_id} to DANDI")
+
+    # Mark volume outputs as uploaded in OCT project state
+    with OCT_STATE_SERVICE.open_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    ) as mosaic_state:
+        mosaic_state.set_volume_uploaded(True)
 
 
 @flow

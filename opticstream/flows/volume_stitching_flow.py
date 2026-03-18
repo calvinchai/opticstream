@@ -24,6 +24,7 @@ from opticstream.config.project_config import (
 from opticstream.events import MOSAIC_STITCHED, MOSAIC_VOLUME_STITCHED
 from opticstream.events.utils import emit_mosaic_event
 from opticstream.flows.mosaic_processing_flow import generate_tile_info_file_task
+from opticstream.state.oct_project_state import OCT_STATE_SERVICE
 from opticstream.utils.utils import (
     get_dandi_slice_path,
     get_modality_stitching_filename,
@@ -347,6 +348,13 @@ def stitch_volume_flow(
             "volume_outputs": {mod: str(path) for mod, path in volume_outputs.items()},
         },
     )
+
+    # Update OCT project state for this mosaic
+    with OCT_STATE_SERVICE.open_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    ) as mosaic_state:
+        mosaic_state.set_volume_stitched(True)
 
     return volume_outputs
 

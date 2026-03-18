@@ -7,7 +7,6 @@ from typing import Annotated, List, Optional, Sequence
 
 from cyclopts import Parameter
 from prefect import get_client
-from prefect.client.schemas import StateType
 from prefect.client.schemas.filters import (
     FlowRunFilter,
     FlowRunFilterExpectedStartTime,

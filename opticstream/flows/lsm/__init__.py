@@ -8,7 +8,7 @@ Submodules:
 
 from opticstream.flows.lsm.process_strip_flow import (
     process_strip_event,
-    process_strip_flow,
+    process_strip,
 )
 from opticstream.flows.lsm.upload_strip_flow import (
     upload_strip_to_dandi_event_flow_deployment,
@@ -17,7 +17,7 @@ from opticstream.flows.lsm.upload_strip_flow import (
 
 __all__ = [
     "process_strip_event",
-    "process_strip_flow",
+    "process_strip",
     "upload_strip_to_dandi_event_flow_deployment",
     "upload_strip_to_dandi_flow_deployment",
 ]

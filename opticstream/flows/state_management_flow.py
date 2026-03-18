@@ -6,7 +6,6 @@ at different levels: batch, mosaic, and slice.
 """
 
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from prefect import flow, task
@@ -22,8 +21,10 @@ from opticstream.events import (
     SLICE_READY,
     get_event_trigger,
 )
-from opticstream.state import MosaicState, SliceState
-from opticstream.utils.utils import get_mosaic_paths
+from opticstream.state.oct_project_state import (
+    OCT_STATE_SERVICE,
+)
+from opticstream.state.project_state_core import ProcessingState
 
 
 @task(task_run_name="{project_name}-mosaic-{mosaic_id}-check-batch-state")
@@ -55,14 +56,43 @@ def check_batch_state_task(
         - uploaded_batches: Number of batches uploaded
     """
     logger = get_run_logger()
-    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name)
 
-    if mosaic_state.total_batches == 0:
-        logger.warning(
-            f"No batches found for mosaic {mosaic_id} at {mosaic_state.state_path}"
-        )
+    if project_name is None:
+        raise ValueError("project_name is required for OCT project state access")
 
-    return mosaic_state.to_dict()
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    )
+    if mosaic_view is None:
+        logger.warning(f"No OCT state found for mosaic {mosaic_id} in project {project_name}")
+        return {
+            "total_batches": 0,
+            "started_batches": 0,
+            "archived_batches": 0,
+            "processed_batches": 0,
+            "uploaded_batches": 0,
+        }
+
+    batches = list(mosaic_view.batches.values())
+    total_batches = len(batches)
+    started_batches = sum(
+        1 for b in batches if b.processing_state != ProcessingState.PENDING
+    )
+    archived_batches = sum(1 for b in batches if b.archived)
+    processed_batches = sum(1 for b in batches if b.processed)
+    uploaded_batches = sum(1 for b in batches if b.uploaded)
+
+    if total_batches == 0:
+        logger.warning(f"No batches found in OCT state for mosaic {mosaic_id}")
+
+    return {
+        "total_batches": total_batches,
+        "started_batches": started_batches,
+        "archived_batches": archived_batches,
+        "processed_batches": processed_batches,
+        "uploaded_batches": uploaded_batches,
+    }
 
 
 @task(task_run_name="{project_name}-mosaic-{mosaic_id}-update-artifact")
@@ -93,14 +123,25 @@ def update_mosaic_artifact_task(
     """
     logger = get_run_logger()
 
-    # Always recover state from flag files (authoritative source)
-    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name)
+    if project_name is None:
+        raise ValueError("project_name is required for OCT project state access")
 
-    total_batches = mosaic_state.total_batches
-    processed_batches = mosaic_state.processed_batches
-    archived_batches = mosaic_state.archived_batches
-    uploaded_batches = mosaic_state.uploaded_batches
-    progress_percentage = mosaic_state.get_progress_percentage()
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    )
+    if mosaic_view is None:
+        logger.warning(f"No OCT state found for mosaic {mosaic_id} in project {project_name}")
+        return ""
+
+    batches = list(mosaic_view.batches.values())
+    total_batches = len(batches)
+    processed_batches = sum(1 for b in batches if b.processed)
+    archived_batches = sum(1 for b in batches if b.archived)
+    uploaded_batches = sum(1 for b in batches if b.uploaded)
+    progress_percentage = (
+        processed_batches / total_batches * 100 if total_batches > 0 else 0.0
+    )
 
     # Create table artifact with progress information
     artifact_key = (
@@ -109,7 +150,13 @@ def update_mosaic_artifact_task(
 
     # Calculate percentages
     started_pct = (
-        (mosaic_state.started_batches / total_batches * 100)
+        (
+            sum(
+                1 for b in batches if b.processing_state != ProcessingState.PENDING
+            )
+            / total_batches
+            * 100
+        )
         if total_batches > 0
         else 0.0
     )
@@ -125,7 +172,9 @@ def update_mosaic_artifact_task(
         {"State": "Total Batches", "Count": total_batches, "Percentage": "100.0%"},
         {
             "State": "Started",
-            "Count": mosaic_state.started_batches,
+            "Count": sum(
+                1 for b in batches if b.processing_state != ProcessingState.PENDING
+            ),
             "Percentage": f"{started_pct:.1f}%",
         },
         {
@@ -147,7 +196,7 @@ def update_mosaic_artifact_task(
 
     status_text = (
         "✅ COMPLETE - All batches processed"
-        if mosaic_state.is_complete()
+        if total_batches > 0 and processed_batches == total_batches
         else "⏳ IN PROGRESS - Processing batches..."
     )
     milestones = [
@@ -210,64 +259,40 @@ def update_project_mosaic_artifact_task(
     """
     logger = get_run_logger()
 
-    # Discover all mosaics by scanning for mosaic-*/state directories
-    project_path = Path(project_base_path)
-    if not project_path.exists():
-        logger.warning(f"Project base path does not exist: {project_base_path}")
-        return ""
-
-    # Find all mosaic directories
-    mosaic_dirs = list(project_path.glob("mosaic-*/state"))
-    mosaic_ids = []
-
-    for mosaic_dir in mosaic_dirs:
-        # Extract mosaic ID from directory name (e.g., "mosaic-001" -> 1)
-        try:
-            mosaic_id_str = mosaic_dir.parent.name.replace("mosaic-", "")
-            mosaic_id = int(mosaic_id_str)
-            mosaic_ids.append(mosaic_id)
-        except (ValueError, AttributeError):
-            # Skip invalid directory names
-            continue
-
-    # Sort mosaic IDs
-    mosaic_ids = sorted(mosaic_ids)
-
-    if not mosaic_ids:
-        logger.warning(f"No mosaics found in project {project_name}")
-        return ""
-
-    logger.info(f"Found {len(mosaic_ids)} mosaics in project {project_name}")
+    # Use OCT project state as the authoritative source
+    project_view = OCT_STATE_SERVICE.peek_project(project_name)
 
     # Collect state for each mosaic
     table_data = []
-    for mosaic_id in mosaic_ids:
-        try:
-            mosaic_state = MosaicState(project_base_path, mosaic_id, project_name)
+    for slice_view in project_view.slices.values():
+        for mosaic_view in slice_view.mosaics.values():
+            batches = list(mosaic_view.batches.values())
+            total_batches = len(batches)
+            started_batches = sum(
+                1 for b in batches if b.processing_state != ProcessingState.PENDING
+            )
+            archived_batches = sum(1 for b in batches if b.archived)
+            processed_batches = sum(1 for b in batches if b.processed)
+            uploaded_batches = sum(1 for b in batches if b.uploaded)
 
             # Format status columns as checkmarks
-            enface_stitched = "✅" if mosaic_state.stitched else "⏳"
-            volume_stitched = "✅" if mosaic_state.volume_stitched else "⏳"
-            volume_uploaded = "✅" if mosaic_state.volume_uploaded else "⏳"
+            enface_stitched = "✅" if mosaic_view.enface_stitched else "⏳"
+            volume_stitched = "✅" if mosaic_view.volume_stitched else "⏳"
+            volume_uploaded = "✅" if mosaic_view.volume_uploaded else "⏳"
 
             table_data.append(
                 {
-                    "Mosaic ID": mosaic_id,
-                    "Total Batches": mosaic_state.total_batches,
-                    "Started": mosaic_state.started_batches,
-                    "Archived": mosaic_state.archived_batches,
-                    "Processed": mosaic_state.processed_batches,
-                    "Uploaded": mosaic_state.uploaded_batches,
+                    "Mosaic ID": mosaic_view.mosaic_id,
+                    "Total Batches": total_batches,
+                    "Started": started_batches,
+                    "Archived": archived_batches,
+                    "Processed": processed_batches,
+                    "Uploaded": uploaded_batches,
                     "Enface Stitched": enface_stitched,
                     "3D Volume Stitched": volume_stitched,
                     "3D Volume Uploaded": volume_uploaded,
                 }
             )
-        except Exception as e:
-            logger.warning(
-                f"Failed to get state for mosaic {mosaic_id}: {e}. Skipping."
-            )
-            continue
 
     if not table_data:
         logger.warning(f"No valid mosaic states found for project {project_name}")
@@ -347,19 +372,25 @@ def check_mosaic_completion_task(
     """
     logger = get_run_logger()
 
-    # Recover state from flag files
-    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name)
+    if project_name is None:
+        raise ValueError("project_name is required for OCT project state access")
 
-    is_complete = mosaic_state.is_complete()
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    )
+    if mosaic_view is None:
+        logger.warning(f"No OCT state found for mosaic {mosaic_id} in project {project_name}")
+        return False
+
+    is_complete = mosaic_view.all_batches_done()
 
     if is_complete:
         logger.info(
-            f"Mosaic {mosaic_id}: All {mosaic_state.processed_batches}/{mosaic_state.total_batches} batches processed"
+            f"Mosaic {mosaic_id}: all batches finished according to OCT project state"
         )
     else:
-        logger.debug(
-            f"Mosaic {mosaic_id}: {mosaic_state.processed_batches}/{mosaic_state.total_batches} batches processed"
-        )
+        logger.debug(f"Mosaic {mosaic_id}: batches not yet all finished")
 
     return is_complete
 
@@ -396,10 +427,41 @@ def check_slice_state_task(
         - tilted_complete: True if tilted mosaic is complete
         - both_complete: True if both mosaics are complete
     """
-    # Recover slice state from flag files
-    slice_state = SliceState(project_base_path, slice_number, project_name)
+    logger = get_run_logger()
 
-    return slice_state.to_dict()
+    if project_name is None:
+        raise ValueError("project_name is required for OCT project state access")
+
+    # Derive normal and tilted mosaic IDs for this slice
+    normal_mosaic_id = 2 * slice_number - 1
+    tilted_mosaic_id = 2 * slice_number
+
+    normal_mosaic = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=normal_mosaic_id,
+    )
+    tilted_mosaic = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=tilted_mosaic_id,
+    )
+
+    normal_complete = normal_mosaic.all_batches_done() if normal_mosaic else False
+    tilted_complete = tilted_mosaic.all_batches_done() if tilted_mosaic else False
+
+    both_complete = normal_complete and tilted_complete
+
+    logger.info(
+        f"Slice {slice_number}: normal_complete={normal_complete}, "
+        f"tilted_complete={tilted_complete}, both_complete={both_complete}"
+    )
+
+    return {
+        "normal_mosaic_id": normal_mosaic_id,
+        "tilted_mosaic_id": tilted_mosaic_id,
+        "normal_complete": normal_complete,
+        "tilted_complete": tilted_complete,
+        "both_complete": both_complete,
+    }
 
 
 @task(task_run_name="{project_name}-slice-{slice_number}-update-artifact")
@@ -430,16 +492,42 @@ def update_slice_artifact_task(
     """
     logger = get_run_logger()
 
-    # Recover slice state from flag files
-    slice_state_obj = SliceState(project_base_path, slice_number, project_name)
+    if project_name is None:
+        raise ValueError("project_name is required for OCT project state access")
 
-    normal_mosaic_id = slice_state_obj.normal_mosaic_id
-    tilted_mosaic_id = slice_state_obj.tilted_mosaic_id
-    normal_mosaic = slice_state_obj.normal_mosaic
-    tilted_mosaic = slice_state_obj.tilted_mosaic
+    if slice_state is None:
+        slice_state = check_slice_state_task(
+            project_base_path=project_base_path,
+            slice_number=slice_number,
+            project_name=project_name,
+        )
 
-    normal_progress = normal_mosaic.get_progress_percentage()
-    tilted_progress = tilted_mosaic.get_progress_percentage()
+    normal_mosaic_id = slice_state["normal_mosaic_id"]
+    tilted_mosaic_id = slice_state["tilted_mosaic_id"]
+
+    normal_mosaic = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=normal_mosaic_id,
+    )
+    tilted_mosaic = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=tilted_mosaic_id,
+    )
+
+    normal_batches = list(normal_mosaic.batches.values()) if normal_mosaic else []
+    tilted_batches = list(tilted_mosaic.batches.values()) if tilted_mosaic else []
+
+    normal_total = len(normal_batches)
+    tilted_total = len(tilted_batches)
+    normal_processed = sum(1 for b in normal_batches if b.processed)
+    tilted_processed = sum(1 for b in tilted_batches if b.processed)
+
+    normal_progress = (
+        normal_processed / normal_total * 100 if normal_total > 0 else 0.0
+    )
+    tilted_progress = (
+        tilted_processed / tilted_total * 100 if tilted_total > 0 else 0.0
+    )
 
     artifact_key = (
         f"{project_name.lower().replace('_', '-')}-slice-{slice_number}-progress"
@@ -450,34 +538,38 @@ def update_slice_artifact_task(
         {
             "Mosaic": f"Normal (Mosaic {normal_mosaic_id})",
             "State": "Total Batches",
-            "Count": normal_mosaic.total_batches,
+            "Count": normal_total,
             "Percentage": "100.0%",
         },
         {
             "Mosaic": f"Normal (Mosaic {normal_mosaic_id})",
             "State": "Processed",
-            "Count": normal_mosaic.processed_batches,
+            "Count": normal_processed,
             "Percentage": f"{normal_progress:.1f}%",
         },
         {
             "Mosaic": f"Tilted (Mosaic {tilted_mosaic_id})",
             "State": "Total Batches",
-            "Count": tilted_mosaic.total_batches,
+            "Count": tilted_total,
             "Percentage": "100.0%",
         },
         {
             "Mosaic": f"Tilted (Mosaic {tilted_mosaic_id})",
             "State": "Processed",
-            "Count": tilted_mosaic.processed_batches,
+            "Count": tilted_processed,
             "Percentage": f"{tilted_progress:.1f}%",
         },
     ]
 
-    normal_status = "✅ COMPLETE" if normal_mosaic.is_complete() else "⏳ IN PROGRESS"
-    tilted_status = "✅ COMPLETE" if tilted_mosaic.is_complete() else "⏳ IN PROGRESS"
+    normal_status = (
+        "✅ COMPLETE" if normal_mosaic and normal_mosaic.all_batches_done() else "⏳ IN PROGRESS"
+    )
+    tilted_status = (
+        "✅ COMPLETE" if tilted_mosaic and tilted_mosaic.all_batches_done() else "⏳ IN PROGRESS"
+    )
     overall_status = (
         "✅ READY FOR REGISTRATION - Both mosaics complete"
-        if slice_state_obj.both_mosaics_complete()
+        if slice_state["both_complete"]
         else "⏳ WAITING - Processing mosaics..."
     )
 
@@ -510,6 +602,7 @@ Overall Slice Status: {overall_status}
 def check_mosaic_stitched_task(
     project_base_path: str,
     mosaic_id: int,
+    project_name: Optional[str] = None,
 ) -> bool:
     """
     Check if mosaic has been stitched by looking for stitched output files and flag files.
@@ -528,28 +621,25 @@ def check_mosaic_stitched_task(
     """
     logger = get_run_logger()
 
-    # Recover state from flag files
-    # Note: project_name not available in this task, will use fallback method
-    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name=None)
+    if project_name is None:
+        raise ValueError("project_name is required for OCT project state access")
 
-    # Check flag file first (authoritative source)
-    if mosaic_state.stitched:
-        logger.info(f"Mosaic {mosaic_id} is stitched (flag file exists)")
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    )
+    if mosaic_view is None:
+        logger.debug(
+            f"Mosaic {mosaic_id} has no OCT state yet for project {project_name}"
+        )
+        return False
+
+    if mosaic_view.enface_stitched:
+        logger.info(f"Mosaic {mosaic_id} is stitched according to OCT project state")
         return True
 
-    # Fallback: Check for AIP file as indicator of stitching completion
-    _, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
-    aip_file = stitched_path / f"mosaic_{mosaic_id:03d}_aip.nii"
-    is_stitched = aip_file.exists()
-
-    if is_stitched:
-        logger.info(f"Mosaic {mosaic_id} is stitched (found {aip_file})")
-    else:
-        logger.debug(
-            f"Mosaic {mosaic_id} not yet stitched (missing flag file and {aip_file})"
-        )
-
-    return is_stitched
+    logger.debug(f"Mosaic {mosaic_id} not yet stitched in OCT project state")
+    return False
 
 
 @task(
@@ -581,25 +671,37 @@ def check_completion_and_emit_mosaic_ready_task(
     """
     logger = get_run_logger()
 
-    mosaic_state = MosaicState(project_base_path, mosaic_id, project_name)
-    is_complete = mosaic_state.is_complete()
+    if project_name is None:
+        raise ValueError("project_name is required for OCT project state access")
+
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    )
+    if mosaic_view is None:
+        logger.debug(
+            f"Mosaic {mosaic_id}: no OCT state yet for project {project_name}"
+        )
+        return False
+
+    total_batches = len(mosaic_view.batches)
+    is_complete = mosaic_view.all_batches_done()
 
     if not is_complete:
         logger.debug(
-            f"Mosaic {mosaic_id}: {mosaic_state.processed_batches}/"
-            f"{mosaic_state.total_batches} batches processed - not complete yet"
+            f"Mosaic {mosaic_id}: batches not yet all finished in OCT project state"
         )
         return False
 
     logger.info(
-        f"Mosaic {mosaic_id}: All {mosaic_state.processed_batches}/"
-        f"{mosaic_state.total_batches} batches processed"
+        f"Mosaic {mosaic_id}: all batches finished according to OCT project state"
     )
 
     # Check if already stitched to avoid duplicate events
     is_stitched = check_mosaic_stitched_task.fn(
         project_base_path=project_base_path,
         mosaic_id=mosaic_id,
+        project_name=project_name,
     )
 
     if is_stitched:
@@ -621,7 +723,7 @@ def check_completion_and_emit_mosaic_ready_task(
             "project_name": project_name,
             "project_base_path": project_base_path,
             "mosaic_id": mosaic_id,
-            "total_batches": mosaic_state.total_batches,
+            "total_batches": total_batches,
             "triggered_by": "batch_flows",
         },
     )
@@ -673,7 +775,7 @@ def manage_mosaic_batch_state_flow(
         project_base_path=project_base_path,
     )
 
-    # Check if all batches are complete
+    # Check if all batches are complete (via OCT project state)
     is_complete = check_mosaic_completion_task(
         project_base_path=project_base_path,
         mosaic_id=mosaic_id,
@@ -687,6 +789,7 @@ def manage_mosaic_batch_state_flow(
         is_stitched = check_mosaic_stitched_task(
             project_base_path=project_base_path,
             mosaic_id=mosaic_id,
+            project_name=project_name,
         )
 
         if not is_stitched:
@@ -808,11 +911,13 @@ def manage_slice_state_flow(
     normal_stitched = check_mosaic_stitched_task(
         project_base_path=project_base_path,
         mosaic_id=slice_state["normal_mosaic_id"],
+        project_name=project_name,
     )
 
     tilted_stitched = check_mosaic_stitched_task(
         project_base_path=project_base_path,
         mosaic_id=slice_state["tilted_mosaic_id"],
+        project_name=project_name,
     )
 
     both_stitched = normal_stitched and tilted_stitched

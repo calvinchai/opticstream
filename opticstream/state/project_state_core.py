@@ -11,7 +11,8 @@ Responsibilities:
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Callable, Generic, Iterator, Protocol, TypeVar
+from enum import Enum
+from typing import Callable, ClassVar, Generic, Iterator, Protocol, TypeVar
 
 from pydantic import BaseModel
 from prefect.client.orchestration import get_client
@@ -22,6 +23,23 @@ from prefect.variables import Variable
 TState = TypeVar("TState", bound=BaseModel)
 TResult = TypeVar("TResult")
 TItem = TypeVar("TItem")
+TView = TypeVar("TView", bound=BaseModel)
+
+
+class ToViewMixin(Generic[TView]):
+    VIEW_MODEL: ClassVar[type[TView]]
+
+    def to_view(self) -> TView:
+        return self.VIEW_MODEL.model_validate(self.model_dump())
+
+
+class ProcessingState(str, Enum):
+    """Generic processing lifecycle state shared by project-state models."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 class StateRepository(Protocol, Generic[TState]):
@@ -30,7 +48,7 @@ class StateRepository(Protocol, Generic[TState]):
     def load(self, project_name: str) -> TState:
         ...
 
-    def save(self, state: TState) -> None:
+    def save(self, project_name: str, state: TState) -> None:
         ...
 
 
@@ -55,13 +73,12 @@ class PrefectVariableProjectStateRepository(Generic[TState]):
         key = self._key_fn(project_name)
         raw = Variable.get(key, default=None)
         if raw is None:
-            # type: ignore[call-arg] - callers must ensure model_cls accepts project_name
-            return self._model_cls(project_name=project_name)  # type: ignore[return-value]
+            # type: ignore[call-arg] - callers must ensure model_cls accepts no required args
+            return self._model_cls()  # type: ignore[return-value]
         return self._model_cls.model_validate(raw)
 
-    def save(self, state: TState) -> None:
-        # type: ignore[attr-defined] - state is expected to have project_name attribute
-        key = self._key_fn(state.project_name)  # type: ignore[arg-type]
+    def save(self, project_name: str, state: TState) -> None:
+        key = self._key_fn(project_name)
         Variable.set(key, state.model_dump(mode='json'), overwrite=True)
 
 
@@ -133,7 +150,7 @@ class BaseProjectStateStore(Generic[TState]):
         with self._lock.acquire(project_name, timeout_seconds=timeout_seconds):
             state = self._repository.load(project_name)
             yield state
-            self._repository.save(state)
+            self._repository.save(project_name, state)
 
     def read(
         self,

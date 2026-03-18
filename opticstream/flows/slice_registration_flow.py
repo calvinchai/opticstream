@@ -18,6 +18,7 @@ from prefect.logging import get_run_logger
 
 from opticstream.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
 from opticstream.events.utils import emit_slice_event
+from opticstream.state.oct_project_state import OCT_STATE_SERVICE
 from opticstream.utils.matlab_execution import (
     call_matlab_via_cli,
     get_matlab_engine,
@@ -295,6 +296,14 @@ def register_slice_flow(
             "outputs": {k: str(v) for k, v in outputs.items()},
         },
     )
+
+    # Update OCT project state for this slice
+    with OCT_STATE_SERVICE.open_slice(
+        project_name=project_name,
+        slice_number=slice_number,
+    ) as slice_state:
+        slice_state.mark_completed()
+        slice_state.set_registered(True)
 
     logger.info(f"Slice {slice_number} registration complete")
 

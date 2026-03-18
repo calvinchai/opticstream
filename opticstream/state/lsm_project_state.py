@@ -14,17 +14,18 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from enum import Enum
-from typing import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager
+from typing import ClassVar, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from opticstream.utils.naming_convention import get_project_name
 from opticstream.state.project_state_core import (
+    BaseProjectStateStore,
     PrefectProjectLock,
     PrefectVariableProjectStateRepository,
-    BaseProjectStateStore,
+    ProcessingState,
+    ToViewMixin,
     ensure_limit,
 )
 
@@ -35,33 +36,33 @@ from opticstream.state.project_state_core import (
 
 
 def _state_variable_key(project_name: str) -> str:
-    """Prefect Variable key where project state JSON is stored."""
     return f"{get_project_name(project_name)}_lsm_project_state"
 
 
 def _state_lock_name(project_name: str) -> str:
-    """Global concurrency limit name used for exclusive access to project state."""
     return f"{get_project_name(project_name)}_lsm_state_lock"
 
+
 def ensure_lock(project_name: str) -> None:
-    """Ensure the LSM project state lock exists."""
     asyncio.run(ensure_limit(_state_lock_name(project_name), 1))
 
-class ProcessingState(str, Enum):
-    """Processing state of a single strip."""
 
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+class LSMProjectId(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    project_name: str = Field(..., min_length=1)
 
 
-class LSMStripId(BaseModel):
-    """Identity of a strip within a project."""
-
+class LSMSliceId(LSMProjectId):
     slice_id: int = Field(..., ge=0)
+
+
+class LSMChannelId(LSMSliceId):
+    channel_id: int = Field(..., ge=0)
+
+
+class LSMStripId(LSMChannelId):
     strip_id: int = Field(..., ge=0)
-    channel_id: int = Field(1, ge=0)
+
 
 class LSMStateView(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -70,6 +71,7 @@ class LSMStateView(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now)
     processing_started_at: datetime | None = None
     processing_finished_at: datetime | None = None
+
     @property
     def finished(self) -> bool:
         return self.processing_finished_at is not None
@@ -78,6 +80,7 @@ class LSMStateView(BaseModel):
 class LSMStateMutationsMixin:
     def touch(self) -> None:
         self.updated_at = datetime.now()
+
     def mark_started(self) -> None:
         now = datetime.now()
         self.processing_state = ProcessingState.RUNNING
@@ -101,28 +104,27 @@ class LSMStripStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
     strip_id: int = Field(..., ge=0)
     channel_id: int = Field(..., ge=0)
-    backed_up: bool = False
+    archived: bool = False
     compressed: bool = False
     uploaded: bool = False
 
 
-class LSMStripState(LSMStateMutationsMixin, LSMStripStateView):
+class LSMStripState(LSMStateMutationsMixin, LSMStripStateView, ToViewMixin[LSMStripStateView]):
     model_config = ConfigDict(frozen=False)
+    VIEW_MODEL: ClassVar[type[LSMStripStateView]] = LSMStripStateView
 
-    def set_backed_up(self, value: bool = True) -> None:
-        self.backed_up = value
+    def set_archived(self, value: bool = True) -> None:
+        self.archived = value
         self.touch()
-    
+
     def set_compressed(self, value: bool = True) -> None:
         self.compressed = value
         self.touch()
-    
+
     def set_uploaded(self, value: bool = True) -> None:
         self.uploaded = value
         self.touch()
 
-    def to_view(self) -> LSMStripStateView:
-        return LSMStripStateView.model_validate(self.model_dump())
 
 class LSMChannelStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
@@ -131,12 +133,26 @@ class LSMChannelStateView(LSMStateView):
     strips: dict[int, LSMStripStateView] = Field(default_factory=dict)
     stitched: bool = False
 
-    def all_finished(self, total_strips: int) -> bool:
-        return all(i in self.strips and self.strips[i].finished for i in range(1, total_strips + 1))
+    def all_completed(self, total_strips: int) -> bool:
+        return all(
+            i in self.strips and self.strips[i].finished
+            for i in range(1, total_strips + 1)
+        )
+    
+    def all_compressed(self, total_strips: int) -> bool:
+        return all(
+            i in self.strips and self.strips[i].compressed
+            for i in range(1, total_strips + 1)
+        )
 
 
-class LSMChannelState(LSMStateMutationsMixin, LSMChannelStateView):
+class LSMChannelState(
+    LSMStateMutationsMixin,
+    LSMChannelStateView,
+    ToViewMixin[LSMChannelStateView],
+):
     model_config = ConfigDict(frozen=False)
+    VIEW_MODEL: ClassVar[type[LSMChannelStateView]] = LSMChannelStateView
     strips: dict[int, LSMStripState] = Field(default_factory=dict)
 
     def set_stitched(self, value: bool = True) -> None:
@@ -152,20 +168,21 @@ class LSMChannelState(LSMStateMutationsMixin, LSMChannelStateView):
             )
         return self.strips[strip_id]
 
-    def to_view(self) -> LSMChannelStateView:
-        return LSMChannelStateView.model_validate(self.model_dump())
-
 
 class LSMSliceStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
     channels: dict[int, LSMChannelStateView] = Field(default_factory=dict)
 
     def all_finished(self, total_channels: int = 1) -> bool:
-        return all(i in self.channels and self.channels[i].finished for i in range(1, total_channels + 1))
+        return all(
+            i in self.channels and self.channels[i].finished
+            for i in range(1, total_channels + 1)
+        )
 
 
-class LSMSliceState(LSMStateMutationsMixin, LSMSliceStateView):
+class LSMSliceState(LSMStateMutationsMixin, LSMSliceStateView, ToViewMixin[LSMSliceStateView]):
     model_config = ConfigDict(frozen=False)
+    VIEW_MODEL: ClassVar[type[LSMSliceStateView]] = LSMSliceStateView
     channels: dict[int, LSMChannelState] = Field(default_factory=dict)
 
     def get_or_create_channel(self, channel_id: int) -> LSMChannelState:
@@ -176,36 +193,49 @@ class LSMSliceState(LSMStateMutationsMixin, LSMSliceStateView):
             )
         return self.channels[channel_id]
 
-    def to_view(self) -> LSMSliceStateView:
-        return LSMSliceStateView.model_validate(self.model_dump())
-
 
 class LSMProjectStateView(LSMStateView):
     slices: dict[int, LSMSliceStateView] = Field(default_factory=dict)
 
     def all_finished(self, total_slices: int = 1) -> bool:
-        return all(i in self.slices and self.slices[i].finished for i in range(1, total_slices + 1))
+        return all(
+            i in self.slices and self.slices[i].finished
+            for i in range(1, total_slices + 1)
+        )
 
-    def get_strip(
+    def get_slice(self, slice_id: int) -> LSMSliceStateView | None:
+        return self.slices.get(slice_id)
+
+    def get_channel_by_parts(
+        self,
+        slice_id: int,
+        channel_id: int,
+    ) -> LSMChannelStateView | None:
+        slice_state = self.get_slice(slice_id)
+        if slice_state is None:
+            return None
+        return slice_state.channels.get(channel_id)
+
+    def get_strip_by_parts(
         self,
         slice_id: int,
         strip_id: int,
         channel_id: int = 1,
     ) -> LSMStripStateView | None:
         """Return strip view if it exists, else None (read-only helper)."""
-        slice_state = self.slices.get(slice_id)
-        if slice_state is None:
-            return None
-        channel_state = slice_state.channels.get(channel_id)
+        channel_state = self.get_channel_by_parts(
+            slice_id=slice_id,
+            channel_id=channel_id,
+        )
         if channel_state is None:
             return None
         return channel_state.strips.get(strip_id)
 
-    def get_strip_by_id(self, strip: LSMStripId) -> LSMStripStateView | None:
-        return self.get_strip(
-            slice_id=strip.slice_id,
-            strip_id=strip.strip_id,
-            channel_id=strip.channel_id,
+    def get_strip(self, strip_ident: LSMStripId) -> LSMStripStateView | None:
+        return self.get_strip_by_parts(
+            slice_id=strip_ident.slice_id,
+            strip_id=strip_ident.strip_id,
+            channel_id=strip_ident.channel_id,
         )
 
     def iter_strips(self) -> Iterator[LSMStripStateView]:
@@ -214,8 +244,13 @@ class LSMProjectStateView(LSMStateView):
                 yield from channel_state.strips.values()
 
 
-class LSMProjectState(LSMStateMutationsMixin, LSMProjectStateView):
+class LSMProjectState(
+    LSMStateMutationsMixin,
+    LSMProjectStateView,
+    ToViewMixin[LSMProjectStateView],
+):
     model_config = ConfigDict(frozen=False)
+    VIEW_MODEL: ClassVar[type[LSMProjectStateView]] = LSMProjectStateView
     slices: dict[int, LSMSliceState] = Field(default_factory=dict)
 
     def get_or_create_slice(self, slice_id: int) -> LSMSliceState:
@@ -229,38 +264,73 @@ class LSMProjectState(LSMStateMutationsMixin, LSMProjectStateView):
         slice_state = self.get_or_create_slice(slice_id)
         return slice_state.get_or_create_channel(channel_id)
 
-    def get_or_create_strip(
+    def get_or_create_strip_by_parts(
         self,
         slice_id: int,
         strip_id: int,
         channel_id: int = 1,
     ) -> LSMStripState:
-        """Return existing strip state or create/register a new one."""
-        return self.get_or_create_channel(slice_id, channel_id).get_or_create_strip(strip_id)
-
-    def get_or_create_strip_by_id(self, strip: LSMStripId) -> LSMStripState:
-        return self.get_or_create_strip(
-            slice_id=strip.slice_id,
-            strip_id=strip.strip_id,
-            channel_id=strip.channel_id,
+        return self.get_or_create_channel(slice_id, channel_id).get_or_create_strip(
+            strip_id
         )
 
-    def to_view(self) -> LSMProjectStateView:
-        return LSMProjectStateView.model_validate(self.model_dump())
+    def get_or_create_strip(self, strip_ident: LSMStripId) -> LSMStripState:
+        return self.get_or_create_strip_by_parts(
+            slice_id=strip_ident.slice_id,
+            strip_id=strip_ident.strip_id,
+            channel_id=strip_ident.channel_id,
+        )
+
+
+
+def _get_slice_view(
+    state: LSMProjectState,
+    *,
+    slice_id: int,
+) -> LSMSliceStateView | None:
+    slice_state = state.slices.get(slice_id)
+    return None if slice_state is None else slice_state.to_view()
+
+
+def _get_channel_view(
+    state: LSMProjectState,
+    *,
+    slice_id: int,
+    channel_id: int,
+) -> LSMChannelStateView | None:
+    slice_state = state.slices.get(slice_id)
+    if slice_state is None:
+        return None
+    channel_state = slice_state.channels.get(channel_id)
+    return None if channel_state is None else channel_state.to_view()
+
+
+def _get_strip_view(
+    state: LSMProjectState,
+    *,
+    slice_id: int,
+    strip_id: int,
+    channel_id: int = 1,
+) -> LSMStripStateView | None:
+    slice_state = state.slices.get(slice_id)
+    if slice_state is None:
+        return None
+    channel_state = slice_state.channels.get(channel_id)
+    if channel_state is None:
+        return None
+    strip_state = channel_state.strips.get(strip_id)
+    return None if strip_state is None else strip_state.to_view()
 
 
 # ------------------------------------------------------------------------------
 # LSM-specific ProjectStateStore wiring
 # ------------------------------------------------------------------------------
 
-
 def _make_lsm_repository() -> PrefectVariableProjectStateRepository[LSMProjectState]:
-    """Factory for the LSM Prefect-backed repository."""
     return PrefectVariableProjectStateRepository(_state_variable_key, LSMProjectState)
 
 
 def _make_lsm_lock() -> PrefectProjectLock:
-    """Factory for the LSM Prefect-based project lock."""
     return PrefectProjectLock(_state_lock_name)
 
 
@@ -268,11 +338,11 @@ LSMProjectStateStore = BaseProjectStateStore[LSMProjectState]
 
 
 def make_lsm_store() -> LSMProjectStateStore:
-    """Construct a ProjectStateStore wired to LSM-specific repo and lock."""
     return LSMProjectStateStore(
         repository=_make_lsm_repository(),
         lock=_make_lsm_lock(),
     )
+
 
 class LSMProjectStateService:
     """
@@ -286,53 +356,96 @@ class LSMProjectStateService:
     # Mutable scoped access (open_*)
     # ------------------------------------------------------------------
 
-    @contextmanager
     def open_project(
+        self,
+        project_ident: LSMProjectId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> AbstractContextManager[LSMProjectState]:
+        return self.open_project_by_parts(
+            project_name=project_ident.project_name,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def open_project_by_parts(
         self,
         project_name: str,
         *,
         timeout_seconds: float | None = None,
-    ) -> Iterator[LSMProjectState]:
-        with self._store.open(
+    ) -> AbstractContextManager[LSMProjectState]:
+        return self._store.open(
             project_name,
             getter=lambda state: state,
             timeout_seconds=timeout_seconds,
-        ) as project:
-            yield project
+        )
 
-    @contextmanager
     def open_slice(
+        self,
+        slice_ident: LSMSliceId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> AbstractContextManager[LSMSliceState]:
+        return self.open_slice_by_parts(
+            project_name=slice_ident.project_name,
+            slice_id=slice_ident.slice_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def open_slice_by_parts(
         self,
         project_name: str,
         *,
         slice_id: int,
         timeout_seconds: float | None = None,
-    ) -> Iterator[LSMSliceState]:
-        with self._store.open(
+    ) -> AbstractContextManager[LSMSliceState]:
+        return self._store.open(
             project_name,
             getter=lambda state: state.get_or_create_slice(slice_id),
             timeout_seconds=timeout_seconds,
-        ) as slice_state:
-            yield slice_state
+        )
 
-    @contextmanager
     def open_channel(
+        self,
+        channel_ident: LSMChannelId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> AbstractContextManager[LSMChannelState]:
+        return self.open_channel_by_parts(
+            project_name=channel_ident.project_name,
+            slice_id=channel_ident.slice_id,
+            channel_id=channel_ident.channel_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def open_channel_by_parts(
         self,
         project_name: str,
         *,
         slice_id: int,
         channel_id: int,
         timeout_seconds: float | None = None,
-    ) -> Iterator[LSMChannelState]:
-        with self._store.open(
+    ) -> AbstractContextManager[LSMChannelState]:
+        return self._store.open(
             project_name,
             getter=lambda state: state.get_or_create_channel(slice_id, channel_id),
             timeout_seconds=timeout_seconds,
-        ) as channel:
-            yield channel
+        )
 
-    @contextmanager
     def open_strip(
+        self,
+        strip_ident: LSMStripId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> AbstractContextManager[LSMStripState]:
+        return self.open_strip_by_parts(
+            project_name=strip_ident.project_name,
+            slice_id=strip_ident.slice_id,
+            strip_id=strip_ident.strip_id,
+            channel_id=strip_ident.channel_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def open_strip_by_parts(
         self,
         project_name: str,
         *,
@@ -340,23 +453,33 @@ class LSMProjectStateService:
         strip_id: int,
         channel_id: int = 1,
         timeout_seconds: float | None = None,
-    ) -> Iterator[LSMStripState]:
-        with self._store.open(
+    ) -> AbstractContextManager[LSMStripState]:
+        return self._store.open(
             project_name,
-            getter=lambda state: state.get_or_create_strip(
+            getter=lambda state: state.get_or_create_strip_by_parts(
                 slice_id=slice_id,
                 strip_id=strip_id,
                 channel_id=channel_id,
             ),
             timeout_seconds=timeout_seconds,
-        ) as strip:
-            yield strip
+        )
 
     # ------------------------------------------------------------------
     # Locked readonly access (read_*)
     # ------------------------------------------------------------------
 
     def read_project(
+        self,
+        project_ident: LSMProjectId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> LSMProjectStateView:
+        return self.read_project_by_parts(
+            project_name=project_ident.project_name,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def read_project_by_parts(
         self,
         project_name: str,
         *,
@@ -370,22 +493,46 @@ class LSMProjectStateService:
 
     def read_slice(
         self,
+        slice_ident: LSMSliceId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> LSMSliceStateView | None:
+        return self.read_slice_by_parts(
+            project_name=slice_ident.project_name,
+            slice_id=slice_ident.slice_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def read_slice_by_parts(
+        self,
         project_name: str,
         *,
         slice_id: int,
         timeout_seconds: float | None = None,
     ) -> LSMSliceStateView | None:
-        def reader(state: LSMProjectState) -> LSMSliceStateView | None:
-            slice_state = state.slices.get(slice_id)
-            return None if slice_state is None else slice_state.to_view()
-
         return self._store.read(
             project_name,
-            reader=reader,
+            reader=lambda state: _get_slice_view(
+                state,
+                slice_id=slice_id,
+            ),
             timeout_seconds=timeout_seconds,
         )
 
     def read_channel(
+        self,
+        channel_ident: LSMChannelId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> LSMChannelStateView | None:
+        return self.read_channel_by_parts(
+            project_name=channel_ident.project_name,
+            slice_id=channel_ident.slice_id,
+            channel_id=channel_ident.channel_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def read_channel_by_parts(
         self,
         project_name: str,
         *,
@@ -393,20 +540,31 @@ class LSMProjectStateService:
         channel_id: int,
         timeout_seconds: float | None = None,
     ) -> LSMChannelStateView | None:
-        def reader(state: LSMProjectState) -> LSMChannelStateView | None:
-            slice_state = state.slices.get(slice_id)
-            if slice_state is None:
-                return None
-            channel_state = slice_state.channels.get(channel_id)
-            return None if channel_state is None else channel_state.to_view()
-
         return self._store.read(
             project_name,
-            reader=reader,
+            reader=lambda state: _get_channel_view(
+                state,
+                slice_id=slice_id,
+                channel_id=channel_id,
+            ),
             timeout_seconds=timeout_seconds,
         )
 
     def read_strip(
+        self,
+        strip_ident: LSMStripId,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> LSMStripStateView | None:
+        return self.read_strip_by_parts(
+            project_name=strip_ident.project_name,
+            slice_id=strip_ident.slice_id,
+            strip_id=strip_ident.strip_id,
+            channel_id=strip_ident.channel_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def read_strip_by_parts(
         self,
         project_name: str,
         *,
@@ -415,19 +573,14 @@ class LSMProjectStateService:
         channel_id: int = 1,
         timeout_seconds: float | None = None,
     ) -> LSMStripStateView | None:
-        def reader(state: LSMProjectState) -> LSMStripStateView | None:
-            slice_state = state.slices.get(slice_id)
-            if slice_state is None:
-                return None
-            channel_state = slice_state.channels.get(channel_id)
-            if channel_state is None:
-                return None
-            strip = channel_state.strips.get(strip_id)
-            return None if strip is None else strip.to_view()
-
         return self._store.read(
             project_name,
-            reader=reader,
+            reader=lambda state: _get_strip_view(
+                state,
+                slice_id=slice_id,
+                strip_id=strip_id,
+                channel_id=channel_id,
+            ),
             timeout_seconds=timeout_seconds,
         )
 
@@ -435,7 +588,10 @@ class LSMProjectStateService:
     # Unlocked readonly access (peek_*)
     # ------------------------------------------------------------------
 
-    def peek_project(self, project_name: str) -> LSMProjectStateView:
+    def peek_project(self, project_ident: LSMProjectId) -> LSMProjectStateView:
+        return self.peek_project_by_parts(project_name=project_ident.project_name)
+
+    def peek_project_by_parts(self, project_name: str) -> LSMProjectStateView:
         return self._store.peek(
             project_name,
             reader=lambda state: state.to_view(),
@@ -443,33 +599,65 @@ class LSMProjectStateService:
 
     def peek_slice(
         self,
+        slice_ident: LSMSliceId,
+    ) -> LSMSliceStateView | None:
+        return self.peek_slice_by_parts(
+            project_name=slice_ident.project_name,
+            slice_id=slice_ident.slice_id,
+        )
+
+    def peek_slice_by_parts(
+        self,
         project_name: str,
         *,
         slice_id: int,
     ) -> LSMSliceStateView | None:
-        def reader(state: LSMProjectState) -> LSMSliceStateView | None:
-            slice_state = state.slices.get(slice_id)
-            return None if slice_state is None else slice_state.to_view()
-
-        return self._store.peek(project_name, reader=reader)
+        return self._store.peek(
+            project_name,
+            reader=lambda state: _get_slice_view(
+                state,
+                slice_id=slice_id,
+            ),
+        )
 
     def peek_channel(
+        self,
+        channel_ident: LSMChannelId,
+    ) -> LSMChannelStateView | None:
+        return self.peek_channel_by_parts(
+            project_name=channel_ident.project_name,
+            slice_id=channel_ident.slice_id,
+            channel_id=channel_ident.channel_id,
+        )
+
+    def peek_channel_by_parts(
         self,
         project_name: str,
         *,
         slice_id: int,
         channel_id: int,
     ) -> LSMChannelStateView | None:
-        def reader(state: LSMProjectState) -> LSMChannelStateView | None:
-            slice_state = state.slices.get(slice_id)
-            if slice_state is None:
-                return None
-            channel_state = slice_state.channels.get(channel_id)
-            return None if channel_state is None else channel_state.to_view()
-
-        return self._store.peek(project_name, reader=reader)
+        return self._store.peek(
+            project_name,
+            reader=lambda state: _get_channel_view(
+                state,
+                slice_id=slice_id,
+                channel_id=channel_id,
+            ),
+        )
 
     def peek_strip(
+        self,
+        strip_ident: LSMStripId,
+    ) -> LSMStripStateView | None:
+        return self.peek_strip_by_parts(
+            project_name=strip_ident.project_name,
+            slice_id=strip_ident.slice_id,
+            strip_id=strip_ident.strip_id,
+            channel_id=strip_ident.channel_id,
+        )
+
+    def peek_strip_by_parts(
         self,
         project_name: str,
         *,
@@ -477,17 +665,15 @@ class LSMProjectStateService:
         strip_id: int,
         channel_id: int = 1,
     ) -> LSMStripStateView | None:
-        def reader(state: LSMProjectState) -> LSMStripStateView | None:
-            slice_state = state.slices.get(slice_id)
-            if slice_state is None:
-                return None
-            channel_state = slice_state.channels.get(channel_id)
-            if channel_state is None:
-                return None
-            strip = channel_state.strips.get(strip_id)
-            return None if strip is None else strip.to_view()
-
-        return self._store.peek(project_name, reader=reader)
+        return self._store.peek(
+            project_name,
+            reader=lambda state: _get_strip_view(
+                state,
+                slice_id=slice_id,
+                strip_id=strip_id,
+                channel_id=channel_id,
+            ),
+        )
 
 
 LSM_STATE_SERVICE = LSMProjectStateService(make_lsm_store())

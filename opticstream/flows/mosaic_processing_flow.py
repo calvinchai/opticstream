@@ -17,8 +17,11 @@ import yaml
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from opticstream.data_processing.stitch import (fiji_stitch, fit_coord_files,
-                                                generate_mask)
+from opticstream.data_processing.stitch import (
+    fiji_stitch,
+    fit_coord_files,
+    generate_mask,
+)
 from opticstream.data_processing.stitch.process_tile_coord import process_tile_coord
 from opticstream.config.project_config import (
     get_grid_size_x,
@@ -31,6 +34,7 @@ from opticstream.events import (
     MOSAIC_STITCHED,
 )
 from opticstream.events.utils import emit_mosaic_event
+from opticstream.state.oct_project_state import OCT_STATE_SERVICE
 from opticstream.utils.utils import (
     get_dandi_slice_path,
     get_illumination,
@@ -1011,6 +1015,14 @@ def process_mosaic_flow(
             "symlink_targets": symlink_targets,
         },
     )
+
+    # Update OCT project state for this mosaic
+    with OCT_STATE_SERVICE.open_mosaic(
+        project_name=project_name,
+        mosaic_id=mosaic_id,
+    ) as mosaic_state:
+        mosaic_state.mark_completed()
+        mosaic_state.set_enface_stitched(True)
 
     logger.info(f"Mosaic {mosaic_id} enface stitching complete")
 

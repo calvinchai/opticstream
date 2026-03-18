@@ -60,7 +60,7 @@ def get_mosaic_flag_path(state_path: Path, mosaic_id: int, flag_name: str) -> Pa
     mosaic_id : int
         Mosaic identifier
     flag_name : str
-        Flag name (e.g., "started", "stitched", "volume_stitched", "volume_uploaded")
+        Flag name (e.g., "stitched", "volume_stitched", "volume_uploaded", "enface_stitched", "enface_uploaded")
 
     Returns
     -------
@@ -81,7 +81,7 @@ def get_slice_flag_path(state_path: Path, slice_number: int, flag_name: str) -> 
     slice_number : int
         Slice number (1-indexed)
     flag_name : str
-        Flag name (e.g., "started", "registered", "uploaded")
+        Flag name (e.g., "registered", "uploaded")
 
     Returns
     -------
@@ -160,7 +160,7 @@ def get_slice_flag_path_from_project(
     slice_number : int
         Slice number (1-indexed)
     flag_name : str
-        Flag name (e.g., "started", "registered", "uploaded")
+        Flag name (e.g., "registered", "uploaded")
 
     Returns
     -------
