@@ -6,6 +6,7 @@ from prefect.blocks.core import Block
 from pydantic import BaseModel, Field, field_validator
 
 from opticstream.config.utils import with_positions
+from opticstream.utils.naming_convention import normalize_project_name
 
 @with_positions
 class LSMScanConfigModel(BaseModel):
@@ -137,4 +138,4 @@ def get_lsm_scan_config(project_name: str, override_config_name: Optional[str] =
     """
     Get the scan configuration for a project.
     """
-    return LSMScanConfig.load(override_config_name or f"{project_name}-lsm-config")
+    return LSMScanConfig.load(override_config_name or f"{normalize_project_name(project_name)}-lsm-config")

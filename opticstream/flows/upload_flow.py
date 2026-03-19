@@ -18,7 +18,7 @@ from opticstream.tasks.common_tasks import (
     upload_to_linc_batch_task,
     upload_to_linc_task,
 )
-from opticstream.tasks.dandi_upload import upload_to_dandi_batch_task
+from opticstream.tasks.dandi_upload import upload_to_dandi_batch
 
 
 @flow
@@ -148,7 +148,7 @@ def upload_mosaic_enface_to_dandi_flow(
         f"Uploading enface files for mosaic {mosaic_id} to DANDI from {list(enface_outputs.values())}"
     )
 
-    upload_to_dandi_batch_task(
+    upload_to_dandi_batch(
         file_list=list(enface_outputs.values()),
         realpath=False,
     )
@@ -228,7 +228,7 @@ def upload_mosaic_volume_to_dandi_flow(
         logger.warning(f"No volume files to upload for mosaic {mosaic_id}")
         return
 
-    upload_to_dandi_batch_task(
+    upload_to_dandi_batch(
         file_list=file_paths,
         realpath=False,
     )

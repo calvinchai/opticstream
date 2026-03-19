@@ -1,0 +1,46 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any, Dict
+
+from prefect import flow
+from prefect.logging import get_run_logger
+
+from opticstream.events import BATCH_UPLOADED
+from opticstream.flows.psoct.utils import batch_ident_from_payload, path_list_from_payload
+from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
+from opticstream.state.oct_project_state import OCTBatchId
+from opticstream.state.state_guards import force_rerun_from_payload
+from opticstream.tasks.dandi_upload import upload_to_dandi_batch
+
+
+@flow(flow_run_name="upload-to-dandi-batch-{batch_id}")
+@oct_batch_processing_milestone(field_name="uploaded", success_event=BATCH_UPLOADED)
+def upload_to_dandi_tile_batch(
+    batch_id: OCTBatchId,
+    file_list: list[Path],
+    *,
+    dandi_instance: str = "linc",
+    realpath: bool = True,
+    force_rerun: bool = False,
+) -> None:
+    logger = get_run_logger()
+    if not file_list:
+        logger.warning("No files provided for %s", batch_id)
+        return
+    logger.info("Uploading %d files for %s", len(file_list), batch_id)
+    upload_to_dandi_batch(
+        file_list=[str(path) for path in file_list],
+        dandi_instance=dandi_instance,
+        realpath=realpath,
+    )
+
+
+@flow
+def upload_to_linc_batch_event_flow(payload: Dict[str, Any]) -> None:
+    batch_ident = batch_ident_from_payload(payload)
+    return upload_to_dandi_tile_batch(
+        batch_id=batch_ident,
+        file_list=path_list_from_payload(payload),
+        force_rerun=force_rerun_from_payload(payload),
+    )

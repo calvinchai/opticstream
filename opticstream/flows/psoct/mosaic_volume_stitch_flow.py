@@ -17,13 +17,14 @@ from prefect.logging import get_run_logger
 from niizarr.multizarr import ZarrConfig
 from opticstream.scripts import find_tile_plane, find_volume_surface
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
-from opticstream.config.project_config import (
-    get_project_config_block,
-    resolve_config,
-)
 from opticstream.events import MOSAIC_STITCHED, MOSAIC_VOLUME_STITCHED
-from opticstream.events.utils import emit_mosaic_event
+from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.flows.mosaic_processing_flow import generate_tile_info_file_task
+from opticstream.flows.psoct.utils import (
+    load_scan_config_for_payload,
+    mosaic_ident_from_project_and_mosaic_id,
+    normalize_float_sequence,
+)
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE
 from opticstream.utils.utils import (
     get_dandi_slice_path,
@@ -121,7 +122,7 @@ def find_focus_plane_task(
         raise FileNotFoundError(f"dBI stitching file not found: {input_yaml}")
     output_yaml = project_base_path / "focus_finding" / f"filtered_{illumination}.yaml"
     focus_output_path = Path(project_base_path) / f"focus-{illumination}.nii"
-    focus_output_path.mkdir(parents=True, exist_ok=True)
+    focus_output_path.parent.mkdir(parents=True, exist_ok=True)
     # find_tile_region(
     #     input_yaml=str(input_yaml),
     #     output_yaml=str(output_yaml),
@@ -336,15 +337,10 @@ def stitch_volume_flow(
     logger.info(f"All volume modalities stitched for mosaic {mosaic_id}")
 
     # Emit MOSAIC_VOLUME_STITCHED event
-    emit_mosaic_event(
-        event_name=MOSAIC_VOLUME_STITCHED,
-        project_name=project_name,
-        project_base_path=project_base_path,
-        mosaic_id=mosaic_id,
-        payload={
-            "project_name": project_name,
-            "project_base_path": project_base_path,
-            "mosaic_id": mosaic_id,
+    emit_mosaic_psoct_event(
+        MOSAIC_VOLUME_STITCHED,
+        mosaic_ident_from_project_and_mosaic_id(project_name, mosaic_id),
+        extra_payload={
             "volume_outputs": {mod: str(path) for mod, path in volume_outputs.items()},
         },
     )
@@ -370,85 +366,56 @@ def stitch_volume_event_flow(
     Triggered by MOSAIC_STITCHED event.
     """
     logger = get_run_logger()
-    project_name = payload["project_name"]
+    cfg = load_scan_config_for_payload(payload)
+    project_name = cfg.project_name
     mosaic_id = int(payload["mosaic_id"])
 
-    # Load config block for zarr_config and validation
-    project_config = get_project_config_block(project_name)
-
-    # Resolve config parameters
-    config = resolve_config(
-        payload=payload,
-        keys=[
-            "project_base_path",
-            "scan_resolution_3d",
-            "volume_modalities",
-            "stitch_3d_volumes",
-            "dandiset_path",
-            "mosaic_volume_format",
-            "crop_focus_plane_depth",
-            "crop_focus_plane_offset",
-        ],
-    )
-
-    # Required field: project_base_path
-    if "project_base_path" not in config:
-        raise ValueError(
-            f"project_base_path is required but not found in payload and config block "
-            f"'{project_name}-config' is missing. Please provide project_base_path in event payload "
-            f"or create the config block."
-        )
-
-    # Check if volume stitching is enabled
-    stitch_3d_volumes = config.get("stitch_3d_volumes", True)
+    stitch_3d_volumes = payload.get("stitch_3d_volumes", cfg.stitch_3d_volumes)
     if not stitch_3d_volumes:
         logger.info(
-            f"Volume stitching disabled for mosaic {mosaic_id} (stitch_3d_volumes=False). "
-            f"Skipping volume stitching flow."
+            "Volume stitching disabled for mosaic %s (stitch_3d_volumes=False). Skipping.",
+            mosaic_id,
         )
         return {}
 
-    # Get volume_modalities - default if not provided
-    volume_modalities = config.get("volume_modalities")
+    volume_modalities = payload.get("volume_modalities")
     if volume_modalities is None:
-        volume_modalities = ["dBI", "R3D", "O3D"]
-        logger.info(f"Using default volume_modalities: {volume_modalities}")
-
-    if not volume_modalities:
-        logger.info(f"No volume modalities to stitch for mosaic {mosaic_id}. Skipping.")
-        return {}
-
-    # Handle special cases: convert tuple to list for scan_resolution_3d
-    scan_resolution_3d = config.get("scan_resolution_3d")
-    if scan_resolution_3d is None:
-        scan_resolution_3d = [0.01, 0.01, 0.0025]
-        logger.info(f"Using default scan_resolution_3d: {scan_resolution_3d}")
-    elif isinstance(scan_resolution_3d, tuple):
-        scan_resolution_3d = [float(x) for x in scan_resolution_3d]
-    elif isinstance(scan_resolution_3d, list):
-        scan_resolution_3d = [float(x) for x in scan_resolution_3d]
-
-    # Handle special cases: convert tuple to list for modalities
-    if isinstance(volume_modalities, tuple):
+        volume_modalities = [m.value for m in cfg.volume_modalities]
+        logger.info("Using volume_modalities from config: %s", volume_modalities)
+    elif isinstance(volume_modalities, tuple):
         volume_modalities = list(volume_modalities)
 
-    # Optional field: zarr_config (from block only, not from payload)
-    zarr_config = None
-    if project_config:
-        zarr_config = project_config.zarr_config
+    if not volume_modalities:
+        logger.info("No volume modalities to stitch for mosaic %s. Skipping.", mosaic_id)
+        return {}
+
+    scan_resolution_3d = payload.get("scan_resolution_3d")
+    if scan_resolution_3d is None:
+        scan_resolution_3d = normalize_float_sequence(cfg.acquisition.scan_resolution_3d)
+        logger.info("Using scan_resolution_3d from config: %s", scan_resolution_3d)
+    else:
+        scan_resolution_3d = normalize_float_sequence(scan_resolution_3d)
+
+    dandiset = payload.get("dandiset_path")
+    if dandiset is None and cfg.dandiset_path is not None:
+        dandiset = str(cfg.dandiset_path)
+    elif dandiset is not None:
+        dandiset = str(dandiset)
+
+    mosaic_volume_format = payload.get("mosaic_volume_format", cfg.mosaic_volume_format)
 
     return stitch_volume_flow(
         project_name=project_name,
         mosaic_id=mosaic_id,
-        project_base_path=config["project_base_path"],
+        project_base_path=str(cfg.project_base_path),
         scan_resolution_3d=scan_resolution_3d,
-        volume_modalities=volume_modalities,
-        force_refresh_focus=config.get("force_refresh_focus", False),
-        dandiset_path=config.get("dandiset_path"),
-        mosaic_volume_format=config.get("mosaic_volume_format"),
-        crop_focus_plane_depth=config.get("crop_focus_plane_depth", 500),
-        crop_focus_plane_offset=config.get("crop_focus_plane_offset", 30),
-        zarr_config=zarr_config,
+        volume_modalities=[str(m) for m in volume_modalities],
+        force_refresh_focus=bool(payload.get("force_refresh_focus", False)),
+        dandiset_path=dandiset,
+        mosaic_volume_format=str(mosaic_volume_format) if mosaic_volume_format else None,
+        crop_focus_plane_depth=int(payload.get("crop_focus_plane_depth", cfg.crop_focus_plane_depth)),
+        crop_focus_plane_offset=int(payload.get("crop_focus_plane_offset", cfg.crop_focus_plane_offset)),
+        zarr_config=cfg.zarr_config,
     )
 
 

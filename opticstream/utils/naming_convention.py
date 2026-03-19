@@ -1,6 +1,6 @@
-def get_project_name(project_name: str) -> str:
+def normalize_project_name(project_name: str) -> str:
     """
-    Get the project name from the project name.
+    Normalize the project name so prefect can use it.
     """
     return project_name.lower().replace("_", "-")
     

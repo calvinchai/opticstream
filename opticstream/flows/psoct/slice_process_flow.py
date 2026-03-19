@@ -17,8 +17,8 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from opticstream.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
-from opticstream.events.utils import emit_slice_event
-from opticstream.state.oct_project_state import OCT_STATE_SERVICE
+from opticstream.events.psoct_event_emitters import emit_slice_psoct_event
+from opticstream.state.oct_project_state import OCTSliceId, OCT_STATE_SERVICE
 from opticstream.utils.matlab_execution import (
     call_matlab_via_cli,
     get_matlab_engine,
@@ -281,15 +281,12 @@ def register_slice_flow(
     )
 
     # Emit event that slice registration is complete
-    emit_slice_event(
-        event_name=SLICE_REGISTERED,
-        project_name=project_name,
-        project_base_path=project_base_path,
-        slice_number=slice_number,
-        payload={
-            "project_name": project_name,
-            "project_base_path": project_base_path,
-            "slice_number": slice_number,
+    emit_slice_psoct_event(
+        SLICE_REGISTERED,
+        slice_ident=(
+            OCTSliceId(project_name=project_name, slice_number=slice_number)
+        ),
+        extra_payload={
             "normal_mosaic_id": normal_mosaic_id,
             "tilted_mosaic_id": tilted_mosaic_id,
             "processed_dir": str(stitched_path_normal),
