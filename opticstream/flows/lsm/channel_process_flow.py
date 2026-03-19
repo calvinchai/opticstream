@@ -15,9 +15,9 @@ from prefect import flow, get_run_logger, task
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.flows.lsm.paths import strip_mip_output_path
-from opticstream.flows.lsm.event import CHANNEL_MIP_STITCHED
-from opticstream.flows.lsm.prefect_events import emit_channel_lsm_event
-from opticstream.flows.lsm.state_guards import (
+from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED
+from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
+from opticstream.state.state_guards import (
     enter_flow_stage,
     force_rerun_from_payload,
     RunDecision,
@@ -198,7 +198,14 @@ def process_channel(
         logger.info(f"Completed channel {channel_ident} (no volume stitch)")
         return mip_stitched_path
 
-    emit_channel_lsm_event(CHANNEL_MIP_STITCHED, channel_ident)
+    emit_channel_lsm_event(
+        CHANNEL_MIP_STITCHED,
+        channel_ident,
+        extra_payload={
+            "mip_stitched_path": mip_stitched_path,
+            "mip_count": scan_config.strips_per_slice if scan_config.generate_mip else 0,
+        },
+    )
     logger.info(
         f"Emitted {CHANNEL_MIP_STITCHED} for {channel_ident}; "
         f"volume flow will complete the channel"

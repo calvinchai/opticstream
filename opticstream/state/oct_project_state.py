@@ -285,6 +285,14 @@ class OCTSliceStateView(OCTStateView):
             return False
         return all(mosaic.finished for mosaic in self.mosaics.values())
 
+    def all_mosaics_enface_stitched(self, total_mosaics: int | None = None) -> bool:
+        """
+        Return True if the expected number of mosaics for this slice have all been stitched.
+        """
+        target = total_mosaics or 2
+        if len(self.mosaics) < target:
+            return False
+        return all(mosaic.enface_stitched for mosaic in self.mosaics.values())
 
 class OCTSliceState(
     OCTStateMutationsMixin,

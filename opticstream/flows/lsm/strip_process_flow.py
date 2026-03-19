@@ -11,13 +11,13 @@ import dask
 import psutil
 from niizarr.multizarr import ZarrConfig
 from prefect import flow, get_run_logger, task
-from prefect.events import emit_event
 from prefect.futures import PrefectFuture
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
-from opticstream.flows.lsm.event import STRIP_COMPRESSED
+from opticstream.events.lsm_events import STRIP_COMPRESSED
+from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.flows.lsm.paths import strip_mip_output_path, strip_zarr_output_path
-from opticstream.flows.lsm.state_guards import (
+from opticstream.state.state_guards import (
     enter_flow_stage,
     force_rerun_from_payload,
     RunDecision,
@@ -27,7 +27,6 @@ from opticstream.flows.lsm.utils import load_scan_config_for_payload, strip_iden
 from opticstream.state.lsm_project_state import (
     LSMStripId,
     LSM_STATE_SERVICE,
-    ProcessingState,
 )
 from opticstream.utils.slack_notification import notify_slack
 
@@ -367,15 +366,7 @@ def check_compressed_result(
 
     with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
         strip_state.set_compressed(True)
-    emit_event(
-        STRIP_COMPRESSED,
-        resource={
-            "prefect.resource.id": f"{strip_ident}",
-        },
-        payload={
-            "strip_ident": strip_ident.model_dump(mode="json"),
-        },
-    )
+    emit_strip_lsm_event(STRIP_COMPRESSED, strip_ident)
     return ValidationResult(ok=True, size_bytes=zarr_size_bytes)
 
 
@@ -509,14 +500,7 @@ def process_strip(
     Process a strip of a slice.
     """
     logger = get_run_logger()
-    logger.info(f"Processing strip path: {strip_path}")
-
-    logger.info(f"Processing {strip_ident}")
-    project_name = strip_ident.project_name
-    slice_id = strip_ident.slice_id
-    strip_id = strip_ident.strip_id
-    channel_id = strip_ident.channel_id
-
+    logger.info(f"Processing strip path: {strip_path} {strip_ident}")
 
     if (
         enter_flow_stage(
@@ -535,7 +519,7 @@ def process_strip(
         else DirManifest(file_count=0, total_bytes=0, sizes={})
     )
 
-    acq = f"camera-{channel_id:02d}"
+    acq = f"camera-{strip_ident.camera_id:02d}"
     logger.info(f"Processing {strip_ident} (acq={acq})")
 
     archive_path = scan_config.archive_path
@@ -653,10 +637,7 @@ def process_strip(
         status=status,
         message=message,
         details={
-            "project_name": project_name,
-            "slice_id": slice_id,
-            "strip_id": strip_id,
-            "camera_id": channel_id,
+            "strip_ident": strip_ident,
             "strip_path": strip_path,
             "cleanup_note": cleanup_note,
             **usage_info,

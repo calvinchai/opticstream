@@ -23,7 +23,8 @@ from opticstream.flows.process_tile_batch_flow import (
     process_tile_batch_flow,
 )
 from opticstream.flows.slice_registration_flow import register_slice_event_flow
-from opticstream.flows.slack_notification_flow import slack_enface_notification_flow
+from opticstream.flows.psoct.mosaic_upload_enface_flow import \
+    slack_enface_notification_flow
 from opticstream.flows.state_management_flow import unified_state_management_event_flow
 from opticstream.flows.upload_flow import (
     upload_mosaic_enface_to_dandi_event_flow,

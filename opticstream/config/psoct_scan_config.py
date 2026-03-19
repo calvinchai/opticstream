@@ -6,7 +6,7 @@ Blocks provide typed configuration schemas with validation and UI management.
 
 See: https://docs.prefect.io/v3/concepts/blocks
 """
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from enum import Enum
 from pathlib import Path
 
@@ -210,6 +210,12 @@ class PSOCTScanConfigModel(BaseModel):
         description="Base filesystem path for project data. All intermediate and output files should be stored under this path.",
     )
 
+    mosaics_per_slice: Literal[2, 3] = Field(
+        default=2,
+        ge=1,
+        description="Number of mosaics, use 2 for human systems with normal and tilted illuminations, use 3 for macaque systems",
+    )
+    
     acquisition: PSOCTAcquisitionParams = Field(
         ...,
         description="Physical and hardware facts about the acquisition",

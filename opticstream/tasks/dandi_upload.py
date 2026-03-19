@@ -90,7 +90,7 @@ def _build_dandi_upload_env(
 
 
 @task(tags=["dandi-upload"], retries=1)
-def upload_to_dandi_batch_task(
+def upload_to_dandi_batch(
     file_list: List[str],
     *,
     dandi_instance: DANDI_INSTANCE = "dandi",
@@ -128,40 +128,22 @@ def upload_to_dandi_batch_task(
 
 
 @task(tags=["dandi-upload"], retries=1)
-def upload_to_dandi_task(
+def upload_to_dandi(
     file_path: str,
+    *,
     dandi_instance: DANDI_INSTANCE = "linc",
     dandi_bin: str = "dandi",
+    realpath: bool = True,
+    max_jobs: str = "10:10",
 ) -> None:
     """
     Upload the file to DANDI.
     """
-    logger = get_run_logger()
-
-    command, working_dir, _ = build_dandi_upload_command(
-        [file_path],
-        dandi_instance=dandi_instance,
-        dandi_bin=dandi_bin,
-        realpath=False,  # Keep behavior aligned with the existing single-file uploader.
-        max_jobs="10:10",
-    )
-
-    env = _build_dandi_upload_env(dandi_instance=dandi_instance)
-    logger.info(command)
-    with ShellOperation(
-        commands=[command],
-        env=env,
-        working_dir=working_dir,
-    ) as upload_operation:
-        upload_operation_process = upload_operation.trigger()
-        upload_operation_process.wait_for_completion()
-        logger.info(upload_operation_process.fetch_result())
-
-
+    return upload_to_dandi_batch.fn([file_path], dandi_instance=dandi_instance, dandi_bin=dandi_bin, realpath=realpath, max_jobs=max_jobs)
 
 
 __all__ = [
     "build_dandi_upload_command",
-    "upload_to_dandi_task",
-    "upload_to_dandi_batch_task",
+    "upload_to_dandi",
+    "upload_to_dandi_batch",
 ]

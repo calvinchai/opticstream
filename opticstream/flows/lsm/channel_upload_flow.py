@@ -9,10 +9,10 @@ from typing import Any, Dict
 from prefect import flow, get_run_logger, task
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
-from opticstream.flows.lsm.event import CHANNEL_VOLUME_UPLOADED
-from opticstream.flows.lsm.prefect_events import emit_channel_lsm_event
+from opticstream.events.lsm_events import CHANNEL_VOLUME_UPLOADED
+from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.flows.lsm.paths import channel_zarr_volume_path
-from opticstream.flows.lsm.state_guards import (
+from opticstream.state.state_guards import (
     RunDecision,
     force_rerun_from_payload,
     enter_milestone_stage,
@@ -69,7 +69,13 @@ def upload_channel_volume(
         ch.set_volume_uploaded(True)
         ch.mark_completed()
 
-    emit_channel_lsm_event(CHANNEL_VOLUME_UPLOADED, channel_ident)
+    emit_channel_lsm_event(
+        CHANNEL_VOLUME_UPLOADED,
+        channel_ident,
+        extra_payload={
+            "volume_path": volume_path,
+        },
+    )
     logger.info(f"Channel {channel_ident} volume uploaded")
 
 
