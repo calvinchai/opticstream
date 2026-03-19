@@ -202,7 +202,7 @@ def _run_batch_detection_iteration(
         )
 
     project_base_path = project_config.project_base_path
-    batch_size = project_config.grid_size_y
+    batch_size = project_config.acquisition.grid_size_y
     state_file_path = os.path.join(project_base_path, ".batch_detection_direct_state.json")
     processed_batches = _load_processed_batches(state_file_path)
     logger.info("Loaded %s previously processed batches from state file", len(processed_batches))
@@ -261,11 +261,14 @@ def _configure_project_block(
     block_name = f"{project_name.lower().replace('_', '-')}-config"
     zarr_config = ZarrConfig(shard=zarr_shard)
     config_dict: Dict[str, Any] = {
+        "project_name": project_name,
         "zarr_config": zarr_config,
         "project_base_path": project_base_path,
-        "grid_size_x_normal": grid_size_x_normal,
-        "grid_size_x_tilted": grid_size_x_tilted,
-        "grid_size_y": grid_size_y,
+        "acquisition": {
+            "grid_size_x_normal": grid_size_x_normal,
+            "grid_size_x_tilted": grid_size_x_tilted,
+            "grid_size_y": grid_size_y,
+        },
         "mask_threshold_normal": mask_threshold_normal,
         "mask_threshold_tilted": mask_threshold_tilted,
     }

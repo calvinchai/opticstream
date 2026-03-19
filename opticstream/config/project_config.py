@@ -6,7 +6,11 @@ See: https://docs.prefect.io/v3/concepts/blocks
 
 from typing import Any, Callable, Dict, List, Optional
 
-from opticstream.config.psoct_scan_config import PSOCTScanConfig, TileSavingType
+from opticstream.config.psoct_scan_config import (
+    PSOCTAcquisitionParams,
+    PSOCTScanConfig,
+    TileSavingType,
+)
 
 
 def get_project_config_block(project_name: str) -> Optional[PSOCTScanConfig]:
@@ -33,6 +37,10 @@ def get_project_config_block(project_name: str) -> Optional[PSOCTScanConfig]:
         return None
 
 
+def _acquisition_field(field_name: str) -> bool:
+    return field_name in PSOCTAcquisitionParams.model_fields
+
+
 def _get_field_default(model_class, field_name: str) -> Any:
     """
     Get default value for a Pydantic model field, supporting both v1 and v2.
@@ -49,6 +57,8 @@ def _get_field_default(model_class, field_name: str) -> Any:
     Any
         Default value for the field, or None if not found
     """
+    if model_class is PSOCTScanConfig and _acquisition_field(field_name):
+        model_class = PSOCTAcquisitionParams
     # Try Pydantic v2 first (model_fields)
     if hasattr(model_class, "model_fields") and field_name in model_class.model_fields:
         field_info = model_class.model_fields[field_name]
@@ -126,7 +136,9 @@ def resolve_config_param(
     # Priority 2: Check config block
     if project_config is not None:
         attr_name = config_attr if config_attr is not None else param_key
-        if hasattr(project_config, attr_name):
+        if _acquisition_field(attr_name):
+            value = getattr(project_config.acquisition, attr_name)
+        elif hasattr(project_config, attr_name):
             value = getattr(project_config, attr_name)
             # Apply converter if provided
             if converter is not None:
@@ -207,10 +219,15 @@ def resolve_config(payload: Dict[str, Any], keys: List[str]) -> Dict[str, Any]:
     for key in keys:
         if key in payload:
             value = payload[key]
-        elif project_config is not None and hasattr(project_config, key):
-            value = getattr(project_config, key)
+        elif project_config is not None:
+            if _acquisition_field(key):
+                value = getattr(project_config.acquisition, key)
+            elif hasattr(project_config, key):
+                value = getattr(project_config, key)
+            else:
+                continue
         else:
-            continue  # Omit key if not found
+            continue
 
         # Special handling for tile_saving_type
         if key == "tile_saving_type" and isinstance(value, str):
@@ -247,9 +264,9 @@ def get_grid_size_x(project_name: str, mosaic_id: int) -> int:
             f"Cannot determine grid_size_x. Please create config block '{project_name}-config' or provide grid_size_x explicitly."
         )
     return (
-        project_config.grid_size_x_normal
+        project_config.acquisition.grid_size_x_normal
         if mosaic_id % 2 == 1
-        else project_config.grid_size_x_tilted
+        else project_config.acquisition.grid_size_x_tilted
     )
 
 

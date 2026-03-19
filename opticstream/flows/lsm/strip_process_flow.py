@@ -18,9 +18,10 @@ from opticstream.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.flows.lsm.event import STRIP_COMPRESSED
 from opticstream.flows.lsm.paths import strip_mip_output_path, strip_zarr_output_path
 from opticstream.flows.lsm.state_guards import (
+    enter_flow_stage,
     force_rerun_from_payload,
-    prepare_idempotent_strip_milestone,
-    skip_top_level_flow,
+    RunDecision,
+    enter_milestone_stage,
 )
 from opticstream.flows.lsm.utils import load_scan_config_for_payload, strip_ident_from_payload
 from opticstream.state.lsm_project_state import (
@@ -239,18 +240,14 @@ def compress_strip(
     strip_view = LSM_STATE_SERVICE.peek_strip(
         strip_ident=strip_ident,
     )
-    compressed = bool(strip_view and strip_view.compressed)
     if (
-        prepare_idempotent_strip_milestone(
-            logger,
-            milestone_done=compressed,
+        enter_milestone_stage(
+            item_state_view=strip_view,
+            item_ident=strip_ident,
+            field_name="compressed",
             force_rerun=force_rerun,
-            skip_log=f"{strip_ident} already marked compressed; skipping compression",
-            force_log=f"{strip_ident} already marked compressed; forcing rerun",
-            strip_ident=strip_ident,
-            reset_strip=lambda s: s.reset_compressed(),
         )
-        == "skip"
+        == RunDecision.SKIPPED
     ):
         return
     if cpu_affinity is not None:
@@ -286,20 +283,14 @@ def archive_strip(
     strip_view = LSM_STATE_SERVICE.peek_strip(
         strip_ident=strip_ident,
     )
-    archived = bool(strip_view and strip_view.archived)
     if (
-        prepare_idempotent_strip_milestone(
-            logger,
-            milestone_done=archived,
+        enter_milestone_stage(
+            item_state_view=strip_view,
+            item_ident=strip_ident,
+            field_name="archived",
             force_rerun=force_rerun,
-            skip_log=(
-                f"{strip_ident} already marked archived; skipping backup because force_rerun is False"
-            ),
-            force_log=f"{strip_ident} already marked archived; forcing rerun",
-            strip_ident=strip_ident,
-            reset_strip=lambda s: s.reset_archived(),
         )
-        == "skip"
+        == RunDecision.SKIPPED
     ):
         return
     if invalid_path(output_path):
@@ -526,21 +517,17 @@ def process_strip(
     strip_id = strip_ident.strip_id
     channel_id = strip_ident.channel_id
 
-    existing_strip = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
-    pst = existing_strip.processing_state if existing_strip else None
-    if skip_top_level_flow(pst, force_rerun=force_rerun, skip_if_running=False):
-        logger.info(
-            f"Strip {strip_id} of slice {slice_id} already completed; "
-            f"skipping processing because force_rerun is False"
-        )
-        return None
-    if pst == ProcessingState.COMPLETED and force_rerun:
-        logger.info(
-            f"Strip {strip_id} of slice {slice_id} already completed; forcing rerun"
-        )
 
-    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        strip_state.mark_started()
+    if (
+        enter_flow_stage(
+        LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident),
+        force_rerun=force_rerun,
+        skip_if_running=False,
+        item_ident=strip_ident,
+        )
+        == RunDecision.SKIPPED
+    ):
+        return None
 
     initial_strip_manifest = (
         get_dir_manifest(strip_path)

@@ -18,8 +18,9 @@ from opticstream.flows.lsm.paths import strip_mip_output_path
 from opticstream.flows.lsm.event import CHANNEL_MIP_STITCHED
 from opticstream.flows.lsm.prefect_events import emit_channel_lsm_event
 from opticstream.flows.lsm.state_guards import (
+    enter_flow_stage,
     force_rerun_from_payload,
-    skip_top_level_flow,
+    RunDecision,
 )
 from opticstream.flows.lsm.utils import (
     channel_ident_from_payload,
@@ -30,7 +31,6 @@ from opticstream.state.lsm_project_state import (
     LSMStripId,
     LSM_STATE_SERVICE,
 )
-from opticstream.state.project_state_core import ProcessingState
 from opticstream.utils.slack_notification import notify_slack
 
 
@@ -147,27 +147,17 @@ def process_channel(
     logger.info(f"Processing channel: {channel_ident}")
 
     channel_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
-    pst = channel_view.processing_state if channel_view else None
-    if skip_top_level_flow(
-        pst, force_rerun=force_rerun, skip_if_running=True
+    if (
+        enter_flow_stage(
+        channel_view,
+        force_rerun=force_rerun,
+        skip_if_running=True,
+        item_ident=channel_ident,
+        )
+        == RunDecision.SKIPPED
     ):
-        if pst == ProcessingState.COMPLETED:
-            logger.info(
-                f"Channel {channel_ident} already completed; skipping (force_rerun=False)"
-            )
-        else:
-            logger.info(
-                f"Channel {channel_ident} already running; skipping (force_rerun=False)"
-            )
         return None
-    if force_rerun and channel_view and pst in (
-        ProcessingState.COMPLETED,
-        ProcessingState.RUNNING,
-    ):
-        logger.info(f"Channel {channel_ident} forcing rerun")
-
     with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as ch:
-        ch.mark_started()
         ch.reset_mip_stitched()
 
     mip_stitched_path: Optional[str] = None

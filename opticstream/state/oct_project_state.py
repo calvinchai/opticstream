@@ -66,9 +66,7 @@ class OCTSliceId(OCTProjectId):
     slice_number: int = Field(..., ge=0)
 
 
-class OCTMosaicId(OCTProjectId):
-    # slice_number is optional because many call sites only provide mosaic_id.
-    slice_number: int | None = Field(default=None, ge=0)
+class OCTMosaicId(OCTSliceId):
     mosaic_id: int = Field(..., ge=0)
 
 
@@ -177,6 +175,11 @@ class OCTBatchState(OCTStateMutationsMixin, OCTBatchStateView, ToViewMixin[OCTBa
         self.enface_processed = False
         self.touch()
 
+    def reset_uploaded(self) -> None:
+        self.uploaded = False
+        self.touch()
+
+
 class OCTMosaicStateView(OCTStateView):
     """Readonly view for one OCT mosaic; batches are keyed by batch_id."""
 
@@ -241,6 +244,24 @@ class OCTMosaicState(
         self.volume_uploaded = value
         self.touch()
 
+    def reset_enface_stitched(self) -> None:
+        self.enface_stitched = False
+        self.enface_uploaded = False
+        self.touch()
+
+    def reset_volume_stitched(self) -> None:
+        self.volume_stitched = False
+        self.volume_uploaded = False
+        self.touch()
+
+    def reset_enface_uploaded(self) -> None:
+        self.enface_uploaded = False
+        self.touch()
+
+    def reset_volume_uploaded(self) -> None:
+        self.volume_uploaded = False
+        self.touch()
+
 
 class OCTSliceStateView(OCTStateView):
     """Readonly view for one OCT slice; mosaics are keyed by mosaic_id."""
@@ -291,6 +312,15 @@ class OCTSliceState(
 
     def set_uploaded(self, value: bool = True) -> None:
         self.uploaded = value
+        self.touch()
+
+    def reset_registered(self) -> None:
+        self.registered = False
+        self.uploaded = False
+        self.touch()
+
+    def reset_uploaded(self) -> None:
+        self.uploaded = False
         self.touch()
 
 
@@ -443,17 +473,12 @@ class OCTProjectStateService:
 
     def open_project(
         self,
-        project_ident: OCTProjectId | str,
+        project_ident: OCTProjectId,
         *,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTProjectState]:
-        project_name = (
-            project_ident
-            if isinstance(project_ident, str)
-            else project_ident.project_name
-        )
         return self.open_project_by_parts(
-            project_name=project_name,
+            project_name=project_ident.project_name,
             timeout_seconds=timeout_seconds,
         )
 
@@ -471,23 +496,13 @@ class OCTProjectStateService:
 
     def open_slice(
         self,
-        slice_ident: OCTSliceId | None = None,
+        slice_ident: OCTSliceId,
         *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTSliceState]:
-        if slice_ident is not None:
-            return self.open_slice_by_parts(
-                project_name=slice_ident.project_name,
-                slice_number=slice_ident.slice_number,
-                timeout_seconds=timeout_seconds,
-            )
-        if project_name is None or slice_number is None:
-            raise ValueError("Provide slice_ident or (project_name, slice_number).")
         return self.open_slice_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
+            project_name=slice_ident.project_name,
+            slice_number=slice_ident.slice_number,
             timeout_seconds=timeout_seconds,
         )
 
@@ -506,26 +521,14 @@ class OCTProjectStateService:
 
     def open_mosaic(
         self,
-        mosaic_ident: OCTMosaicId | None = None,
+        mosaic_ident: OCTMosaicId,
         *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
-        mosaic_id: int | None = None,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTMosaicState]:
-        if mosaic_ident is not None:
-            return self.open_mosaic_by_parts(
-                project_name=mosaic_ident.project_name,
-                slice_number=mosaic_ident.slice_number,
-                mosaic_id=mosaic_ident.mosaic_id,
-                timeout_seconds=timeout_seconds,
-            )
-        if project_name is None or mosaic_id is None:
-            raise ValueError("Provide mosaic_ident or (project_name, mosaic_id).")
         return self.open_mosaic_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
-            mosaic_id=mosaic_id,
+            project_name=mosaic_ident.project_name,
+            slice_number=mosaic_ident.slice_number,
+            mosaic_id=mosaic_ident.mosaic_id,
             timeout_seconds=timeout_seconds,
         )
 
@@ -553,35 +556,15 @@ class OCTProjectStateService:
 
     def open_batch(
         self,
-        batch_ident: OCTBatchId | None = None,
+        batch_ident: OCTBatchId,
         *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
-        mosaic_id: int | None = None,
-        batch_id: int | None = None,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTBatchState]:
-        if batch_ident is not None:
-            return self.open_batch_by_parts(
-                project_name=batch_ident.project_name,
-                slice_number=batch_ident.slice_number,
-                mosaic_id=batch_ident.mosaic_id,
-                batch_id=batch_ident.batch_id,
-                timeout_seconds=timeout_seconds,
-            )
-        if (
-            project_name is None
-            or mosaic_id is None
-            or batch_id is None
-        ):
-            raise ValueError(
-                "Provide batch_ident or (project_name, mosaic_id, batch_id)."
-            )
         return self.open_batch_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
-            mosaic_id=mosaic_id,
-            batch_id=batch_id,
+            project_name=batch_ident.project_name,
+            slice_number=batch_ident.slice_number,
+            mosaic_id=batch_ident.mosaic_id,
+            batch_id=batch_ident.batch_id,
             timeout_seconds=timeout_seconds,
         )
 
@@ -615,17 +598,12 @@ class OCTProjectStateService:
 
     def read_project(
         self,
-        project_ident: OCTProjectId | str,
+        project_ident: OCTProjectId,
         *,
         timeout_seconds: float | None = None,
     ) -> OCTProjectStateView:
-        project_name = (
-            project_ident
-            if isinstance(project_ident, str)
-            else project_ident.project_name
-        )
         return self.read_project_by_parts(
-            project_name=project_name,
+            project_name=project_ident.project_name,
             timeout_seconds=timeout_seconds,
         )
 
@@ -643,23 +621,13 @@ class OCTProjectStateService:
 
     def read_slice(
         self,
-        slice_ident: OCTSliceId | None = None,
+        slice_ident: OCTSliceId,
         *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
         timeout_seconds: float | None = None,
     ) -> OCTSliceStateView | None:
-        if slice_ident is not None:
-            return self.read_slice_by_parts(
-                project_name=slice_ident.project_name,
-                slice_number=slice_ident.slice_number,
-                timeout_seconds=timeout_seconds,
-            )
-        if project_name is None or slice_number is None:
-            raise ValueError("Provide slice_ident or (project_name, slice_number).")
         return self.read_slice_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
+            project_name=slice_ident.project_name,
+            slice_number=slice_ident.slice_number,
             timeout_seconds=timeout_seconds,
         )
 
@@ -681,26 +649,14 @@ class OCTProjectStateService:
 
     def read_mosaic(
         self,
-        mosaic_ident: OCTMosaicId | None = None,
+        mosaic_ident: OCTMosaicId,
         *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
-        mosaic_id: int | None = None,
         timeout_seconds: float | None = None,
     ) -> OCTMosaicStateView | None:
-        if mosaic_ident is not None:
-            return self.read_mosaic_by_parts(
-                project_name=mosaic_ident.project_name,
-                slice_number=mosaic_ident.slice_number,
-                mosaic_id=mosaic_ident.mosaic_id,
-                timeout_seconds=timeout_seconds,
-            )
-        if project_name is None or mosaic_id is None:
-            raise ValueError("Provide mosaic_ident or (project_name, mosaic_id).")
         return self.read_mosaic_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
-            mosaic_id=mosaic_id,
+            project_name=mosaic_ident.project_name,
+            slice_number=mosaic_ident.slice_number,
+            mosaic_id=mosaic_ident.mosaic_id,
             timeout_seconds=timeout_seconds,
         )
 
@@ -729,31 +685,15 @@ class OCTProjectStateService:
 
     def read_batch(
         self,
-        batch_ident: OCTBatchId | None = None,
+        batch_ident: OCTBatchId,
         *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
-        mosaic_id: int | None = None,
-        batch_id: int | None = None,
         timeout_seconds: float | None = None,
     ) -> OCTBatchStateView | None:
-        if batch_ident is not None:
-            return self.read_batch_by_parts(
-                project_name=batch_ident.project_name,
-                slice_number=batch_ident.slice_number,
-                mosaic_id=batch_ident.mosaic_id,
-                batch_id=batch_ident.batch_id,
-                timeout_seconds=timeout_seconds,
-            )
-        if project_name is None or mosaic_id is None or batch_id is None:
-            raise ValueError(
-                "Provide batch_ident or (project_name, mosaic_id, batch_id)."
-            )
         return self.read_batch_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
-            mosaic_id=mosaic_id,
-            batch_id=batch_id,
+            project_name=batch_ident.project_name,
+            slice_number=batch_ident.slice_number,
+            mosaic_id=batch_ident.mosaic_id,
+            batch_id=batch_ident.batch_id,
             timeout_seconds=timeout_seconds,
         )
 
@@ -786,16 +726,8 @@ class OCTProjectStateService:
     # Unlocked readonly access (peek_*)
     # ------------------------------------------------------------------
 
-    def peek_project(
-        self,
-        project_ident: OCTProjectId | str,
-    ) -> OCTProjectStateView:
-        project_name = (
-            project_ident
-            if isinstance(project_ident, str)
-            else project_ident.project_name
-        )
-        return self.peek_project_by_parts(project_name=project_name)
+    def peek_project(self, project_ident: OCTProjectId) -> OCTProjectStateView:
+        return self.peek_project_by_parts(project_name=project_ident.project_name)
 
     def peek_project_by_parts(
         self,
@@ -808,21 +740,11 @@ class OCTProjectStateService:
 
     def peek_slice(
         self,
-        slice_ident: OCTSliceId | None = None,
-        *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
+        slice_ident: OCTSliceId,
     ) -> OCTSliceStateView | None:
-        if slice_ident is not None:
-            return self.peek_slice_by_parts(
-                project_name=slice_ident.project_name,
-                slice_number=slice_ident.slice_number,
-            )
-        if project_name is None or slice_number is None:
-            raise ValueError("Provide slice_ident or (project_name, slice_number).")
         return self.peek_slice_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
+            project_name=slice_ident.project_name,
+            slice_number=slice_ident.slice_number,
         )
 
     def peek_slice_by_parts(
@@ -841,24 +763,12 @@ class OCTProjectStateService:
 
     def peek_mosaic(
         self,
-        mosaic_ident: OCTMosaicId | None = None,
-        *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
-        mosaic_id: int | None = None,
+        mosaic_ident: OCTMosaicId,
     ) -> OCTMosaicStateView | None:
-        if mosaic_ident is not None:
-            return self.peek_mosaic_by_parts(
-                project_name=mosaic_ident.project_name,
-                slice_number=mosaic_ident.slice_number,
-                mosaic_id=mosaic_ident.mosaic_id,
-            )
-        if project_name is None or mosaic_id is None:
-            raise ValueError("Provide mosaic_ident or (project_name, mosaic_id).")
         return self.peek_mosaic_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
-            mosaic_id=mosaic_id,
+            project_name=mosaic_ident.project_name,
+            slice_number=mosaic_ident.slice_number,
+            mosaic_id=mosaic_ident.mosaic_id,
         )
 
     def peek_mosaic_by_parts(
@@ -884,29 +794,13 @@ class OCTProjectStateService:
 
     def peek_batch(
         self,
-        batch_ident: OCTBatchId | None = None,
-        *,
-        project_name: str | None = None,
-        slice_number: int | None = None,
-        mosaic_id: int | None = None,
-        batch_id: int | None = None,
+        batch_ident: OCTBatchId,
     ) -> OCTBatchStateView | None:
-        if batch_ident is not None:
-            return self.peek_batch_by_parts(
-                project_name=batch_ident.project_name,
-                slice_number=batch_ident.slice_number,
-                mosaic_id=batch_ident.mosaic_id,
-                batch_id=batch_ident.batch_id,
-            )
-        if project_name is None or mosaic_id is None or batch_id is None:
-            raise ValueError(
-                "Provide batch_ident or (project_name, mosaic_id, batch_id)."
-            )
         return self.peek_batch_by_parts(
-            project_name=project_name,
-            slice_number=slice_number,
-            mosaic_id=mosaic_id,
-            batch_id=batch_id,
+            project_name=batch_ident.project_name,
+            slice_number=batch_ident.slice_number,
+            mosaic_id=batch_ident.mosaic_id,
+            batch_id=batch_ident.batch_id,
         )
 
     def peek_batch_by_parts(

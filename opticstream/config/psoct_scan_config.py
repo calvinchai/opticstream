@@ -6,22 +6,187 @@ Blocks provide typed configuration schemas with validation and UI management.
 
 See: https://docs.prefect.io/v3/concepts/blocks
 """
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from enum import Enum
-from niizarr import ZarrConfig
-from prefect.blocks.core import Block
-from pydantic import BaseModel
+from pathlib import Path
 
+from prefect.blocks.core import Block
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from niizarr import ZarrConfig
+import psoct_toolbox
 from opticstream.config.utils import with_positions
 
+
 class TileSavingType(str, Enum):
-    """
-    Enumeration of tile saving types.
-    """
+    """Enumeration of tile saving types."""
 
     COMPLEX = "complex"
     SPECTRAL = "spectral"
-    
+    SPECTRAL_12bit = "spectral_12bit"
+    COMPLEX_WITH_SPECTRAL = "complex_with_spectral"
+
+class EnfaceModality(str, Enum):
+    """Enumeration of enface modalities."""
+
+    AIP = "aip"
+    MIP = "mip"
+    RET = "ret"
+    ORI = "ori"
+    BIREF = "biref"
+    SURF = "surf"
+    MUS = "mus"
+
+
+class VolumeModality(str, Enum):
+    """Enumeration of volume modalities."""
+
+    DBI = "dBI"
+    R3D = "R3D"
+    O3D = "O3D"
+
+@with_positions
+class PSOCTAcquisitionParams(BaseModel):
+    """Physical / hardware facts about the acquisition."""
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    grid_size_x_normal: int = Field(
+        ...,
+        ge=1,
+        description=(
+            "Number of batches (columns) per mosaic for normal illumination (required)"
+        ),
+    )
+    grid_size_x_tilted: int = Field(
+        ...,
+        ge=1,
+        description=(
+            "Number of batches (columns) per mosaic for tilted illumination (required)"
+        ),
+    )
+    grid_size_y: int = Field(
+        ...,
+        ge=1,
+        description="Number of tiles per batch (rows) - determines batch size (required)",
+    )
+
+    tile_size_x_normal: int = Field(
+        default=350,
+        ge=1,
+        description=(
+            "Number of pixels in the x-direction for normal illumination tiles"
+        ),
+    )
+    tile_size_x_tilted: int = Field(
+        default=200,
+        ge=1,
+        description=(
+            "Number of pixels in the x-direction for tilted illumination tiles"
+        ),
+    )
+    tile_size_y: int = Field(
+        default=350,
+        ge=1,
+        description="Number of pixels in the y-direction for tiles",
+    )
+    tile_overlap: float = Field(
+        default=20.0,
+        ge=0.0,
+        description="Overlap between tiles in percentage (default: 20.0)",
+    )
+    scan_resolution_3d: List[float] = Field(
+        (0.01, 0.01, 0.0025), # Intentional default value, default factory does not work with prefect blocks UI
+        description=(
+            "Scan resolution for 3D volumes [x, y, z] in millimeters "
+            "(default: [0.01, 0.01, 0.0025])"
+        ),
+    )
+    tile_saving_type: TileSavingType = Field(
+        default=TileSavingType.SPECTRAL,
+        description="Type of tile saving format",
+    )
+    wavelength_um: float = Field(
+        default=1.3,
+        gt=0.0,
+        description="Center wavelength in microns",
+    )
+    slice_thickness_um: float = Field(
+        default=500.0,
+        gt=0.0,
+        description="Physical slice thickness in microns",
+    )
+
+    @field_validator("scan_resolution_3d")
+    @classmethod
+    def validate_scan_resolution_3d(cls, value: List[float]) -> List[float]:
+        if len(value) != 3:
+            raise ValueError("scan_resolution_3d must contain exactly 3 values [x, y, z]")
+        if any(v <= 0 for v in value):
+            raise ValueError("scan_resolution_3d values must be > 0")
+        return value
+
+
+class PSOCTProcessingParams(BaseModel):
+    """MATLAB processing parameters that are project-level constants."""
+
+    disp_comp_file: Path | None = Field(
+        default=None,
+        description=(
+            "Path to dispersion compensation file"
+            "if None, MATLAB toolbox default is used"
+        ),
+    )
+
+    enface_offset: int = Field(
+        default=0,
+        ge=0,
+        description="Offset from the surface for enface computation",
+    )
+    enface_depth: int = Field(
+        default=70,
+        ge=0,
+        description="Number of pixels below the surface for enface computation",
+    )
+    ori_method: str = Field(
+        default="circularMean",
+        description=(
+            "Orientation estimation method"
+        ),
+    )
+    ori_method_args: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra args for orientation method",
+    )
+    biref_method: str = Field(
+        default="legacy",
+        description="Birefringence method",
+    )
+    biref_method_args: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra args for birefringence method",
+    )
+    save_enface_2d_as_3d: bool = Field(
+        default=True,
+        description="Save 2D enface outputs as 3D Volume with third dimension = 1",
+    )
+
+    flip_phase: bool = Field(
+        default=False,
+        description="Flip phase sign convention when converting from complex to volume",
+    )
+    phase_offset_deg: float = Field(
+        default=100.0,
+        description="Phase offset in degrees before conversion to radians for MATLAB ",
+    )
+    flip_z: bool = Field(
+        default=True,
+        description="Flip z-axis ordering when converting from complex to volume",
+    )
+
+    surface_spec: Optional[str] = Field(
+        default="find",
+        description="Surface extraction spec string",
+    )
+
 
 @with_positions
 class PSOCTScanConfigModel(BaseModel):
@@ -31,68 +196,128 @@ class PSOCTScanConfigModel(BaseModel):
     Stores all project-specific parameters needed for processing workflows.
     Block instances should be saved with name: "{project_name}-config"
 
-    Attributes
-    ----------
-    project_base_path : str
-        Base filesystem path for project data (required)
-    grid_size_x_normal : int
-        Number of batches (columns) per mosaic for normal illumination (required)
-    grid_size_x_tilted : int
-        Number of batches (columns) per mosaic for tilted illumination (required)
-    grid_size_y : int
-        Number of tiles per batch (rows) - determines batch size (required)
-    tile_overlap : float, optional
-        Overlap between tiles in pixels (default: 20.0)
-    mask_threshold_normal : float, optional
-        Threshold for mask generation and coordinate processing for normal illumination (default: 60.0)
-    mask_threshold_tilted : float, optional
-        Threshold for mask generation and coordinate processing for tilted illumination (default: 55.0)
-    scan_resolution_3d : List[float], optional
-        Scan resolution for 3D volumes [x, y, z] in millimeters
-        (default: [0.01, 0.01, 0.0025])
-    crop_focus_plane_depth : int, optional
-        Focus-plane crop depth for 3D volume stitching (default: 500)
-    crop_focus_plane_offset : int, optional
-        Focus-plane crop offset for 3D volume stitching (default: 30)
+    Please repect the validation rules and constraints defined in the models, some validation rules are not enforced by the Prefect blocks UI but will be enforced by 
     """
+    model_config = ConfigDict(extra="forbid", validate_assignment=True, revalidate_instances="always")
 
-    project_base_path: str
-    grid_size_x_normal: int
-    grid_size_x_tilted: int
-    grid_size_y: int
-    tile_size_x_normal: int = 350
-    tile_size_x_tilted: int = 200
-    tile_size_y: int = 350
-
-    tile_overlap: float = 20.0 # overlap between tiles in pixels, in percentage
-    mask_threshold_normal: float = 60.0 # mask threshold for normal illumination
-    mask_threshold_tilted: float = 55.0 # mask threshold for tilted illumination
-    scan_resolution_3d: List[float] = [0.01, 0.01, 0.0025] # scan resolution for 3D volumes
-    tile_saving_type: TileSavingType = TileSavingType.SPECTRAL # the input tile saving type
-    dandiset_path: Optional[str] = None # which dandi set this should be uploaded to
-    archive_path: Optional[str] = None # where to store the archived file
-    archive_tile_name_format: str = "{project_name}_sample-slice{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz"
-    mosaic_volume_format: str = "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
-    mosaic_enface_format: str = (
-        "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.nii.gz"
+    project_name: str = Field(
+        ...,
+        min_length=1,
+        description="Unique project identifier, follow BIDS naming convention if possible with all common fields (e.g. sub-\<subject_id\>_ses-\<session_id\>)",
     )
-    mosaic_mask_format: str = (
-        "{project_name}_sample-slice{slice_id:03d}_acq-{acq}_OCT_mask.nii.gz"
-    )
-    slice_registered_format: str = (
-        "{project_name}_sample-slice{slice_id:03d}_proc-3daxis_OCT.nii.gz"
+    project_base_path: Path = Field(
+        ...,
+        description="Base filesystem path for project data. All intermediate and output files should be stored under this path.",
     )
 
-    enface_modalities: List[str] = ["ret", "ori", "biref", "mip", "surf"]
-    volume_modalities: List[str] = ["dBI", "R3D", "O3D"]
+    acquisition: PSOCTAcquisitionParams = Field(
+        ...,
+        description="Physical and hardware facts about the acquisition",
+    )
+    processing: PSOCTProcessingParams = Field(
+        default_factory=PSOCTProcessingParams,
+        description="Project-level MATLAB processing options",
+    )
 
-    stitch_3d_volumes: bool = True # whether to stitch 3D volumes
+    mask_threshold_normal: float = Field(
+        default=60.0,
+        ge=0.0,
+        description="Threshold for mask generation and coordinate processing for normal illumination (default: 60.0)",
+    )
+    mask_threshold_tilted: float = Field(
+        default=55.0,
+        ge=0.0,
+        description="Threshold for mask generation and coordinate processing for tilted illumination (default: 55.0)",
+    )
 
-    crop_focus_plane_depth: int = 700  # depth of the cropped volume
-    crop_focus_plane_offset: int = 0 # offset from the focus plane to crop the volume
-    matlab_root: Optional[str] = None  # Optional override for MATLAB toolbox root (defaults to psoct_toolbox.get_matlab_root())
-    # enface_opts: EnfaceOpts 
-    zarr_config: ZarrConfig
+    dandiset_path: Path | None = Field(
+        default=None,
+        description="Root path of the target DANDI dataset for upload",
+    )
+    archive_path: Path | None = Field(
+        default=None,
+        description="Archive root path where raw tiles are stored before processing",
+    )
+    archive_tile_name_format: str = Field(
+        default=(
+            "{project_name}_sample-slice{slice_id:02d}_chunk-{tile_id:04d}_acq-{acq}_OCT.nii.gz"
+        ),
+        description=(
+            "Filename template for archived tile outputs "
+            "(supports placeholders: project_name, slice_id, tile_id, acq)"
+        ),
+    )
+    mosaic_volume_format: str = Field(
+        default=(
+            "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+        ),
+        description=(
+            "Filename template for stitched 3D volume outputs "
+            "(supports placeholders: project_name, slice_id, acq, modality)"
+        ),
+    )
+    mosaic_enface_format: str = Field(
+        default=(
+            "{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.nii.gz"
+        ),
+        description=(
+            "Filename template for stitched enface outputs "
+            "(supports placeholders: project_name, slice_id, acq, modality)"
+        ),
+    )
+    mosaic_mask_format: str = Field(
+        default=(
+            "{project_name}_sample-slice{slice_id:03d}_acq-{acq}_OCT_mask.nii.gz"
+        ),
+        description=(
+            "Filename template for stitched mask outputs "
+            "(supports placeholders: project_name, slice_id, acq)"
+        ),
+    )
+    slice_registered_format: str = Field(
+        default=(
+            "{project_name}_sample-slice{slice_id:03d}_proc-3daxis_OCT.nii.gz"
+        ),
+        description=(
+            "Filename template for slice-registered axis outputs "
+            "(supports placeholders: project_name, slice_id)"
+        ),
+    )
+
+    enface_modalities: List[EnfaceModality] = Field(
+        default=[EnfaceModality.RET, EnfaceModality.ORI, EnfaceModality.BIREF, EnfaceModality.MIP, EnfaceModality.SURF, EnfaceModality.AIP],
+        description="Enface modalities to computed, exported, and stitched, aip is always included",
+    )
+    volume_modalities: List[VolumeModality] = Field(
+        default=[VolumeModality.DBI, VolumeModality.R3D, VolumeModality.O3D],
+        description="3D volume modalities to exported",
+    )
+
+    stitch_3d_volumes: bool = Field(
+        default=True,
+        description="Enable stitching of 3D volume outputs",
+    )
+
+    crop_focus_plane_depth: int = Field(
+        default=500,
+        ge=1,
+        description="Focus-plane crop depth for 3D volume stitching (default: 500)",
+    )
+    crop_focus_plane_offset: int = Field(
+        default=30,
+        ge=0,
+        description="Focus-plane crop offset for 3D volume stitching (default: 30)",
+    )
+    matlab_root: Path | None = Field(
+        default_factory=psoct_toolbox.get_matlab_root,
+        description="MATLAB installation root used by psoct_toolbox execution",
+    )
+    zarr_config: ZarrConfig = Field(
+        ...,
+        description="OME-Zarr writer configuration for stitched outputs",
+    )
+
+
 
 class PSOCTScanConfig(PSOCTScanConfigModel, Block):
     """
@@ -101,5 +326,4 @@ class PSOCTScanConfig(PSOCTScanConfigModel, Block):
     Stores all project-specific parameters needed for processing workflows.
     Block instances should be saved with name: "{project_name}-config"
     """
-
-    # PSOCTScanConfig.register_type_and_schema()
+    

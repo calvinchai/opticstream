@@ -298,7 +298,7 @@ def register_slice_flow(
     )
 
     # Update OCT project state for this slice
-    with OCT_STATE_SERVICE.open_slice(
+    with OCT_STATE_SERVICE.open_slice_by_parts(
         project_name=project_name,
         slice_number=slice_number,
     ) as slice_state:

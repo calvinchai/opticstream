@@ -13,8 +13,9 @@ from opticstream.flows.lsm.event import CHANNEL_VOLUME_UPLOADED
 from opticstream.flows.lsm.prefect_events import emit_channel_lsm_event
 from opticstream.flows.lsm.paths import channel_zarr_volume_path
 from opticstream.flows.lsm.state_guards import (
+    RunDecision,
     force_rerun_from_payload,
-    prepare_idempotent_channel_milestone,
+    enter_milestone_stage,
 )
 from opticstream.flows.lsm.utils import (
     channel_ident_from_payload,
@@ -50,22 +51,14 @@ def upload_channel_volume(
     """
     logger = get_run_logger()
     ch_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
-    uploaded = bool(ch_view and ch_view.volume_uploaded)
     if (
-        prepare_idempotent_channel_milestone(
-            logger,
-            milestone_done=uploaded,
+        enter_milestone_stage(
+            item_state_view=ch_view,
+            item_ident=channel_ident,
+            field_name="volume_uploaded",
             force_rerun=force_rerun,
-            skip_log=(
-                f"Channel {channel_ident} volume already uploaded; skipping (force_rerun=False)"
-            ),
-            force_log=(
-                f"Channel {channel_ident} volume already uploaded; forcing rerun"
-            ),
-            channel_ident=channel_ident,
-            reset_channel=lambda ch: ch.reset_volume_uploaded(),
         )
-        == "skip"
+        == RunDecision.SKIPPED
     ):
         return
 

@@ -60,7 +60,7 @@ def check_batch_state_task(
     if project_name is None:
         raise ValueError("project_name is required for OCT project state access")
 
-    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=mosaic_id,
     )
@@ -126,7 +126,7 @@ def update_mosaic_artifact_task(
     if project_name is None:
         raise ValueError("project_name is required for OCT project state access")
 
-    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=mosaic_id,
     )
@@ -260,7 +260,7 @@ def update_project_mosaic_artifact_task(
     logger = get_run_logger()
 
     # Use OCT project state as the authoritative source
-    project_view = OCT_STATE_SERVICE.peek_project(project_name)
+    project_view = OCT_STATE_SERVICE.peek_project_by_parts(project_name)
 
     # Collect state for each mosaic
     table_data = []
@@ -375,7 +375,7 @@ def check_mosaic_completion_task(
     if project_name is None:
         raise ValueError("project_name is required for OCT project state access")
 
-    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=mosaic_id,
     )
@@ -436,11 +436,11 @@ def check_slice_state_task(
     normal_mosaic_id = 2 * slice_number - 1
     tilted_mosaic_id = 2 * slice_number
 
-    normal_mosaic = OCT_STATE_SERVICE.read_mosaic(
+    normal_mosaic = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=normal_mosaic_id,
     )
-    tilted_mosaic = OCT_STATE_SERVICE.read_mosaic(
+    tilted_mosaic = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=tilted_mosaic_id,
     )
@@ -505,11 +505,11 @@ def update_slice_artifact_task(
     normal_mosaic_id = slice_state["normal_mosaic_id"]
     tilted_mosaic_id = slice_state["tilted_mosaic_id"]
 
-    normal_mosaic = OCT_STATE_SERVICE.read_mosaic(
+    normal_mosaic = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=normal_mosaic_id,
     )
-    tilted_mosaic = OCT_STATE_SERVICE.read_mosaic(
+    tilted_mosaic = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=tilted_mosaic_id,
     )
@@ -624,7 +624,7 @@ def check_mosaic_stitched_task(
     if project_name is None:
         raise ValueError("project_name is required for OCT project state access")
 
-    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=mosaic_id,
     )
@@ -674,7 +674,7 @@ def check_completion_and_emit_mosaic_ready_task(
     if project_name is None:
         raise ValueError("project_name is required for OCT project state access")
 
-    mosaic_view = OCT_STATE_SERVICE.read_mosaic(
+    mosaic_view = OCT_STATE_SERVICE.read_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=mosaic_id,
     )

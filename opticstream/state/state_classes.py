@@ -576,10 +576,10 @@ class SliceState(BaseState):
         """
         project_config = get_project_config_block(project_name)
         grid_size_x_normal = (
-            project_config.grid_size_x_normal if project_config else None
+            project_config.acquisition.grid_size_x_normal if project_config else None
         )
         grid_size_x_tilted = (
-            project_config.grid_size_x_tilted if project_config else None
+            project_config.acquisition.grid_size_x_tilted if project_config else None
         )
         return cls(
             project_base_path=project_base_path,
@@ -611,10 +611,14 @@ class ProjectState(BaseState):
         # Load project configuration block to get grid sizes
         self.project_config = get_project_config_block(self.project_name)
         grid_size_x_normal = (
-            self.project_config.grid_size_x_normal if self.project_config else None
+            self.project_config.acquisition.grid_size_x_normal
+            if self.project_config
+            else None
         )
         grid_size_x_tilted = (
-            self.project_config.grid_size_x_tilted if self.project_config else None
+            self.project_config.acquisition.grid_size_x_tilted
+            if self.project_config
+            else None
         )
 
         # Discover slices if not provided
@@ -721,10 +725,14 @@ class ProjectState(BaseState):
 
         # Add any newly discovered slices
         grid_size_x_normal = (
-            self.project_config.grid_size_x_normal if self.project_config else None
+            self.project_config.acquisition.grid_size_x_normal
+            if self.project_config
+            else None
         )
         grid_size_x_tilted = (
-            self.project_config.grid_size_x_tilted if self.project_config else None
+            self.project_config.acquisition.grid_size_x_tilted
+            if self.project_config
+            else None
         )
         for slice_number in discovered_slices:
             if slice_number not in self.slices:

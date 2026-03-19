@@ -350,7 +350,7 @@ def stitch_volume_flow(
     )
 
     # Update OCT project state for this mosaic
-    with OCT_STATE_SERVICE.open_mosaic(
+    with OCT_STATE_SERVICE.open_mosaic_by_parts(
         project_name=project_name,
         mosaic_id=mosaic_id,
     ) as mosaic_state:

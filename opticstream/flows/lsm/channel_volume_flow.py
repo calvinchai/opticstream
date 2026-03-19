@@ -16,8 +16,9 @@ from opticstream.flows.lsm.prefect_events import emit_channel_lsm_event
 from opticstream.flows.lsm.paths import channel_zarr_volume_path
 from opticstream.flows.lsm.strip_process_flow import ValidationResult, validate_zarr_directory
 from opticstream.flows.lsm.state_guards import (
+    RunDecision,
     force_rerun_from_payload,
-    prepare_idempotent_channel_milestone,
+    enter_milestone_stage,
 )
 from opticstream.flows.lsm.utils import (
     channel_ident_from_payload,
@@ -84,22 +85,14 @@ def process_channel_volume(
     """
     logger = get_run_logger()
     ch_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
-    vol_done = bool(ch_view and ch_view.volume_stitched)
     if (
-        prepare_idempotent_channel_milestone(
-            logger,
-            milestone_done=vol_done,
+        enter_milestone_stage(
+            item_state_view=ch_view,
+            item_ident=channel_ident,
+            field_name="volume_stitched",
             force_rerun=force_rerun,
-            skip_log=(
-                f"Channel {channel_ident} volume already stitched; skipping (force_rerun=False)"
-            ),
-            force_log=(
-                f"Channel {channel_ident} volume already stitched; forcing rerun"
-            ),
-            channel_ident=channel_ident,
-            reset_channel=lambda ch: ch.reset_volume_stitched(),
         )
-        == "skip"
+        == RunDecision.SKIPPED
     ):
         return None
 

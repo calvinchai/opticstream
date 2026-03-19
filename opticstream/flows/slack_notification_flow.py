@@ -178,12 +178,6 @@ def upload_multiple_files_to_slack_task(
         raise
 
 
-# Default Slack configuration (can be overridden via environment variables)
-DEFAULT_SLACK_BOT_TOKEN = os.getenv(
-    "SLACK_BOT_TOKEN", "xoxb-5890633520343-9932310181297-biQaPdHnAP3jlE0uxhkB2RSF"
-)
-DEFAULT_SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID", "C09SA78A8QJ")
-
 
 @flow
 def slack_enface_notification_flow(
