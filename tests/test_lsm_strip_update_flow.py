@@ -1,5 +1,7 @@
-from opticstream.flows.lsm.update_artifacts import (build_project_strip_summary_rows,
-                                                    build_slice_strip_matrix_rows)
+from opticstream.artifacts.lsm import (
+    build_project_strip_summary_rows,
+    build_slice_strip_matrix_rows,
+)
 from opticstream.state.lsm_project_state import (
     LSMChannelStateView,
     LSMProjectStateView,
@@ -132,17 +134,50 @@ def test_build_slice_strip_matrix_rows_includes_missing_strips_and_channels():
     assert rows == [
         {
             "Strip": 1,
-            "Ch 1": "running | cY aY uN",
-            "Ch 3": "pending | cN aN uN",
+            "Channel": 1,
+            "Processing": "running",
+            "Compressed": "✅",
+            "Archived": "✅",
+            "Uploaded": "❌",
+        },
+        {
+            "Strip": 1,
+            "Channel": 3,
+            "Processing": "pending",
+            "Compressed": "❌",
+            "Archived": "❌",
+            "Uploaded": "❌",
         },
         {
             "Strip": 2,
-            "Ch 1": "pending | cN aN uN",
-            "Ch 3": "completed | cY aY uY",
+            "Channel": 1,
+            "Processing": "pending",
+            "Compressed": "❌",
+            "Archived": "❌",
+            "Uploaded": "❌",
+        },
+        {
+            "Strip": 2,
+            "Channel": 3,
+            "Processing": "completed",
+            "Compressed": "✅",
+            "Archived": "✅",
+            "Uploaded": "✅",
         },
         {
             "Strip": 3,
-            "Ch 1": "pending | cN aN uN",
-            "Ch 3": "pending | cN aN uN",
+            "Channel": 1,
+            "Processing": "pending",
+            "Compressed": "❌",
+            "Archived": "❌",
+            "Uploaded": "❌",
+        },
+        {
+            "Strip": 3,
+            "Channel": 3,
+            "Processing": "pending",
+            "Compressed": "❌",
+            "Archived": "❌",
+            "Uploaded": "❌",
         },
     ]

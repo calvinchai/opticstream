@@ -9,7 +9,7 @@ from typing import ClassVar, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from opticstream.utils.naming_convention import get_project_name
+from opticstream.utils.naming_convention import normalize_project_name
 from opticstream.state.project_state_core import (
     BaseProjectStateStore,
     PrefectProjectLock,
@@ -32,11 +32,11 @@ Hierarchy (in-memory and persisted JSON):
 
 
 def _state_variable_key(project_name: str) -> str:
-    return f"{get_project_name(project_name)}_oct_project_state"
+    return f"{normalize_project_name(project_name)}_oct_project_state"
 
 
 def _state_lock_name(project_name: str) -> str:
-    return f"{get_project_name(project_name)}_oct_state_lock"
+    return f"{normalize_project_name(project_name)}_oct_state_lock"
 
 
 def ensure_lock(project_name: str) -> None:
@@ -48,11 +48,11 @@ def ensure_lock(project_name: str) -> None:
 # ------------------------------------------------------------------------------
 
 
-def _derive_slice_number_from_mosaic_id(mosaic_id: int) -> int:
+def _derive_slice_id_from_mosaic_id(mosaic_id: int) -> int:
     """
-    Derive slice_number from mosaic_id when it is not explicitly provided.
+    Derive slice_id from mosaic_id when it is not explicitly provided.
 
-    Current convention: slice_number is computed as mosaic_id // 2.
+    Current convention: slice_id is computed as mosaic_id // 2.
     """
     return mosaic_id // 2
 
@@ -63,7 +63,7 @@ class OCTProjectId(BaseModel):
 
 
 class OCTSliceId(OCTProjectId):
-    slice_number: int = Field(..., ge=0)
+    slice_id: int = Field(..., ge=0)
 
 
 class OCTMosaicId(OCTSliceId):
@@ -122,7 +122,7 @@ class OCTBatchStateView(OCTStateView):
     Tracks processing lifecycle flags and timestamps.
     """
 
-    slice_number: int = Field(..., ge=0)
+    slice_id: int = Field(..., ge=0)
     mosaic_id: int = Field(..., ge=0)
     batch_id: int = Field(..., ge=0)
     complexed: bool = False
@@ -183,7 +183,7 @@ class OCTBatchState(OCTStateMutationsMixin, OCTBatchStateView, ToViewMixin[OCTBa
 class OCTMosaicStateView(OCTStateView):
     """Readonly view for one OCT mosaic; batches are keyed by batch_id."""
 
-    slice_number: int = Field(..., ge=0)
+    slice_id: int = Field(..., ge=0)
     mosaic_id: int = Field(..., ge=0)
     enface_stitched: bool = False
     volume_stitched: bool = False
@@ -222,7 +222,7 @@ class OCTMosaicState(
     def get_or_create_batch(self, batch_id: int) -> OCTBatchState:
         if batch_id not in self.batches:
             self.batches[batch_id] = OCTBatchState(
-                slice_number=self.slice_number,
+                slice_id=self.slice_id,
                 mosaic_id=self.mosaic_id,
                 batch_id=batch_id,
             )
@@ -266,7 +266,7 @@ class OCTMosaicState(
 class OCTSliceStateView(OCTStateView):
     """Readonly view for one OCT slice; mosaics are keyed by mosaic_id."""
 
-    slice_number: int = Field(..., ge=0)
+    slice_id: int = Field(..., ge=0)
     mosaics: dict[int, OCTMosaicStateView] = Field(default_factory=dict)
     registered: bool = False
     uploaded: bool = False
@@ -309,7 +309,7 @@ class OCTSliceState(
     def get_or_create_mosaic(self, mosaic_id: int) -> OCTMosaicState:
         if mosaic_id not in self.mosaics:
             self.mosaics[mosaic_id] = OCTMosaicState(
-                slice_number=self.slice_number,
+                slice_id=self.slice_id,
                 mosaic_id=mosaic_id,
             )
         return self.mosaics[mosaic_id]
@@ -341,11 +341,11 @@ class OCTProjectStateView(OCTStateView):
 
     def get_batch(
         self,
-        slice_number: int,
+        slice_id: int,
         mosaic_id: int,
         batch_id: int,
     ) -> OCTBatchStateView | None:
-        slice_state = self.slices.get(slice_number)
+        slice_state = self.slices.get(slice_id)
         if slice_state is None:
             return None
         mosaic_state = slice_state.mosaics.get(mosaic_id)
@@ -374,74 +374,74 @@ class OCTProjectState(
     VIEW_MODEL: ClassVar[type[OCTProjectStateView]] = OCTProjectStateView
     slices: dict[int, OCTSliceState] = Field(default_factory=dict)
 
-    def get_slice(self, slice_number: int) -> OCTSliceState | None:
-        return self.slices.get(slice_number)
+    def get_slice(self, slice_id: int) -> OCTSliceState | None:
+        return self.slices.get(slice_id)
 
-    def get_mosaic(self, slice_number: int, mosaic_id: int) -> OCTMosaicState | None:
-        slice_state = self.get_slice(slice_number)
+    def get_mosaic(self, slice_id: int, mosaic_id: int) -> OCTMosaicState | None:
+        slice_state = self.get_slice(slice_id)
         if slice_state is None:
             return None
         return slice_state.get_mosaic(mosaic_id)
 
     def get_batch(
         self,
-        slice_number: int,
+        slice_id: int,
         mosaic_id: int,
         batch_id: int,
     ) -> OCTBatchState | None:
-        mosaic_state = self.get_mosaic(slice_number, mosaic_id)
+        mosaic_state = self.get_mosaic(slice_id, mosaic_id)
         if mosaic_state is None:
             return None
         return mosaic_state.get_batch(batch_id)
 
-    def get_or_create_slice(self, slice_number: int) -> OCTSliceState:
-        if slice_number not in self.slices:
-            self.slices[slice_number] = OCTSliceState(
-                slice_number=slice_number,
+    def get_or_create_slice(self, slice_id: int) -> OCTSliceState:
+        if slice_id not in self.slices:
+            self.slices[slice_id] = OCTSliceState(
+                slice_id=slice_id,
             )
-        return self.slices[slice_number]
+        return self.slices[slice_id]
 
-    def get_or_create_mosaic(self, slice_number: int, mosaic_id: int) -> OCTMosaicState:
-        slice_state = self.get_or_create_slice(slice_number)
+    def get_or_create_mosaic(self, slice_id: int, mosaic_id: int) -> OCTMosaicState:
+        slice_state = self.get_or_create_slice(slice_id)
         return slice_state.get_or_create_mosaic(mosaic_id)
 
     def get_or_create_batch(
         self,
-        slice_number: int,
+        slice_id: int,
         mosaic_id: int,
         batch_id: int,
     ) -> OCTBatchState:
-        mosaic_state = self.get_or_create_mosaic(slice_number, mosaic_id)
+        mosaic_state = self.get_or_create_mosaic(slice_id, mosaic_id)
         return mosaic_state.get_or_create_batch(batch_id)
 
 
 def _get_slice_view(
     state: OCTProjectState,
     *,
-    slice_number: int,
+    slice_id: int,
 ) -> OCTSliceStateView | None:
-    slice_state = state.slices.get(slice_number)
+    slice_state = state.slices.get(slice_id)
     return None if slice_state is None else slice_state.to_view()
 
 
 def _get_mosaic_view(
     state: OCTProjectState,
     *,
-    slice_number: int,
+    slice_id: int,
     mosaic_id: int,
 ) -> OCTMosaicStateView | None:
-    mosaic_state = state.get_mosaic(slice_number, mosaic_id)
+    mosaic_state = state.get_mosaic(slice_id, mosaic_id)
     return None if mosaic_state is None else mosaic_state.to_view()
 
 
 def _get_batch_view(
     state: OCTProjectState,
     *,
-    slice_number: int,
+    slice_id: int,
     mosaic_id: int,
     batch_id: int,
 ) -> OCTBatchStateView | None:
-    batch_state = state.get_batch(slice_number, mosaic_id, batch_id)
+    batch_state = state.get_batch(slice_id, mosaic_id, batch_id)
     return None if batch_state is None else batch_state.to_view()
 
 # ------------------------------------------------------------------------------
@@ -510,7 +510,7 @@ class OCTProjectStateService:
     ) -> AbstractContextManager[OCTSliceState]:
         return self.open_slice_by_parts(
             project_name=slice_ident.project_name,
-            slice_number=slice_ident.slice_number,
+            slice_id=slice_ident.slice_id,
             timeout_seconds=timeout_seconds,
         )
 
@@ -518,12 +518,12 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int,
+        slice_id: int,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTSliceState]:
         return self._store.open(
             project_name,
-            getter=lambda state: state.get_or_create_slice(slice_number),
+            getter=lambda state: state.get_or_create_slice(slice_id),
             timeout_seconds=timeout_seconds,
         )
 
@@ -535,7 +535,7 @@ class OCTProjectStateService:
     ) -> AbstractContextManager[OCTMosaicState]:
         return self.open_mosaic_by_parts(
             project_name=mosaic_ident.project_name,
-            slice_number=mosaic_ident.slice_number,
+            slice_id=mosaic_ident.slice_id,
             mosaic_id=mosaic_ident.mosaic_id,
             timeout_seconds=timeout_seconds,
         )
@@ -544,19 +544,19 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int | None = None,
+        slice_id: int | None = None,
         mosaic_id: int,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTMosaicState]:
-        resolved_slice_number = (
-            _derive_slice_number_from_mosaic_id(mosaic_id)
-            if slice_number is None
-            else slice_number
+        resolved_slice_id = (
+            _derive_slice_id_from_mosaic_id(mosaic_id)
+            if slice_id is None
+            else slice_id
         )
         return self._store.open(
             project_name,
             getter=lambda state: state.get_or_create_mosaic(
-                resolved_slice_number,
+                resolved_slice_id,
                 mosaic_id,
             ),
             timeout_seconds=timeout_seconds,
@@ -570,7 +570,7 @@ class OCTProjectStateService:
     ) -> AbstractContextManager[OCTBatchState]:
         return self.open_batch_by_parts(
             project_name=batch_ident.project_name,
-            slice_number=batch_ident.slice_number,
+            slice_id=batch_ident.slice_id,
             mosaic_id=batch_ident.mosaic_id,
             batch_id=batch_ident.batch_id,
             timeout_seconds=timeout_seconds,
@@ -580,20 +580,20 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int | None = None,
+        slice_id: int | None = None,
         mosaic_id: int,
         batch_id: int,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTBatchState]:
-        resolved_slice_number = (
-            _derive_slice_number_from_mosaic_id(mosaic_id)
-            if slice_number is None
-            else slice_number
+        resolved_slice_id = (
+            _derive_slice_id_from_mosaic_id(mosaic_id)
+            if slice_id is None
+            else slice_id
         )
         return self._store.open(
             project_name,
             getter=lambda state: state.get_or_create_batch(
-                slice_number=resolved_slice_number,
+                slice_id=resolved_slice_id,
                 mosaic_id=mosaic_id,
                 batch_id=batch_id,
             ),
@@ -635,7 +635,7 @@ class OCTProjectStateService:
     ) -> OCTSliceStateView | None:
         return self.read_slice_by_parts(
             project_name=slice_ident.project_name,
-            slice_number=slice_ident.slice_number,
+            slice_id=slice_ident.slice_id,
             timeout_seconds=timeout_seconds,
         )
 
@@ -643,14 +643,14 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int,
+        slice_id: int,
         timeout_seconds: float | None = None,
     ) -> OCTSliceStateView | None:
         return self._store.read(
             project_name,
             reader=lambda state: _get_slice_view(
                 state,
-                slice_number=slice_number,
+                slice_id=slice_id,
             ),
             timeout_seconds=timeout_seconds,
         )
@@ -663,7 +663,7 @@ class OCTProjectStateService:
     ) -> OCTMosaicStateView | None:
         return self.read_mosaic_by_parts(
             project_name=mosaic_ident.project_name,
-            slice_number=mosaic_ident.slice_number,
+            slice_id=mosaic_ident.slice_id,
             mosaic_id=mosaic_ident.mosaic_id,
             timeout_seconds=timeout_seconds,
         )
@@ -672,20 +672,20 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int | None = None,
+        slice_id: int | None = None,
         mosaic_id: int,
         timeout_seconds: float | None = None,
     ) -> OCTMosaicStateView | None:
-        resolved_slice_number = (
-            _derive_slice_number_from_mosaic_id(mosaic_id)
-            if slice_number is None
-            else slice_number
+        resolved_slice_id = (
+            _derive_slice_id_from_mosaic_id(mosaic_id)
+            if slice_id is None
+            else slice_id
         )
         return self._store.read(
             project_name,
             reader=lambda state: _get_mosaic_view(
                 state,
-                slice_number=resolved_slice_number,
+                slice_id=resolved_slice_id,
                 mosaic_id=mosaic_id,
             ),
             timeout_seconds=timeout_seconds,
@@ -699,7 +699,7 @@ class OCTProjectStateService:
     ) -> OCTBatchStateView | None:
         return self.read_batch_by_parts(
             project_name=batch_ident.project_name,
-            slice_number=batch_ident.slice_number,
+            slice_id=batch_ident.slice_id,
             mosaic_id=batch_ident.mosaic_id,
             batch_id=batch_ident.batch_id,
             timeout_seconds=timeout_seconds,
@@ -709,21 +709,21 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int | None = None,
+        slice_id: int | None = None,
         mosaic_id: int,
         batch_id: int,
         timeout_seconds: float | None = None,
     ) -> OCTBatchStateView | None:
-        resolved_slice_number = (
-            _derive_slice_number_from_mosaic_id(mosaic_id)
-            if slice_number is None
-            else slice_number
+        resolved_slice_id = (
+            _derive_slice_id_from_mosaic_id(mosaic_id)
+            if slice_id is None
+            else slice_id
         )
         return self._store.read(
             project_name,
             reader=lambda state: _get_batch_view(
                 state,
-                slice_number=resolved_slice_number,
+                slice_id=resolved_slice_id,
                 mosaic_id=mosaic_id,
                 batch_id=batch_id,
             ),
@@ -752,20 +752,20 @@ class OCTProjectStateService:
     ) -> OCTSliceStateView | None:
         return self.peek_slice_by_parts(
             project_name=slice_ident.project_name,
-            slice_number=slice_ident.slice_number,
+            slice_id=slice_ident.slice_id,
         )
 
     def peek_slice_by_parts(
         self,
         project_name: str,
         *,
-        slice_number: int,
+        slice_id: int,
     ) -> OCTSliceStateView | None:
         return self._store.peek(
             project_name,
             reader=lambda state: _get_slice_view(
                 state,
-                slice_number=slice_number,
+                slice_id=slice_id,
             ),
         )
 
@@ -775,7 +775,7 @@ class OCTProjectStateService:
     ) -> OCTMosaicStateView | None:
         return self.peek_mosaic_by_parts(
             project_name=mosaic_ident.project_name,
-            slice_number=mosaic_ident.slice_number,
+            slice_id=mosaic_ident.slice_id,
             mosaic_id=mosaic_ident.mosaic_id,
         )
 
@@ -783,19 +783,19 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int | None = None,
+        slice_id: int | None = None,
         mosaic_id: int,
     ) -> OCTMosaicStateView | None:
-        resolved_slice_number = (
-            _derive_slice_number_from_mosaic_id(mosaic_id)
-            if slice_number is None
-            else slice_number
+        resolved_slice_id = (
+            _derive_slice_id_from_mosaic_id(mosaic_id)
+            if slice_id is None
+            else slice_id
         )
         return self._store.peek(
             project_name,
             reader=lambda state: _get_mosaic_view(
                 state,
-                slice_number=resolved_slice_number,
+                slice_id=resolved_slice_id,
                 mosaic_id=mosaic_id,
             ),
         )
@@ -806,7 +806,7 @@ class OCTProjectStateService:
     ) -> OCTBatchStateView | None:
         return self.peek_batch_by_parts(
             project_name=batch_ident.project_name,
-            slice_number=batch_ident.slice_number,
+            slice_id=batch_ident.slice_id,
             mosaic_id=batch_ident.mosaic_id,
             batch_id=batch_ident.batch_id,
         )
@@ -815,20 +815,20 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_number: int | None = None,
+        slice_id: int | None = None,
         mosaic_id: int,
         batch_id: int,
     ) -> OCTBatchStateView | None:
-        resolved_slice_number = (
-            _derive_slice_number_from_mosaic_id(mosaic_id)
-            if slice_number is None
-            else slice_number
+        resolved_slice_id = (
+            _derive_slice_id_from_mosaic_id(mosaic_id)
+            if slice_id is None
+            else slice_id
         )
         return self._store.peek(
             project_name,
             reader=lambda state: _get_batch_view(
                 state,
-                slice_number=resolved_slice_number,
+                slice_id=resolved_slice_id,
                 mosaic_id=mosaic_id,
                 batch_id=batch_id,
             ),

@@ -103,7 +103,7 @@ def create_unified_deployment(
     >>> deployment = create_unified_deployment(
     ...     unified_state_management_event_flow,
     ...     name="unified_state_management_event_flow",
-    ...     event_names=[BATCH_PROCESSED, BATCH_ARCHIVED, MOSAIC_STITCHED],
+    ...     event_names=[BATCH_PROCESSED, BATCH_ARCHIVED, MOSAIC_ENFACE_STITCHED],
     ...     tags=["event-driven", "state-management", "unified"],
     ...     concurrency_limit=1,
     ... )

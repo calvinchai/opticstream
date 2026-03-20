@@ -16,7 +16,7 @@ from opticstream.flows.psoct.utils import (
 )
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
-from opticstream.state.state_guards import force_rerun_from_payload
+from opticstream.state.state_guards import enter_flow_stage, force_rerun_from_payload, should_skip_run
 from opticstream.tasks.common_tasks import archive_tile_task
 from opticstream.utils.filename_utils import (
     complex_to_complex_filename,
@@ -94,8 +94,7 @@ def link_complex_inputs_to_mosaic_complex_dir(
     return output_paths
 
 
-@flow(flow_run_name="archive-tile-batch-{batch_id}")
-@oct_batch_processing_milestone(field_name="archived", success_event=BATCH_ARCHIVED)
+@flow
 def archive_tile_batch(
     batch_id: OCTBatchId,
     file_list: list[Path],
@@ -113,7 +112,7 @@ def archive_tile_batch(
         tile_id = extract_tile_index_from_filename(str(source_file))
         output_name = archive_tile_name_format.format(
             project_name=batch_id.project_name,
-            slice_id=batch_id.slice_number,
+            slice_id=batch_id.slice_id,
             tile_id=tile_id,
             acq=acq,
         )
@@ -127,54 +126,70 @@ def archive_tile_batch(
     return archived_file_paths
 
 
+def check_archive_result(
+    batch_id: OCTBatchId,
+    archived_file_paths: list[str],
+) -> None:
+    logger = get_run_logger()
+    logger.info("Checking if the archived files are valid for %s", batch_id)
+    for archived_file_path in archived_file_paths:
+        if not os.path.exists(archived_file_path):
+            logger.error("Archived file %s does not exist", archived_file_path)
+            return False
+
+    return True
+
+
 @flow(flow_run_name="process-tile-batch-{batch_id}")
-@oct_batch_processing_milestone(field_name="complexed", success_event=BATCH_COMPLEXED)
 def process_tile_batch(
     batch_id: OCTBatchId,
     config: PSOCTScanConfigModel,
     file_list: list[Path],
     *,
-    archive: bool = True,
-    convert: bool = True,
     force_rerun: bool = False,
 ) -> dict[str, Any]:
     logger = get_run_logger()
-    with OCT_STATE_SERVICE.open_batch(batch_ident=batch_id) as batch_state:
-        batch_state.mark_started()
-    archived: list[str] = []
-    if archive:
-        archive_root = Path(config.archive_path or (config.project_base_path / "archived"))
-        archived = archive_tile_batch(
+    if should_skip_run(enter_flow_stage(OCT_STATE_SERVICE.peek_batch(batch_ident=batch_id), force_rerun=force_rerun, skip_if_running=False, item_ident=batch_id)):
+        return
+    
+    archive_future = None
+    if config.archive_path:
+        archive_future = archive_tile_batch.submit(
             batch_id=batch_id,
             file_list=file_list,
-            archive_path=archive_root,
+            archive_path=config.archive_path,
             archive_tile_name_format=config.archive_tile_name_format,
             force_rerun=force_rerun,
         )
+    if archive_future:
+        archive_future.wait()
+        if not archive_future.result():
+            logger.error("Failed to archive tiles for %s", batch_id)
+            return {"error": "Failed to archive tiles"}
 
-    mode = _determine_processing_mode(
-        convert=convert,
-        tile_saving_type=config.acquisition.tile_saving_type,
-        mosaic_id=batch_id.mosaic_id,
-        tile_size_x_tilted=config.acquisition.tile_size_x_tilted,
-        tile_size_x_normal=config.acquisition.tile_size_x_normal,
-        tile_size_y=config.acquisition.tile_size_y,
-    )
-    complex_files: list[Path] = []
-    if mode["mode"] == "spectral":
-        complex_files = process_spectral_tile_batch(
-            batch_id=batch_id,
-            file_list=file_list,
-            project_base_path=config.project_base_path,
-            aline_length=mode["aline_length"],
-            bline_length=mode["bline_length"],
-        )
-    elif mode["mode"] == "complex":
-        complex_files = link_complex_inputs_to_mosaic_complex_dir(
-            batch_id=batch_id,
-            file_list=file_list,
-            project_base_path=config.project_base_path,
-        )
+    # mode = _determine_processing_mode(
+    #     convert=convert,
+    #     tile_saving_type=config.acquisition.tile_saving_type,
+    #     mosaic_id=batch_id.mosaic_id,
+    #     tile_size_x_tilted=config.acquisition.tile_size_x_tilted,
+    #     tile_size_x_normal=config.acquisition.tile_size_x_normal,
+    #     tile_size_y=config.acquisition.tile_size_y,
+    # )
+    # complex_files: list[Path] = []
+    # if mode["mode"] == "spectral":
+    #     complex_files = process_spectral_tile_batch(
+    #         batch_id=batch_id,
+    #         file_list=file_list,
+    #         project_base_path=config.project_base_path,
+    #         aline_length=mode["aline_length"],
+    #         bline_length=mode["bline_length"],
+    #     )
+    # elif mode["mode"] == "complex":
+    #     complex_files = link_complex_inputs_to_mosaic_complex_dir(
+    #         batch_id=batch_id,
+    #         file_list=file_list,
+    #         project_base_path=config.project_base_path,
+    #     )
     logger.info("Produced %d complex files for %s", len(complex_files), batch_id)
     return {"complex_files": [str(p) for p in complex_files], "archived_files": archived}
 
@@ -187,8 +202,6 @@ def process_tile_batch_event_flow(payload: Dict[str, Any]) -> dict[str, Any]:
         batch_id=batch_ident,
         config=cfg,
         file_list=path_list_from_payload(payload),
-        archive=bool(payload.get("archive", True)),
-        convert=bool(payload.get("convert", True)),
         force_rerun=force_rerun_from_payload(payload),
     )
 

@@ -190,11 +190,11 @@ def thruplane_from_files_task(
     return outputs
 
 
-@flow(flow_run_name="{project_name}-slice-{slice_number}-register")
+@flow(flow_run_name="{project_name}-slice-{slice_id}-register")
 def register_slice_flow(
     project_name: str,
     project_base_path: str,
-    slice_number: int,
+    slice_id: int,
     normal_mosaic_id: int,
     tilted_mosaic_id: int,
     gamma: float = -15.0,
@@ -213,8 +213,8 @@ def register_slice_flow(
         Project identifier
     project_base_path : str
         Base path for the project
-    slice_number : int
-        Slice number (1-indexed)
+    slice_id : int
+        Slice id (1-indexed)
     normal_mosaic_id : int
         Normal illumination mosaic ID (2n-1)
     tilted_mosaic_id : int
@@ -232,7 +232,7 @@ def register_slice_flow(
     """
     logger = get_run_logger()
     logger.info(
-        f"Starting slice registration for slice {slice_number} "
+        f"Starting slice registration for slice {slice_id} "
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"
     )
 
@@ -257,7 +257,7 @@ def register_slice_flow(
     missing_files = [f for f in input_files if not f.exists()]
     if missing_files:
         raise FileNotFoundError(
-            f"Missing input files for slice {slice_number}:\n"
+            f"Missing input files for slice {slice_id}:\n"
             + "\n".join(f"  - {f}" for f in missing_files)
         )
 
@@ -284,7 +284,7 @@ def register_slice_flow(
     emit_slice_psoct_event(
         SLICE_REGISTERED,
         slice_ident=(
-            OCTSliceId(project_name=project_name, slice_number=slice_number)
+            OCTSliceId(project_name=project_name, slice_id=slice_id)
         ),
         extra_payload={
             "normal_mosaic_id": normal_mosaic_id,
@@ -297,15 +297,15 @@ def register_slice_flow(
     # Update OCT project state for this slice
     with OCT_STATE_SERVICE.open_slice_by_parts(
         project_name=project_name,
-        slice_number=slice_number,
+        slice_id=slice_id,
     ) as slice_state:
         slice_state.mark_completed()
         slice_state.set_registered(True)
 
-    logger.info(f"Slice {slice_number} registration complete")
+    logger.info(f"Slice {slice_id} registration complete")
 
     return {
-        "slice_number": slice_number,
+        "slice_id": slice_id,
         "normal_mosaic_id": normal_mosaic_id,
         "tilted_mosaic_id": tilted_mosaic_id,
         "processed_dir": str(stitched_path_normal),
@@ -328,7 +328,7 @@ def register_slice_event_flow(
         Event payload containing:
         - project_name: str
         - project_base_path: str
-        - slice_number: int
+        - slice_id: int
         - normal_mosaic_id: int
         - tilted_mosaic_id: int
         - gamma: float (optional, default: -15.0)
@@ -340,7 +340,7 @@ def register_slice_event_flow(
         Result from register_slice_flow
     """
     # Extract and convert types explicitly
-    slice_number = int(payload["slice_number"])
+    slice_id = int(payload["slice_id"])
     normal_mosaic_id = int(payload["normal_mosaic_id"])
     tilted_mosaic_id = int(payload["tilted_mosaic_id"])
     gamma = float(payload.get("gamma", -15.0))
@@ -349,7 +349,7 @@ def register_slice_event_flow(
     return register_slice_flow(
         project_name=payload["project_name"],
         project_base_path=payload["project_base_path"],
-        slice_number=slice_number,
+        slice_id=slice_id,
         normal_mosaic_id=normal_mosaic_id,
         tilted_mosaic_id=tilted_mosaic_id,
         gamma=gamma,

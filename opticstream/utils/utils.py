@@ -8,9 +8,9 @@ from typing import List, Optional, Tuple
 from prefect import get_run_logger, task
 
 
-def mosaic_id_to_slice_number(mosaic_id: int) -> int:
+def mosaic_id_to_slice_id(mosaic_id: int) -> int:
     """
-    Convert mosaic ID to slice number.
+    Convert mosaic ID to slice id.
 
     Mapping:
     - Mosaic 1 (normal) → Slice 1
@@ -27,7 +27,7 @@ def mosaic_id_to_slice_number(mosaic_id: int) -> int:
     Returns
     -------
     int
-        Slice number (1-indexed)
+        Slice id (1-indexed)
     """
     # Normal mosaics: 1, 3, 5, ... → slices 1, 2, 3, ...
     # Tilted mosaics: 2, 4, 6, ... → slices 1, 2, 3, ...
@@ -40,30 +40,30 @@ def mosaic_id_to_slice_number(mosaic_id: int) -> int:
 
 
 def get_slice_paths(
-    project_base_path: str, slice_number: int
+    project_base_path: str, slice_id: int
 ) -> Tuple[Path, Path, Path, Path]:
     """
     Get standard paths for a slice directory structure.
 
     Structure:
-    - {project_base_path}/slice-{slice_number:02d}/processed/
-    - {project_base_path}/slice-{slice_number:02d}/stitched/
-    - {project_base_path}/slice-{slice_number:02d}/complex/
-    - {project_base_path}/slice-{slice_number:02d}/state/
+    - {project_base_path}/slice-{slice_id:02d}/processed/
+    - {project_base_path}/slice-{slice_id:02d}/stitched/
+    - {project_base_path}/slice-{slice_id:02d}/complex/
+    - {project_base_path}/slice-{slice_id:02d}/state/
 
     Parameters
     ----------
     project_base_path : str
         Base path for the project
-    slice_number : int
-        Slice number (1-indexed)
+    slice_id : int
+        Slice id (1-indexed)
 
     Returns
     -------
     Tuple[Path, Path, Path, Path]
         Tuple of (processed_path, stitched_path, complex_path, state_path)
     """
-    slice_path = Path(project_base_path) / f"slice-{slice_number:02d}"
+    slice_path = Path(project_base_path) / f"slice-{slice_id:02d}"
     processed_path = slice_path / "processed/"
     stitched_path = slice_path / "stitched/"
     complex_path = slice_path / "complex/"
@@ -74,7 +74,7 @@ def get_slice_paths(
 
 @task
 def discover_slices_task(
-    data_root_path: str, slice_numbers: Optional[List[int]] = None
+    data_root_path: str, slice_ids: Optional[List[int]] = None
 ) -> List[int]:
     """
     Discover available slices from data directory.
@@ -83,17 +83,17 @@ def discover_slices_task(
     ----------
     data_root_path : str
         Root path to data directory
-    slice_numbers : List[int], optional
-        Optional list of slice numbers (if None, auto-discover)
+    slice_ids : List[int], optional
+        Optional list of slice ids (if None, auto-discover)
 
     Returns
     -------
     List[int]
-        List of slice numbers
+        List of slice ids
     """
     logger = get_run_logger()
-    if slice_numbers is not None:
-        return slice_numbers
+    if slice_ids is not None:
+        return slice_ids
 
     logger.info(f"Discovering slices in {data_root_path}")
 
@@ -170,7 +170,7 @@ def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
         Path to DANDI derivatives directory for the subject
         (already includes derivatives/sub-{subject}/)
     slice_id : int
-        Slice number (1-indexed)
+        Slice id (1-indexed)
 
     Returns
     -------

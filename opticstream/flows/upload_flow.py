@@ -8,7 +8,7 @@ from prefect.logging import get_run_logger
 from opticstream.events import (
     BATCH_ARCHIVED,
     BATCH_UPLOADED,
-    MOSAIC_STITCHED,
+    MOSAIC_ENFACE_STITCHED,
     MOSAIC_VOLUME_STITCHED,
     get_event_trigger,
 )
@@ -273,7 +273,7 @@ if __name__ == "__main__":
         upload_mosaic_enface_to_dandi_event_flow.to_deployment(
             name="upload_mosaic_enface_to_dandi_event_flow",
             triggers=[
-                get_event_trigger(MOSAIC_STITCHED),
+                get_event_trigger(MOSAIC_ENFACE_STITCHED),
             ],
         )
     )

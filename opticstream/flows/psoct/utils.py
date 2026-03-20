@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
+from typing import Any, Dict, Mapping, Optional, Sequence
 
 from opticstream.config.project_config import get_project_config_block
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, get_psoct_scan_config
+from opticstream.config.psoct_scan_config import (
+    PSOCTScanConfigModel,
+    get_psoct_scan_config,
+)
 from opticstream.state.oct_project_state import (
     OCTBatchId,
     OCTMosaicId,
@@ -12,7 +15,7 @@ from opticstream.state.oct_project_state import (
 )
 
 
-def slice_number_for_mosaic_id(mosaic_id: int) -> int:
+def slice_id_for_mosaic_id(mosaic_id: int) -> int:
     """Match ``OCT_STATE_SERVICE`` derivation (mosaic_id // 2)."""
     return mosaic_id // 2
 
@@ -20,7 +23,7 @@ def slice_number_for_mosaic_id(mosaic_id: int) -> int:
 def mosaic_ident_from_project_and_mosaic_id(project_name: str, mosaic_id: int) -> OCTMosaicId:
     return OCTMosaicId(
         project_name=project_name,
-        slice_number=slice_number_for_mosaic_id(mosaic_id),
+        slice_id=slice_id_for_mosaic_id(mosaic_id),
         mosaic_id=mosaic_id,
     )
 
@@ -41,12 +44,24 @@ def mask_threshold_for_mosaic(cfg: PSOCTScanConfigModel, mosaic_id: int) -> floa
     )
 
 
-def kwargs_for_process_mosaic_event(
+PROCESS_MOSAIC_FLOW_KWARGS_KEYS = (
+    "project_base_path",
+    "grid_size_x",
+    "grid_size_y",
+    "tile_overlap",
+    "mask_threshold",
+    "scan_resolution_3d",
+    "enface_modalities",
+    "dandiset_path",
+    "mosaic_enface_format",
+)
+
+
+def _process_mosaic_flow_defaults_from_config(
     mosaic_ident: OCTMosaicId,
     cfg: PSOCTScanConfigModel,
-    payload: Mapping[str, Any],
 ) -> Dict[str, Any]:
-    """Keyword args for :func:`process_mosaic` / legacy ``process_mosaic_flow``."""
+    """Base keyword args for :func:`process_mosaic_flow` from the project config block."""
     return {
         "project_base_path": str(cfg.project_base_path),
         "grid_size_x": grid_size_x_for_mosaic(cfg, mosaic_ident.mosaic_id),
@@ -58,6 +73,25 @@ def kwargs_for_process_mosaic_event(
         "dandiset_path": str(cfg.dandiset_path) if cfg.dandiset_path else None,
         "mosaic_enface_format": cfg.mosaic_enface_format,
     }
+
+
+def resolve_process_mosaic_flow_kwargs(
+    payload: Mapping[str, Any],
+    mosaic_ident: OCTMosaicId,
+    cfg: PSOCTScanConfigModel,
+) -> Dict[str, Any]:
+    """
+    Resolve kwargs for :func:`process_mosaic_flow` like LSM strip flows: values come
+    from the config block unless the event payload overrides a key.
+    """
+    defaults = _process_mosaic_flow_defaults_from_config(mosaic_ident, cfg)
+    resolved: Dict[str, Any] = {}
+    for key in PROCESS_MOSAIC_FLOW_KWARGS_KEYS:
+        if key in payload:
+            resolved[key] = payload[key]
+        else:
+            resolved[key] = defaults[key]
+    return resolved
 
 
 def nifti_paths_from_enface_outputs(
@@ -106,7 +140,7 @@ def get_item_path(
     if isinstance(item_indent, OCTMosaicId):
         return project_base_path / f"mosaic-{item_indent.mosaic_id:03d}"
     if isinstance(item_indent, OCTSliceId):
-        return project_base_path / f"slice-{item_indent.slice_number:02d}"
+        return project_base_path / f"slice-{item_indent.slice_id:02d}"
     raise ValueError(f"Invalid item indent: {item_indent}")
 
 def _model_from_payload(payload: Mapping[str, Any], key: str, model_type: Any) -> Any:
@@ -135,32 +169,23 @@ def slice_ident_from_payload(payload: Mapping[str, Any]) -> OCTSliceId:
 def load_scan_config_for_payload(payload: Mapping[str, Any]) -> PSOCTScanConfigModel:
     project_name = payload.get("project_name")
     if project_name is None:
-        raise KeyError("payload must include project_name")
-    cfg = get_project_config_block(project_name)
+        raw_ident = payload.get("mosaic_ident")
+        if isinstance(raw_ident, OCTMosaicId):
+            project_name = raw_ident.project_name
+        elif isinstance(raw_ident, Mapping):
+            project_name = raw_ident.get("project_name")
+    if project_name is None:
+        raise KeyError("payload must include project_name or mosaic_ident with project_name")
+    override = payload.get("override_config")
+    if override is not None:
+        cfg = get_psoct_scan_config(project_name, override_config_name=override)
+    else:
+        cfg = get_project_config_block(project_name)
     if cfg is None:
         raise ValueError(
             f"project config block '{project_name.lower().replace('_', '-')}-config' not found"
         )
     return PSOCTScanConfigModel.model_validate(cfg.model_dump())
-
-
-def optional_event_overrides(
-    payload: Mapping[str, Any],
-    config: PSOCTScanConfigModel,
-    *,
-    keys: Iterable[str],
-) -> Dict[str, Any]:
-    resolved: Dict[str, Any] = {}
-    for key in keys:
-        if key in payload:
-            resolved[key] = payload[key]
-            continue
-        if hasattr(config, key):
-            resolved[key] = getattr(config, key)
-            continue
-        if hasattr(config.acquisition, key):
-            resolved[key] = getattr(config.acquisition, key)
-    return resolved
 
 
 def path_list_from_payload(payload: Mapping[str, Any], key: str = "file_list") -> list[Path]:

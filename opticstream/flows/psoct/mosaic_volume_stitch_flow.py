@@ -17,9 +17,9 @@ from prefect.logging import get_run_logger
 from niizarr.multizarr import ZarrConfig
 from opticstream.scripts import find_tile_plane, find_volume_surface
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
-from opticstream.events import MOSAIC_STITCHED, MOSAIC_VOLUME_STITCHED
+from opticstream.events import MOSAIC_ENFACE_STITCHED, MOSAIC_VOLUME_STITCHED
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
-from opticstream.flows.mosaic_processing_flow import generate_tile_info_file_task
+from opticstream.flows.psoct.mosaic_process_flow import generate_tile_info_file_task
 from opticstream.flows.psoct.utils import (
     load_scan_config_for_payload,
     mosaic_ident_from_project_and_mosaic_id,
@@ -30,7 +30,7 @@ from opticstream.utils.utils import (
     get_dandi_slice_path,
     get_modality_stitching_filename,
     get_mosaic_paths,
-    mosaic_id_to_slice_number,
+    mosaic_id_to_slice_id,
 )
 
 
@@ -176,7 +176,7 @@ def stitch_volume_flow(
     zarr_config: Optional[ZarrConfig] = None,
 ) -> Dict[str, Path]:
     """
-    Flow to stitch 3D volume modalities, triggered by MOSAIC_STITCHED event.
+    Flow to stitch 3D volume modalities, triggered by MOSAIC_ENFACE_STITCHED event.
 
     This flow handles:
     1. Focus finding for first slice (if needed)
@@ -261,12 +261,12 @@ def stitch_volume_flow(
     logger.info(f"Stitching volume modalities for mosaic {mosaic_id}")
     volume_futures = {}
     volume_outputs = {}
-    slice_number = mosaic_id_to_slice_number(mosaic_id)
+    slice_id = mosaic_id_to_slice_id(mosaic_id)
     acq = "tilted" if mosaic_id % 2 == 0 else "normal"
 
     # Determine output directory: use DANDI if configured, otherwise use processed_path
     if dandiset_path and mosaic_volume_format:
-        dandi_slice_path = get_dandi_slice_path(dandiset_path, slice_number)
+        dandi_slice_path = get_dandi_slice_path(dandiset_path, slice_id)
         dandi_slice_path.mkdir(parents=True, exist_ok=True)
         output_dir = dandi_slice_path
         logger.info(f"Writing volumes to DANDI directory: {dandi_slice_path}")
@@ -312,13 +312,13 @@ def stitch_volume_flow(
         if mosaic_volume_format:
             filename = mosaic_volume_format.format(
                 project_name=project_name,
-                slice_id=slice_number,
+                slice_id=slice_id,
                 acq=acq,
                 modality=modality,
             )
         else:
             # Fallback to default format
-            filename = f"{project_name}_sample-slice{slice_number:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+            filename = f"{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
 
         output_path = output_dir / filename
         future = stitch_mosaic3d_task.submit(
@@ -363,7 +363,7 @@ def stitch_volume_event_flow(
     Wrapper flow for event-driven triggering of 3D volume stitching.
     Resolves config from payload and project config, then calls stitch_volume_flow.
 
-    Triggered by MOSAIC_STITCHED event.
+    Triggered by MOSAIC_ENFACE_STITCHED event.
     """
     logger = get_run_logger()
     cfg = load_scan_config_for_payload(payload)
@@ -425,6 +425,6 @@ if __name__ == "__main__":
     stitch_volume_event_flow_deployment = create_event_deployment(
         flow=stitch_volume_event_flow,
         name="stitch_volume_event_flow",
-        event_name=MOSAIC_STITCHED,
+        event_name=MOSAIC_ENFACE_STITCHED,
         tags=["event-driven", "mosaic-processing", "volume-stitching"],
     )

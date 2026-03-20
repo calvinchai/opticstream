@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from prefect import flow, task
 
-from opticstream.events import MOSAIC_STITCHED, SLICE_READY
+from opticstream.events import MOSAIC_ENFACE_STITCHED, SLICE_READY
 from opticstream.events.psoct_event_emitters import emit_slice_psoct_event
 from opticstream.events.psoct_events import MOSAIC_READY, MOSAIC_VOLUME_STITCHED, MOSAIC_VOLUME_UPLOADED
 from opticstream.events.utils import get_event_trigger
@@ -28,13 +28,13 @@ def check_slice_ready(slice_ident: OCTSliceId, mosaics_per_slice: int) -> None:
 def on_mosaic_events(event: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     cfg = load_scan_config_for_payload(payload)
     slice_ident = slice_ident_from_payload(payload)
-    if event == MOSAIC_STITCHED:
+    if event == MOSAIC_ENFACE_STITCHED:
         check_slice_ready(slice_ident=slice_ident, mosaics_per_slice=cfg.mosaics_per_slice)
     
 if __name__ == "__main__":
     mosaic_update_event_deployment = on_mosaic_events.to_deployment(
         name="direct",
-        triggers=[get_event_trigger(MOSAIC_STITCHED),
+        triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED),
         get_event_trigger(MOSAIC_READY),
         get_event_trigger(MOSAIC_VOLUME_STITCHED),
         get_event_trigger(MOSAIC_VOLUME_UPLOADED)

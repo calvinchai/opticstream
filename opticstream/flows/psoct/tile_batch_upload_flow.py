@@ -6,15 +6,27 @@ from typing import Any, Dict
 from prefect import flow
 from prefect.logging import get_run_logger
 
+from opticstream.artifacts.publish_hooks import (
+    publish_oct_mosaic_hook,
+    publish_oct_project_hook,
+)
 from opticstream.events import BATCH_UPLOADED
-from opticstream.flows.psoct.utils import batch_ident_from_payload, path_list_from_payload
+from opticstream.flows.psoct.utils import (
+    batch_ident_from_payload,
+    path_list_from_payload,
+)
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCTBatchId
 from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.tasks.dandi_upload import upload_to_dandi_batch
+from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
-@flow(flow_run_name="upload-to-dandi-batch-{batch_id}")
+@flow(
+    flow_run_name="upload-to-dandi-batch-{batch_id}",
+    on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
+    on_failure=[slack_notification_hook],
+)
 @oct_batch_processing_milestone(field_name="uploaded", success_event=BATCH_UPLOADED)
 def upload_to_dandi_tile_batch(
     batch_id: OCTBatchId,

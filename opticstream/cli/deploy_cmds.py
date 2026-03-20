@@ -46,14 +46,14 @@ class FlowDeploymentSpec:
 # comments in the individual flow modules.
 FLOW_DEPLOYMENTS: Dict[str, FlowDeploymentSpec] = {
     "mosaic": FlowDeploymentSpec(
-        module_path="opticstream.flows.mosaic_processing_flow",
+        module_path="opticstream.flows.psoct.mosaic_process_flow",
         deployment_names=("process_mosaic_event_flow_deployment",),
         description="Event-driven mosaic processing flow (MOSAIC_READY -> process_mosaic_flow).",
     ),
     "volume-stitching": FlowDeploymentSpec(
         module_path="opticstream.flows.volume_stitching_flow",
         deployment_names=("stitch_volume_event_flow_deployment",),
-        description="Event-driven 3D volume stitching flow (MOSAIC_STITCHED -> stitch_volume_flow).",
+        description="Event-driven 3D volume stitching flow (MOSAIC_ENFACE_STITCHED -> stitch_volume_flow).",
     ),
     "state-management": FlowDeploymentSpec(
         module_path="opticstream.flows.state_management_flow",

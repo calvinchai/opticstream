@@ -9,12 +9,12 @@ from opticstream.events import (
     BATCH_COMPLEXED,
     BATCH_READY,
     MOSAIC_READY,
-    MOSAIC_STITCHED,
+    MOSAIC_ENFACE_STITCHED,
     MOSAIC_VOLUME_STITCHED,
     SLICE_READY,
     get_event_trigger,
 )
-from opticstream.flows.mosaic_processing_flow import process_mosaic_event_flow
+from opticstream.flows.psoct.mosaic_process_flow import process_mosaic_event_flow
 from opticstream.flows.process_tile_batch_complex2processed_flow import (
     complex_to_processed_batch_event_flow,
     complex_to_processed_batch_flow,
@@ -24,8 +24,7 @@ from opticstream.flows.process_tile_batch_flow import (
     process_tile_batch_flow,
 )
 from opticstream.flows.slice_registration_flow import register_slice_event_flow
-from opticstream.flows.psoct.mosaic_upload_enface_flow import \
-    slack_enface_notification_flow
+from opticstream.flows.slack_notification_flow import slack_enface_notification_flow
 from opticstream.flows.state_management_flow import unified_state_management_event_flow
 from opticstream.flows.upload_flow import (
     upload_mosaic_enface_to_dandi_event_flow,
@@ -106,7 +105,7 @@ def build_deployments(
             name=deployment_name,
             tags=["event-driven", "upload", "dandi", "enface", *COMMON_TAGS],
             triggers=[
-                get_event_trigger(MOSAIC_STITCHED, project_name=normalized_project_name),
+                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
             ],
         ),
         upload_mosaic_volume_to_dandi_event_flow.to_deployment(
@@ -134,7 +133,7 @@ def build_deployments(
             name=deployment_name,
             tags=["event-driven", "mosaic-processing", "volume-stitching", *COMMON_TAGS],
             triggers=[
-                get_event_trigger(MOSAIC_STITCHED, project_name=normalized_project_name),
+                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
             ],
             concurrency_limit=1,
         ),
@@ -156,7 +155,7 @@ def build_deployments(
             tags=["event-driven", "state-management", "unified", *COMMON_TAGS],
             triggers=[
                 get_event_trigger(
-                    MOSAIC_STITCHED,
+                    MOSAIC_ENFACE_STITCHED,
                     parameters={
                         "event": {
                             "__prefect_kind": "json",
@@ -178,7 +177,7 @@ def build_deployments(
             name=deployment_name,
             tags=["event-driven", "slack-notifications", "enface-stitched", *COMMON_TAGS],
             triggers=[
-                get_event_trigger(MOSAIC_STITCHED, project_name=normalized_project_name),
+                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
             ],
         ),
     ]

@@ -274,7 +274,7 @@ def test_naming_helpers_and_ensure_lock_do_not_crash(project_name: str):
     key = _state_variable_key(project_name)
     lock_name = _state_lock_name(project_name)
 
-    # Basic shape assertions; get_project_name may normalize the name, but the
+    # Basic shape assertions; normalize_project_name may normalize the name, but the
     # important part is that helpers produce distinct non-empty strings.
     assert isinstance(key, str) and key
     assert isinstance(lock_name, str) and lock_name

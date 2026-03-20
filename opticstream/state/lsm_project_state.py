@@ -19,7 +19,7 @@ from typing import ClassVar, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from opticstream.utils.naming_convention import get_project_name
+from opticstream.utils.naming_convention import normalize_project_name
 from opticstream.state.project_state_core import (
     BaseProjectStateStore,
     PrefectProjectLock,
@@ -36,11 +36,11 @@ from opticstream.state.project_state_core import (
 
 
 def _state_variable_key(project_name: str) -> str:
-    return f"{get_project_name(project_name)}_lsm_project_state"
+    return f"{normalize_project_name(project_name)}_lsm_project_state"
 
 
 def _state_lock_name(project_name: str) -> str:
-    return f"{get_project_name(project_name)}_lsm_state_lock"
+    return f"{normalize_project_name(project_name)}_lsm_state_lock"
 
 
 def ensure_lock(project_name: str) -> None:

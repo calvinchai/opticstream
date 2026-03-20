@@ -3,9 +3,10 @@ from typing import Any, Dict
 from prefect import flow, get_run_logger, task
 from opticstream.events.lsm_events import CHANNEL_READY, STRIP_COMPRESSED
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
-from opticstream.flows.lsm.update_artifacts import \
-    (publish_project_strip_summary_artifact_task,
-     publish_slice_strip_matrix_artifacts_task)
+from opticstream.artifacts.lsm import (
+    publish_all_slice_matrix_artifacts_task,
+    publish_project_artifact_task,
+)
 from opticstream.flows.lsm.utils import (
     channel_ident_from_strip,
     load_scan_config_for_payload,
@@ -13,6 +14,7 @@ from opticstream.flows.lsm.utils import (
 )
 from opticstream.state.lsm_project_state import (
     LSMChannelId,
+    LSMProjectId,
     LSM_STATE_SERVICE,
 )
 
@@ -43,21 +45,22 @@ def on_strip_events(event: str, payload: Dict[str, Any]) -> None:
     strip_ident = strip_ident_from_payload(payload)
     project_name = strip_ident.project_name
     channel_ident = channel_ident_from_strip(strip_ident)
-    state = LSM_STATE_SERVICE.peek_project_by_parts(project_name)
     cfg = load_scan_config_for_payload(project_name, payload)
-    artifact_key = publish_project_strip_summary_artifact_task(
-        project_name=project_name,
-        state=state,
-        strips_per_slice=cfg.strips_per_slice,
+    project_ident = LSMProjectId(project_name=project_name)
+    override_config = payload.get("override_config")
+    artifact_key = publish_project_artifact_task(
+        project_ident,
+        override_config_name=override_config,
     )
     if artifact_key:
-        slices_updated = publish_slice_strip_matrix_artifacts_task(
-            project_name=project_name,
-            state=state,
-            strips_per_slice=cfg.strips_per_slice,
+        slice_keys = publish_all_slice_matrix_artifacts_task(
+            project_ident,
+            override_config_name=override_config,
         )
         get_run_logger().info(
-            f"Updated LSM strip artifacts: project={artifact_key}, slices={slices_updated}"
+            "Updated LSM strip artifacts: project=%s, slice_artifact_keys=%s",
+            artifact_key,
+            slice_keys,
         )
     if event == STRIP_COMPRESSED:
         check_channel_ready(channel_ident, cfg.strips_per_slice)
