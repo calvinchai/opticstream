@@ -283,9 +283,9 @@ def watch_lsm(
 @lsm_cli.command
 def watch(
     project_name: str,
+    watch_dir: str = ".",
     *,
     config_block_name: str | None = None,
-    watch_dir: str = ".",
     slice_offset: int = 0,
     stability_seconds: int = 15,
     poll_interval: int = 30,
