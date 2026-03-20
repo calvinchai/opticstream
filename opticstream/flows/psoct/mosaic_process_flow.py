@@ -20,6 +20,7 @@ import yaml
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
+from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.flows.psoct.utils import (
     load_scan_config_for_payload,
     mosaic_ident_from_payload,
@@ -30,6 +31,7 @@ from opticstream.state.state_guards import (
     RunDecision,
     enter_flow_stage,
     force_rerun_from_payload,
+    should_skip_run,
 )
 from opticstream.state.oct_project_state import OCTMosaicId, OCT_STATE_SERVICE
 from opticstream.data_processing.stitch import (
@@ -42,7 +44,7 @@ from opticstream.events import (
     MOSAIC_READY,
     MOSAIC_ENFACE_STITCHED,
 )
-from opticstream.events.utils import emit_mosaic_event
+from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.utils.utils import (
     get_dandi_slice_path,
     get_illumination,
@@ -805,21 +807,13 @@ def stitch_enface_modalities_flow(
     return enface_outputs
 
 
-@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
-def process_mosaic_flow(
-    project_name: str,
-    mosaic_id: int,
-    project_base_path: str,
-    grid_size_x: int,
-    grid_size_y: int,
-    tile_overlap: float = 20.0,
-    mask_threshold: float = 50.0,
-    scan_resolution_3d: Optional[List[float]] = None,
-    enface_modalities: Optional[List[str]] = None,
+@flow(flow_run_name="process-mosaic-{mosaic_ident}")
+def process_mosaic(
+    mosaic_ident: OCTMosaicId,
+    config: PSOCTScanConfigModel,
+    *,
     force_refresh_coords: bool = False,
     force_rerun: bool = False,
-    dandiset_path: Optional[str] = None,
-    mosaic_enface_format: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Event-driven flow triggered by 'mosaic.processed' event.
@@ -872,32 +866,20 @@ def process_mosaic_flow(
     """
     logger = get_run_logger()
 
-    mosaic_ident = mosaic_ident_from_project_and_mosaic_id(project_name, mosaic_id)
-    if (
+    if should_skip_run(
         enter_flow_stage(
             OCT_STATE_SERVICE.peek_mosaic(mosaic_ident=mosaic_ident),
             force_rerun=force_rerun,
             skip_if_running=False,
             item_ident=mosaic_ident,
         )
-        == RunDecision.SKIPPED
     ):
-        return {
-            "skipped": True,
-            "mosaic_id": mosaic_id,
-            "reason": "mosaic enface stitching already completed",
-        }
+        return 
 
     # Note: Event flows handle loading config blocks and providing all required values.
     # Defaults are provided in the function signature for optional parameters.
 
-    # Apply defaults for optional parameters
-    if scan_resolution_3d is None:
-        scan_resolution_3d = [0.01, 0.01, 0.0025]
-    if enface_modalities is None:
-        enface_modalities = ["ret", "ori", "biref", "mip", "surf"]
-
-    scan_resolution_2d = scan_resolution_3d[:2]
+    scan_resolution_2d = config.acquisition.scan_resolution_3d[:2]
 
     processed_path, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
     stitched_path.mkdir(parents=True, exist_ok=True)
@@ -926,7 +908,7 @@ def process_mosaic_flow(
 
     # Check if we need to run coordinate determination
     # Only run for mosaic_001 (normal) or mosaic_002 (tilted) unless overridden
-    first_slice_run = (mosaic_id <= 2) or force_refresh_coords
+    first_slice_run = (mosaic_ident.slice_id == 1) or force_refresh_coords
     if first_slice_run:
         # Process first slice coordinates (Fiji stitch, coordinate processing, template generation)
         template_path, tile_coords_export = process_stitching_coordinates(
@@ -1070,62 +1052,3 @@ def process_mosaic_flow(
         "mask_path": str(mask_path),
         "enface_outputs": enface_outputs,
     }
-
-
-@flow(flow_run_name="process-mosaic-{mosaic_ident}")
-def process_mosaic(
-    mosaic_ident: OCTMosaicId,
-    *,
-    force_refresh_coords: bool = False,
-    force_rerun: bool = False,
-    **kwargs: Any,
-) -> Dict[str, Any]:
-    """Typed entrypoint (ident + kwargs); delegates to :func:`process_mosaic_flow`."""
-    return process_mosaic_flow(
-        project_name=mosaic_ident.project_name,
-        mosaic_id=mosaic_ident.mosaic_id,
-        force_refresh_coords=force_refresh_coords,
-        force_rerun=force_rerun,
-        **kwargs,
-    )
-
-
-@flow
-def process_mosaic_event_flow(
-    payload: Dict[str, Any],
-) -> Dict[str, Any]:
-    """
-    Event-driven wrapper. Requires ``mosaic_ident`` in the payload.
-
-    Loads the project config block (with optional ``override_config``); stitching
-    parameters default from config and can be overridden per-key via the payload
-    (same pattern as LSM ``resolve_config`` in strip upload flows).
-    """
-    get_run_logger()
-    mosaic_ident = mosaic_ident_from_payload(payload)
-    merged = dict(payload)
-    if merged.get("project_name") is None:
-        merged["project_name"] = mosaic_ident.project_name
-    cfg = load_scan_config_for_payload(merged)
-    flow_kwargs = resolve_process_mosaic_flow_kwargs(merged, mosaic_ident, cfg)
-    _normalize_mosaic_flow_kwargs(flow_kwargs)
-    return process_mosaic_flow(
-        project_name=mosaic_ident.project_name,
-        mosaic_id=mosaic_ident.mosaic_id,
-        force_refresh_coords=bool(merged.get("force_refresh_coords", False)),
-        force_rerun=force_rerun_from_payload(payload),
-        **flow_kwargs,
-    )
-
-
-# Deployment configuration for event-driven triggering
-if __name__ == "__main__":
-    from opticstream.utils.deployment_utils import create_event_deployment
-
-    process_mosaic_event_flow_deployment = create_event_deployment(
-        flow=process_mosaic_event_flow,
-        name="process_mosaic_event_flow",
-        event_name=MOSAIC_READY,
-        tags=["event-driven", "mosaic-processing", "stitching"],
-    )
-    

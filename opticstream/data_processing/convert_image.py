@@ -241,7 +241,7 @@ def convert_image(
     mat_variable: str | None = None,
     slice_index: int | None = None,
     quality: int = 85,
-    output_format: _OutputFormat = "webp",
+    output_format: _OutputFormat = "jpg",
 ) -> np.ndarray:
     """
     Convert input data into compressed RGB suitable for network sharing.

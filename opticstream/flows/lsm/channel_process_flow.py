@@ -31,11 +31,11 @@ from opticstream.state.lsm_project_state import (
     LSMStripId,
     LSM_STATE_SERVICE,
 )
-from opticstream.utils.slack_notification import notify_slack
+from opticstream.tasks.slack_notification import send_slack_message
 
 
 @task
-def _collect_channel_mip_paths(
+def collect_channel_mip_paths(
     channel_ident: LSMChannelId,
     scan_config: LSMScanConfigModel,
 ) -> List[str]:
@@ -69,7 +69,7 @@ def _collect_channel_mip_paths(
 
 
 @task
-def _stitch_channel_mips(
+def stitch_channel_mips(
     channel_ident: LSMChannelId,
     mip_paths: List[str],
     scan_config: LSMScanConfigModel,
@@ -112,23 +112,16 @@ def _stitch_channel_mips(
 
 
 @task(task_run_name="notify-mip-{channel_ident}")
-def _notify_channel_mip_stitched(
+def notify_channel_mip_stitched(
     channel_ident: LSMChannelId,
     stitched_path: Optional[str],
 ) -> None:
     """Slack notification after MIP stitch (placeholder path until real write)."""
     if stitched_path is None:
         return
-    notify_slack(
-        status="success",
-        message=(
-            f"MIP QC stitch finished for slice {channel_ident.slice_id} "
-            f"channel {channel_ident.channel_id}"
-        ),
-        details={
-            "project_name": channel_ident.project_name,
-            "stitched_path": stitched_path,
-        },
+    send_slack_message(
+        message=f"MIP QC stitch finished for slice {channel_ident.slice_id} "
+        f"channel {channel_ident.channel_id}",
     )
 
 
@@ -163,16 +156,16 @@ def process_channel(
     mip_stitched_path: Optional[str] = None
 
     if scan_config.generate_mip:
-        mip_paths = _collect_channel_mip_paths(
+        mip_paths = collect_channel_mip_paths(
             channel_ident=channel_ident,
             scan_config=scan_config,
         )
-        mip_stitched_path = _stitch_channel_mips(
+        mip_stitched_path = stitch_channel_mips(
             channel_ident=channel_ident,
             mip_paths=mip_paths,
             scan_config=scan_config,
         )
-        _notify_channel_mip_stitched(
+        notify_channel_mip_stitched(
             channel_ident=channel_ident,
             stitched_path=mip_stitched_path,
         )

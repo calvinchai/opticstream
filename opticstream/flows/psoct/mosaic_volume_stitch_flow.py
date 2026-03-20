@@ -15,6 +15,7 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from niizarr.multizarr import ZarrConfig
+from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.scripts import find_tile_plane, find_volume_surface
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
 from opticstream.events import MOSAIC_ENFACE_STITCHED, MOSAIC_VOLUME_STITCHED
@@ -25,7 +26,7 @@ from opticstream.flows.psoct.utils import (
     mosaic_ident_from_project_and_mosaic_id,
     normalize_float_sequence,
 )
-from opticstream.state.oct_project_state import OCT_STATE_SERVICE
+from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTMosaicId
 from opticstream.utils.utils import (
     get_dandi_slice_path,
     get_modality_stitching_filename,
@@ -160,20 +161,14 @@ def find_focus_plane_task(
     return str(focus_output_path)
 
 
-@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}-stitch-volume")
+@flow(flow_run_name="stitch-volume-{mosaic_ident}")
 def stitch_volume_flow(
-    project_name: str,
-    mosaic_id: int,
-    project_base_path: str,
-    scan_resolution_3d: List[float],
-    volume_modalities: List[str],
+    mosaic_ident: OCTMosaicId,
+    config: PSOCTScanConfigModel,
+    *,
     apply_mask: bool = False,
     force_refresh_focus: bool = False,
-    dandiset_path: Optional[str] = None,
-    mosaic_volume_format: Optional[str] = None,
-    crop_focus_plane_depth: int = 500,
-    crop_focus_plane_offset: int = 30,
-    zarr_config: Optional[ZarrConfig] = None,
+    force_rerun: bool = False,
 ) -> Dict[str, Path]:
     """
     Flow to stitch 3D volume modalities, triggered by MOSAIC_ENFACE_STITCHED event.
@@ -354,77 +349,3 @@ def stitch_volume_flow(
 
     return volume_outputs
 
-
-@flow
-def stitch_volume_event_flow(
-    payload: Dict[str, Any],
-) -> Dict[str, Path]:
-    """
-    Wrapper flow for event-driven triggering of 3D volume stitching.
-    Resolves config from payload and project config, then calls stitch_volume_flow.
-
-    Triggered by MOSAIC_ENFACE_STITCHED event.
-    """
-    logger = get_run_logger()
-    cfg = load_scan_config_for_payload(payload)
-    project_name = cfg.project_name
-    mosaic_id = int(payload["mosaic_id"])
-
-    stitch_3d_volumes = payload.get("stitch_3d_volumes", cfg.stitch_3d_volumes)
-    if not stitch_3d_volumes:
-        logger.info(
-            "Volume stitching disabled for mosaic %s (stitch_3d_volumes=False). Skipping.",
-            mosaic_id,
-        )
-        return {}
-
-    volume_modalities = payload.get("volume_modalities")
-    if volume_modalities is None:
-        volume_modalities = [m.value for m in cfg.volume_modalities]
-        logger.info("Using volume_modalities from config: %s", volume_modalities)
-    elif isinstance(volume_modalities, tuple):
-        volume_modalities = list(volume_modalities)
-
-    if not volume_modalities:
-        logger.info("No volume modalities to stitch for mosaic %s. Skipping.", mosaic_id)
-        return {}
-
-    scan_resolution_3d = payload.get("scan_resolution_3d")
-    if scan_resolution_3d is None:
-        scan_resolution_3d = normalize_float_sequence(cfg.acquisition.scan_resolution_3d)
-        logger.info("Using scan_resolution_3d from config: %s", scan_resolution_3d)
-    else:
-        scan_resolution_3d = normalize_float_sequence(scan_resolution_3d)
-
-    dandiset = payload.get("dandiset_path")
-    if dandiset is None and cfg.dandiset_path is not None:
-        dandiset = str(cfg.dandiset_path)
-    elif dandiset is not None:
-        dandiset = str(dandiset)
-
-    mosaic_volume_format = payload.get("mosaic_volume_format", cfg.mosaic_volume_format)
-
-    return stitch_volume_flow(
-        project_name=project_name,
-        mosaic_id=mosaic_id,
-        project_base_path=str(cfg.project_base_path),
-        scan_resolution_3d=scan_resolution_3d,
-        volume_modalities=[str(m) for m in volume_modalities],
-        force_refresh_focus=bool(payload.get("force_refresh_focus", False)),
-        dandiset_path=dandiset,
-        mosaic_volume_format=str(mosaic_volume_format) if mosaic_volume_format else None,
-        crop_focus_plane_depth=int(payload.get("crop_focus_plane_depth", cfg.crop_focus_plane_depth)),
-        crop_focus_plane_offset=int(payload.get("crop_focus_plane_offset", cfg.crop_focus_plane_offset)),
-        zarr_config=cfg.zarr_config,
-    )
-
-
-if __name__ == "__main__":
-    from opticstream.utils.deployment_utils import create_event_deployment
-
-    stitch_volume_event_flow_deployment = create_event_deployment(
-        flow=stitch_volume_event_flow,
-        name="stitch_volume_event_flow",
-        event_name=MOSAIC_ENFACE_STITCHED,
-        tags=["event-driven", "mosaic-processing", "volume-stitching"],
-    )

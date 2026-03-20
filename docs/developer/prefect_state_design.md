@@ -68,7 +68,7 @@ For the LSM pipeline, that includes:
   - `mark_started`
   - `mark_completed`
   - `set_uploaded`
-  - `set_backed_up`
+  - `set_archived`
 
 This layer is responsible for state semantics.
 
@@ -241,7 +241,7 @@ Do not use `peek_*` for check-then-act workflows.
 A service API with methods like:
 - `mark_strip_completed(...)`
 - `set_strip_uploaded(...)`
-- `set_strip_backed_up(...)`
+- `set_strip_archived(...)`
 
 quickly becomes repetitive.
 

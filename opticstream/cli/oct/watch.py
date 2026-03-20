@@ -24,7 +24,7 @@ from niizarr import ZarrConfig
 from opticstream.cli.oct import oct_cli
 from opticstream.config.psoct_scan_config import PSOCTScanConfig
 from opticstream.config.project_config import get_project_config_block
-from opticstream.flows.process_tile_batch_flow import process_tile_batch_event_flow
+from opticstream.flows.psoct.tile_batch_process_flow import process_tile_batch_event_flow
 
 if not logging.getLogger().handlers:
     logging.basicConfig(

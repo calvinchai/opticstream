@@ -194,3 +194,128 @@ def path_list_from_payload(payload: Mapping[str, Any], key: str = "file_list") -
         raise TypeError(f"payload[{key}] must be a list")
     return [Path(v) for v in values]
 
+from pydantic import BaseModel, ConfigDict, computed_field
+
+from opticstream.state.oct_project_state import OCTMosaicId
+from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+
+
+class MosaicContext(BaseModel):
+    """
+    Resolved per-mosaic runtime context.
+
+    Notes
+    -----
+    - `acq` is the acquisition label used for naming/template selection.
+    - `config_illumination` is the legacy config bucket used to resolve old-schema
+      fields such as `grid_size_x_normal` vs `grid_size_x_tilted`.
+    - In 3-mosaic mode, all mosaics use `config_illumination="normal"` while
+      `acq` is one of: normal, tiltPos, tiltNeg.
+    """
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    slice_id: int
+    mosaic_id: int
+    acq: str
+    config_illumination: str
+    base_mosaic_id: int
+
+    @computed_field
+    @property
+    def template_name(self) -> str:
+        return f"tile_info_{self.acq}.j2"
+
+    @computed_field
+    @property
+    def is_first_slice(self) -> bool:
+        return self.slice_id == 1
+
+    @computed_field
+    @property
+    def is_normal_config(self) -> bool:
+        return self.config_illumination == "normal"
+
+    @computed_field
+    @property
+    def is_tilted_config(self) -> bool:
+        return self.config_illumination == "tilted"
+
+
+def mosaic_context_from_ident(
+    mosaic_ident: OCTMosaicId,
+    config: PSOCTScanConfigModel,
+) -> MosaicContext:
+    """
+    Build `MosaicContext` from canonical mosaic identity + project config.
+
+    Rules
+    -----
+    2 mosaics per slice:
+        pos 1 -> acq=normal,  config_illumination=normal, base_mosaic_id=1
+        pos 2 -> acq=tilted,  config_illumination=tilted, base_mosaic_id=2
+
+    3 mosaics per slice:
+        pos 1 -> acq=normal,   config_illumination=normal, base_mosaic_id=1
+        pos 2 -> acq=tiltPos,  config_illumination=normal, base_mosaic_id=2
+        pos 3 -> acq=tiltNeg,  config_illumination=normal, base_mosaic_id=3
+    """
+    mosaics_per_slice = config.mosaics_per_slice
+    mosaic_id = mosaic_ident.mosaic_id
+    slice_id = mosaic_ident.slice_id
+    pos_in_slice = ((mosaic_id - 1) % mosaics_per_slice) + 1
+
+    if mosaics_per_slice == 3:
+        acq_by_pos = {
+            1: "normal",
+            2: "tiltPos",
+            3: "tiltNeg",
+        }
+        acq = acq_by_pos[pos_in_slice]
+        config_illumination = "normal"
+        base_mosaic_id = pos_in_slice
+
+    elif mosaics_per_slice == 2:
+        if pos_in_slice == 1:
+            acq = "normal"
+            config_illumination = "normal"
+            base_mosaic_id = 1
+        else:
+            acq = "tilted"
+            config_illumination = "tilted"
+            base_mosaic_id = 2
+    else:
+        raise ValueError(
+            f"Unsupported mosaics_per_slice={mosaics_per_slice}. Expected 2 or 3."
+        )
+
+    return MosaicContext(
+        slice_id=slice_id,
+        mosaic_id=mosaic_id,
+        acq=acq,
+        config_illumination=config_illumination,
+        base_mosaic_id=base_mosaic_id,
+    )
+
+
+def get_grid_size_x(config: PSOCTScanConfigModel, ctx: MosaicContext) -> int:
+    return (
+        config.acquisition.grid_size_x_normal
+        if ctx.is_normal_config
+        else config.acquisition.grid_size_x_tilted
+    )
+
+
+def get_tile_size_x(config: PSOCTScanConfigModel, ctx: MosaicContext) -> int:
+    return (
+        config.acquisition.tile_size_x_normal
+        if ctx.is_normal_config
+        else config.acquisition.tile_size_x_tilted
+    )
+
+
+def get_mask_threshold(config: PSOCTScanConfigModel, ctx: MosaicContext) -> float:
+    return (
+        config.mask_threshold_normal
+        if ctx.is_normal_config
+        else config.mask_threshold_tilted
+    )

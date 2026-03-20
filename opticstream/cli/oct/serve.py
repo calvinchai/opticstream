@@ -14,24 +14,25 @@ from opticstream.events import (
     SLICE_READY,
     get_event_trigger,
 )
-from opticstream.flows.psoct.mosaic_process_flow import process_mosaic_event_flow
-from opticstream.flows.process_tile_batch_complex2processed_flow import (
-    complex_to_processed_batch_event_flow,
-    complex_to_processed_batch_flow,
+# from opticstream.flows.psoct.mosaic_process_flow import
+from opticstream.flows.psoct.tile_batch_complex_flow import (
+    process_complex_tile_batch_event as complex_to_processed_batch_event_flow,
+    process_complex_tile_batch as complex_to_processed_batch_flow,
 )
-from opticstream.flows.process_tile_batch_flow import (
+from opticstream.flows.psoct.tile_batch_process_flow import (
     process_tile_batch_event_flow,
     process_tile_batch_flow,
 )
-from opticstream.flows.slice_registration_flow import register_slice_event_flow
-from opticstream.flows.slack_notification_flow import slack_enface_notification_flow
+from opticstream.flows.psoct.slice_process_flow import register_slice_event_flow
 from opticstream.flows.state_management_flow import unified_state_management_event_flow
 from opticstream.flows.upload_flow import (
     upload_mosaic_enface_to_dandi_event_flow,
     upload_mosaic_volume_to_dandi_event_flow,
     upload_to_linc_batch_event_flow,
 )
-from opticstream.flows.volume_stitching_flow import stitch_volume_event_flow
+from opticstream.flows.psoct.mosaic_volume_stitch_flow import (
+    stitch_volume_flow as stitch_volume_event_flow,
+)
 
 serve_cli = oct_cli.command(App(name="serve"))
 

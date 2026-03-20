@@ -83,7 +83,7 @@ def channel_processing_milestone(
         adapter=CHANNEL_MILESTONE_ADAPTER,
         evaluate_result=evaluate_result,
         on_success=_combined_success,
-        on_failure=on_failure or channel_failure_slack_hook(field_name),
+        on_failure=on_failure,
     )
 
 

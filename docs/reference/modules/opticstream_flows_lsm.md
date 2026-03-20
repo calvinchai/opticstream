@@ -4,5 +4,5 @@ title: opticstream.flows.lsm
 
 # `opticstream.flows.lsm`
 
-::: opticstream.flows.lsm.process_strip_flow
+::: opticstream.flows.lsm.strip_process_flow
 

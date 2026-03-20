@@ -14,6 +14,7 @@ from prefect import flow, get_run_logger, task
 from prefect.futures import PrefectFuture
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticstream.data_processing.convert_image import convert_image
 from opticstream.events.lsm_events import STRIP_COMPRESSED
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.flows.lsm.paths import strip_mip_output_path, strip_zarr_output_path
@@ -28,7 +29,8 @@ from opticstream.state.lsm_project_state import (
     LSMStripId,
     LSM_STATE_SERVICE,
 )
-from opticstream.utils.slack_notification import notify_slack
+from opticstream.tasks.slack_notification import send_slack_message, upload_multiple_files_to_slack
+from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
 @dataclass
@@ -407,6 +409,29 @@ def check_backup_result(
 
     return ValidationResult(ok=True, size_bytes=backup_manifest.total_bytes)
 
+@task(on_failure=[slack_notification_hook])
+def strip_mip_qc_notification(
+    strip_ident: LSMStripId,
+    mip_stitched_path: Optional[str] = None,
+    output_mip_preview_window: List[float] = []
+) -> None:
+    """
+    Send a notification for the strip MIP QC.
+    """
+    logger = get_run_logger()
+    logger.info(f"Sending notification for strip MIP QC: {strip_ident}")
+    if mip_stitched_path is None:
+        logger.warning(f"MIP stitched path is not set for {strip_ident}")
+        return
+    window_min = None
+    window_max = None
+    if output_mip_preview_window:
+        if len(output_mip_preview_window) != 2:
+            raise ValueError(f"Output MIP preview window must be a list of 2 values: {output_mip_preview_window}")
+        window_min, window_max = output_mip_preview_window
+    preview_path = mip_stitched_path.replace(".tiff", ".jpg")
+    convert_image(input=mip_stitched_path, output=preview_path, window_min=window_min, window_max=window_max)
+    upload_multiple_files_to_slack(filepaths=[preview_path], initial_comment=f"MIP QC for {strip_ident}")
 
 @task(task_run_name="rename-strip-{strip_ident}")
 def rename_strip_task(
@@ -570,6 +595,7 @@ def process_strip(
             wait_for=[compress_future],
         )
 
+
     check_backup_future = None
     if backup_future:
         check_backup_future = check_backup_result.submit(
@@ -578,6 +604,20 @@ def process_strip(
             backup_path=backup_path,
             wait_for=[backup_future],
         )
+
+    
+
+    backup_result = ValidationResult(ok=True, size_bytes=0)
+    if check_backup_future:
+        try:
+            backup_result = check_backup_future.result()
+        except Exception as e:
+            logger.error(f"Error checking backup result: {e}")
+            backup_result = ValidationResult(
+                ok=False,
+                size_bytes=0,
+                reason=f"backup check error: {e}",
+            )
 
     compress_result = ValidationResult(ok=True, size_bytes=0)
     if check_compressed_future:
@@ -590,17 +630,11 @@ def process_strip(
                 size_bytes=0,
                 reason=f"compressed check error: {e}",
             )
-
-    backup_result = ValidationResult(ok=True, size_bytes=0)
-    if check_backup_future:
-        try:
-            backup_result = check_backup_future.result()
-        except Exception as e:
-            logger.error(f"Error checking backup result: {e}")
-            backup_result = ValidationResult(
-                ok=False,
-                size_bytes=0,
-                reason=f"backup check error: {e}",
+        if scan_config.generate_mip:
+            strip_mip_qc_notification(
+                strip_ident=strip_ident,
+                mip_stitched_path=mip_output_path,
+                output_mip_preview_window=scan_config.output_mip_preview_window,
             )
 
     success = compress_result.ok and backup_result.ok
@@ -631,18 +665,9 @@ def process_strip(
         failure_reasons.append(f"backup: {backup_result.reason}")
 
     cleanup_note = describe_cleanup(delete_raw_strip, rename_raw_strip)
-    status, message = build_status_message(success, failure_reasons, slice_id, strip_id)
+    status, message = build_status_message(success, failure_reasons, strip_ident.slice_id, strip_ident.strip_id)
 
-    notify_slack(
-        status=status,
-        message=message,
-        details={
-            "strip_ident": strip_ident,
-            "strip_path": strip_path,
-            "cleanup_note": cleanup_note,
-            **usage_info,
-        },
-    )
+    send_slack_message(f"{message} {cleanup_note}, {usage_info},")
 
     if not success:
         raise RuntimeError(message)

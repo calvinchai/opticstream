@@ -16,11 +16,7 @@ from opticstream.state.oct_project_state import (
     OCT_STATE_SERVICE,
 )
 from opticstream.state.milestone_runtime import MilestoneAdapter, guarded_milestone
-from opticstream.state.milestone_hooks import (
-    oct_batch_failure_slack_hook,
-    oct_mosaic_failure_slack_hook,
-    oct_slice_failure_slack_hook,
-)
+
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -97,7 +93,7 @@ def oct_batch_processing_milestone(
         adapter=OCT_BATCH_MILESTONE_ADAPTER,
         evaluate_result=evaluate_result,
         on_success=_combined_success,
-        on_failure=on_failure or oct_batch_failure_slack_hook(field_name),
+        on_failure=on_failure,
     )
 
 
@@ -128,7 +124,7 @@ def oct_mosaic_processing_milestone(
         adapter=OCT_MOSAIC_MILESTONE_ADAPTER,
         evaluate_result=evaluate_result,
         on_success=_combined_success,
-        on_failure=on_failure or oct_mosaic_failure_slack_hook(field_name),
+        on_failure=on_failure,
     )
 
 
@@ -159,5 +155,5 @@ def oct_slice_processing_milestone(
         adapter=OCT_SLICE_MILESTONE_ADAPTER,
         evaluate_result=evaluate_result,
         on_success=_combined_success,
-        on_failure=on_failure or oct_slice_failure_slack_hook(field_name),
+        on_failure=on_failure,
     )
