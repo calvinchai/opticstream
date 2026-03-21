@@ -34,7 +34,7 @@ class LSMScanConfigModel(BaseModel):
 
     dandi_bin: str = Field(default="dandi", min_length=1, description="Path to the DANDI CLI binary, useful for installation in a separate conda/venv environment")
     dandi_instance: str = Field(default="linc", min_length=1, description="DANDI instance to use for upload")
-    dandiset_path: Path = Field(default=Path("000052@draft/"), description="Path to the DANDI set to use for upload")
+    dandiset_path: str = Field(default="linc://000052/", description="Path to the DANDI set to use for upload")
 
     # for acquisition host 
     cpu_affinity: List[int] = Field(

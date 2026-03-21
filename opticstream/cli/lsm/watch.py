@@ -1,10 +1,11 @@
 from __future__ import annotations
-from pathlib import Path
-import time
+
+import logging
 import threading
+import time
+from pathlib import Path
 from queue import Empty, Queue
 
-from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from opticstream.config import LSMScanConfig
@@ -13,6 +14,20 @@ from opticstream.events.lsm_events import STRIP_READY
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
 from opticstream.utils.filename_utils import parse_lsm_run_folder_name, parse_lsm_strip_index
+from opticstream.utils.directory_watch import (
+    NewFolderHandler,
+    polling_scanner,
+    run_watcher_until_interrupt,
+    wait_until_stable,
+)
+
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+logger = logging.getLogger(__name__)
 
 
 def _should_process_folder(path: Path) -> bool:
@@ -22,85 +37,6 @@ def _should_process_folder(path: Path) -> bool:
     By default, folders must have a name that starts with "Run" (case-insensitive).
     """
     return path.name.lower().startswith("run")
-
-
-def wait_until_stable(folder: Path, stable_seconds: int) -> None:
-    """
-    Block until the given folder has had no file modifications for
-    ``stable_seconds``.
-    """
-    last_change = time.time()
-
-    def snapshot() -> list[tuple[str, float]]:
-        return [
-            (p.name, p.stat().st_mtime)
-            for p in folder.rglob("*")
-            if p.is_file()
-        ]
-
-    prev = snapshot()
-
-    while True:
-        time.sleep(2)
-        curr = snapshot()
-        if curr != prev:
-            last_change = time.time()
-            prev = curr
-        elif time.time() - last_change >= stable_seconds:
-            return
-
-
-class NewFolderHandler(FileSystemEventHandler):
-    """
-    Watchdog handler that enqueues newly created subdirectories exactly once.
-    """
-
-    def __init__(
-        self,
-        queue: Queue,
-        seen: set[Path],
-        lock: threading.Lock,
-    ) -> None:
-        self.queue = queue
-        self.seen = seen
-        self.lock = lock
-
-    def on_created(self, event) -> None:  # type: ignore[override]
-        if event.is_directory:
-            path = Path(event.src_path)
-            if not _should_process_folder(path):
-                return
-            with self.lock:
-                if path not in self.seen:
-                    print(f"[NEW ] (watchdog) {path.name}")
-                    self.seen.add(path)
-                    self.queue.put(path)
-
-
-def polling_scanner(
-    queue: Queue,
-    seen: set[Path],
-    lock: threading.Lock,
-    watch_dir: Path,
-    poll_interval: int,
-) -> None:
-    """
-    Polling-based fallback for environments where watchdog misses events.
-    """
-    while True:
-        try:
-            for d in watch_dir.iterdir():
-                if not d.is_dir() or not _should_process_folder(d):
-                    continue
-                with lock:
-                    if d not in seen:
-                        print(f"[NEW ] (polling ) {d.name}")
-                        seen.add(d)
-                        queue.put(d)
-            time.sleep(poll_interval)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"[WARN] Polling error: {exc}")
-            time.sleep(poll_interval)
 
 
 def _consumer_loop(
@@ -123,7 +59,7 @@ def _consumer_loop(
             continue
 
         try:
-            print(f"[WAIT] Stability check: {folder.name}")
+            logger.info("Stability check: %s", folder.name)
             wait_until_stable(folder, stability_time)
 
             try:
@@ -132,7 +68,7 @@ def _consumer_loop(
                     scan_config.strips_per_slice,
                 )
             except Exception as exc:
-                print(f"[WARN] Skipping folder {folder.name!r}: cannot parse indices ({exc})")
+                logger.warning("Skipping folder %r: cannot parse indices (%s)", folder.name, exc)
                 continue
 
             slice_id = slice_index + slice_offset
@@ -145,39 +81,45 @@ def _consumer_loop(
 
             existing = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
             if existing is not None and not force_resend:
-                print(
-                    f"[SKIP] Strip state already exists for {strip_ident}; "
-                    "not emitting STRIP_READY (use --force-resend to override)"
+                logger.info(
+                    "[SKIP] Strip state already exists for %s; not emitting STRIP_READY "
+                    "(use --force-resend to override)",
+                    strip_ident,
                 )
                 continue
 
-            print(
-                "[FLOW] Parsed indices for folder "
-                f"name={folder.name}, slice={slice_id} (base={slice_index}, offset={slice_offset}), "
-                f"strip={strip_id}, channel={channel_index}"
+            logger.info(
+                "Parsed indices for folder name=%s slice=%s (base=%s offset=%s) strip=%s channel=%s",
+                folder.name,
+                slice_id,
+                slice_index,
+                slice_offset,
+                strip_id,
+                channel_index,
             )
 
             extra_payload: dict = {"strip_path": str(folder)}
             if force_resend:
                 extra_payload["force_rerun"] = True
 
-            print(
-                f"[FLOW] Emitting STRIP_READY for project={project_name}, "
-                f"slice={slice_id}, strip={strip_id}, path={folder}"
+            logger.info(
+                "Emitting STRIP_READY for project=%s slice=%s strip=%s path=%s",
+                project_name,
+                slice_id,
+                strip_id,
+                folder,
             )
             start = time.perf_counter()
 
             emit_strip_lsm_event(STRIP_READY, strip_ident, extra_payload=extra_payload)
 
             with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident):
-                pass # open it so the state is created 
+                pass  # open it so the state is created
 
             elapsed = time.perf_counter() - start
-            print(
-                f"[FLOW] Emitted STRIP_READY for strip={strip_id} in {elapsed:.2f} s"
-            )
+            logger.info("Emitted STRIP_READY for strip=%s in %.2f s", strip_id, elapsed)
         except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"[ERROR] {folder.name}: {exc}")
+            logger.exception("Error processing folder %s: %s", folder.name, exc)
 
 
 def watch_lsm(
@@ -226,7 +168,7 @@ def watch_lsm(
     # Watchdog observer.
     observer = Observer()
     observer.schedule(
-        NewFolderHandler(queue, seen, lock),
+        NewFolderHandler(queue, seen, lock, _should_process_folder),
         str(watch_dir),
         recursive=False,
     )
@@ -235,7 +177,7 @@ def watch_lsm(
     # Polling fallback.
     polling_thread = threading.Thread(
         target=polling_scanner,
-        args=(queue, seen, lock, watch_dir, poll_interval),
+        args=(queue, seen, lock, watch_dir, poll_interval, _should_process_folder),
         daemon=True,
     )
     polling_thread.start()
@@ -255,17 +197,7 @@ def watch_lsm(
     )
     consumer_thread.start()
 
-    print("[INFO] LSM watcher running (watchdog + polling)")
-    print("[INFO] Press Ctrl+C to stop")
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\n[INFO] Shutting down LSM watcher...")
-
-    observer.stop()
-    observer.join()
+    run_watcher_until_interrupt(observer, running_message="LSM watcher running (watchdog + polling)")
 
 
 @lsm_cli.command

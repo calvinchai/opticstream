@@ -13,7 +13,7 @@ pattern as LSM strip flows).
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 import jinja2
 import yaml
@@ -21,14 +21,12 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+from opticstream.events.utils import get_event_trigger
 from opticstream.flows.psoct.utils import (
     load_scan_config_for_payload,
     mosaic_ident_from_payload,
-    mosaic_ident_from_project_and_mosaic_id,
-    resolve_process_mosaic_flow_kwargs,
 )
 from opticstream.state.state_guards import (
-    RunDecision,
     enter_flow_stage,
     force_rerun_from_payload,
     should_skip_run,
@@ -51,18 +49,6 @@ from opticstream.utils.utils import (
     get_mosaic_paths,
     mosaic_id_to_slice_id,
 )
-
-
-def _normalize_mosaic_flow_kwargs(config: Dict[str, Any]) -> None:
-    """Normalize tuple/list types for :func:`process_mosaic_flow` keyword args."""
-    if "scan_resolution_3d" in config:
-        scan_resolution_3d = config["scan_resolution_3d"]
-        if isinstance(scan_resolution_3d, tuple):
-            config["scan_resolution_3d"] = [float(x) for x in scan_resolution_3d]
-        elif isinstance(scan_resolution_3d, list):
-            config["scan_resolution_3d"] = [float(x) for x in scan_resolution_3d]
-    if "enface_modalities" in config and isinstance(config["enface_modalities"], tuple):
-        config["enface_modalities"] = list(config["enface_modalities"])
 
 
 @task
@@ -874,7 +860,7 @@ def process_mosaic(
             item_ident=mosaic_ident,
         )
     ):
-        return 
+        return
 
     # Note: Event flows handle loading config blocks and providing all required values.
     # Defaults are provided in the function signature for optional parameters.
@@ -927,7 +913,7 @@ def process_mosaic(
             f"Using template from mosaic {base_mosaic_id})"
         )
         # Construct tile_coords_export path from base mosaic
-        tile_coords_export = (
+        _tile_coords_export = (
             base_stitched_path / f"mosaic_{base_mosaic_id:03d}_tile_coords_export.yaml"
         )
 
@@ -1021,17 +1007,16 @@ def process_mosaic(
                 "mosaic_enface_format not provided, skipping enface symlinking"
             )
         symlink_targets = {}
-    emit_mosaic_event(
-        event_name=MOSAIC_ENFACE_STITCHED,
-        project_name=project_name,
-        project_base_path=project_base_path,
-        mosaic_id=mosaic_id,
-        payload={
-            "project_name": project_name,
-            "project_base_path": project_base_path,
-            "mosaic_id": mosaic_id,
+    emit_mosaic_psoct_event(
+        MOSAIC_ENFACE_STITCHED,
+        mosaic_ident,
+        extra_payload={
             "enface_outputs": enface_outputs,
-            "symlink_targets": symlink_targets,
+            "symlink_targets": {
+                k: str(v) for k, v in symlink_targets.items()
+            }
+            if symlink_targets
+            else {},
         },
     )
 
@@ -1052,3 +1037,32 @@ def process_mosaic(
         "mask_path": str(mask_path),
         "enface_outputs": enface_outputs,
     }
+
+
+@flow
+def process_mosaic_event_flow(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Event wrapper for :func:`process_mosaic`.
+
+    Expects ``mosaic_ident`` and optional parameter overrides in ``payload`` (see
+    :data:`opticstream.flows.psoct.utils.PROCESS_MOSAIC_FLOW_KWARGS_KEYS`).
+    """
+    mosaic_ident = mosaic_ident_from_payload(payload)
+    cfg = load_scan_config_for_payload(payload)
+    return process_mosaic(
+        mosaic_ident,
+        cfg,
+        force_refresh_coords=bool(payload.get("force_refresh_coords", False)),
+        force_rerun=force_rerun_from_payload(payload),
+        flow_payload=payload,
+    )
+
+def to_deployment(project_name: Optional[str] = None):
+    return process_mosaic_event_flow.to_deployment(
+        name="process_mosaic_event_flow",
+        tags=["event-driven", "mosaic-processing", "stitching"],
+        triggers=[
+            get_event_trigger(MOSAIC_READY, project_name=project_name),
+        ],
+    ),
+    

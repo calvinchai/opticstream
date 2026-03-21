@@ -8,13 +8,11 @@ from typing import Any, Dict
 from prefect import flow, get_run_logger, task
 
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
-from opticstream.events import BATCH_ARCHIVED, BATCH_COMPLEXED
 from opticstream.flows.psoct.utils import (
     batch_ident_from_payload,
     load_scan_config_for_payload,
     path_list_from_payload,
 )
-from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
 from opticstream.state.state_guards import enter_flow_stage, force_rerun_from_payload, should_skip_run
 from opticstream.tasks.common_tasks import archive_tile_task
@@ -38,7 +36,7 @@ def _determine_processing_mode(
 ) -> Dict[str, Any]:
     if not convert:
         return {"mode": None}
-    if tile_saving_type == TileSavingType.SPECTRAL:
+    if tile_saving_type in (TileSavingType.SPECTRAL, TileSavingType.SPECTRAL_12bit):
         return {
             "mode": "spectral",
             "aline_length": tile_size_x_tilted if mosaic_id % 2 == 0 else tile_size_x_normal,
@@ -150,8 +148,8 @@ def process_tile_batch(
 ) -> dict[str, Any]:
     logger = get_run_logger()
     if should_skip_run(enter_flow_stage(OCT_STATE_SERVICE.peek_batch(batch_ident=batch_id), force_rerun=force_rerun, skip_if_running=False, item_ident=batch_id)):
-        return
-    
+        return None
+
     archive_future = None
     if config.archive_path:
         archive_future = archive_tile_batch.submit(
@@ -161,35 +159,38 @@ def process_tile_batch(
             archive_tile_name_format=config.archive_tile_name_format,
             force_rerun=force_rerun,
         )
+    archived: list[str] = []
     if archive_future:
         archive_future.wait()
-        if not archive_future.result():
+        archived = archive_future.result()
+        if not archived:
             logger.error("Failed to archive tiles for %s", batch_id)
             return {"error": "Failed to archive tiles"}
 
-    # mode = _determine_processing_mode(
-    #     convert=convert,
-    #     tile_saving_type=config.acquisition.tile_saving_type,
-    #     mosaic_id=batch_id.mosaic_id,
-    #     tile_size_x_tilted=config.acquisition.tile_size_x_tilted,
-    #     tile_size_x_normal=config.acquisition.tile_size_x_normal,
-    #     tile_size_y=config.acquisition.tile_size_y,
-    # )
-    # complex_files: list[Path] = []
-    # if mode["mode"] == "spectral":
-    #     complex_files = process_spectral_tile_batch(
-    #         batch_id=batch_id,
-    #         file_list=file_list,
-    #         project_base_path=config.project_base_path,
-    #         aline_length=mode["aline_length"],
-    #         bline_length=mode["bline_length"],
-    #     )
-    # elif mode["mode"] == "complex":
-    #     complex_files = link_complex_inputs_to_mosaic_complex_dir(
-    #         batch_id=batch_id,
-    #         file_list=file_list,
-    #         project_base_path=config.project_base_path,
-    #     )
+    mode = _determine_processing_mode(
+        convert=True,
+        tile_saving_type=config.acquisition.tile_saving_type,
+        mosaic_id=batch_id.mosaic_id,
+        tile_size_x_tilted=config.acquisition.tile_size_x_tilted,
+        tile_size_x_normal=config.acquisition.tile_size_x_normal,
+        tile_size_y=config.acquisition.tile_size_y,
+    )
+    complex_files: list[Path] = []
+    if mode["mode"] == "spectral":
+        complex_files = process_spectral_tile_batch(
+            batch_id=batch_id,
+            file_list=file_list,
+            project_base_path=config.project_base_path,
+            aline_length=mode["aline_length"],
+            bline_length=mode["bline_length"],
+        )
+    elif mode["mode"] == "complex":
+        complex_files = link_complex_inputs_to_mosaic_complex_dir(
+            batch_id=batch_id,
+            file_list=file_list,
+            project_base_path=config.project_base_path,
+        )
+
     logger.info("Produced %d complex files for %s", len(complex_files), batch_id)
     return {"complex_files": [str(p) for p in complex_files], "archived_files": archived}
 

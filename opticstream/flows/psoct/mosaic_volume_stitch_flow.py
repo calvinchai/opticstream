@@ -9,21 +9,21 @@ are stitched. It handles:
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from niizarr.multizarr import ZarrConfig
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.scripts import find_tile_plane, find_volume_surface
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
-from opticstream.events import MOSAIC_ENFACE_STITCHED, MOSAIC_VOLUME_STITCHED
+from opticstream.events import MOSAIC_VOLUME_STITCHED
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.flows.psoct.mosaic_process_flow import generate_tile_info_file_task
+from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.flows.psoct.utils import (
     load_scan_config_for_payload,
-    mosaic_ident_from_project_and_mosaic_id,
+    mosaic_ident_from_payload,
     normalize_float_sequence,
 )
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTMosaicId
@@ -51,7 +51,7 @@ def stitch_mosaic3d_task(
         Path to tile_info_file YAML
     output_path: str
         Path to output zarr file
-    zarr_config: ZarrConfig, optional
+    zarr_config: optional Zarr configuration object
         Zarr configuration object
     kwargs: Dict[str, Any], optional
         Additional keyword arguments for mosaic3d
@@ -114,10 +114,6 @@ def find_focus_plane_task(
         f"Finding focus plane for {illumination} illumination (mosaic {mosaic_id})"
     )
     project_base_path = Path(project_base_path)
-    if illumination == "normal":
-        grid_size = "3x3"
-    else:
-        grid_size = "4x3"
     input_yaml = get_modality_stitching_filename(project_base_path, mosaic_id, "dBI")
     if not input_yaml.exists():
         raise FileNotFoundError(f"dBI stitching file not found: {input_yaml}")
@@ -180,26 +176,16 @@ def stitch_volume_flow(
 
     Parameters
     ----------
-    project_name : str
-        Project identifier
-    mosaic_id : int
+    mosaic_ident : OCTMosaicId
         Mosaic identifier
-    project_base_path : str
-        Base path for the project
-    enface_outputs : Dict[str, Dict[str, str]]
-        Dictionary mapping modality to output file paths from enface stitching
-    scan_resolution_3d : List[float]
-        Scan resolution for 3D volumes [x, y, z]
-    volume_modalities : List[str]
-        List of volume modalities to stitch
-    force_refresh_coords : bool, optional
-        Force coordinate determination even if not first slice. Default: False
-    dandiset_path : str, optional
-        Path to DANDI derivatives directory
-    mosaic_volume_format : str, optional
-        Template string for volume filename format
-    zarr_config : ZarrConfig, optional
-        Zarr configuration object
+    config : PSOCTScanConfigModel
+        Configuration object
+    apply_mask : bool, optional
+        Apply mask to the volume
+    force_refresh_focus : bool, optional
+        Force refresh focus
+    force_rerun : bool, optional
+        Force rerun
 
     Returns
     -------
@@ -207,6 +193,17 @@ def stitch_volume_flow(
         Dictionary mapping modality to output file paths
     """
     logger = get_run_logger()
+
+    project_name = mosaic_ident.project_name
+    mosaic_id = mosaic_ident.mosaic_id
+    project_base_path = str(config.project_base_path)
+    dandiset_path = str(config.dandiset_path) if config.dandiset_path else None
+    mosaic_volume_format = config.mosaic_volume_format
+    scan_resolution_3d = normalize_float_sequence(config.acquisition.scan_resolution_3d)
+    volume_modalities = [m.value for m in config.volume_modalities]
+    zarr_config = config.zarr_config
+    crop_focus_plane_depth = config.crop_focus_plane_depth
+    crop_focus_plane_offset = config.crop_focus_plane_offset
 
     # Determine if this is normal or tilted illumination
     is_tilted = mosaic_id % 2 == 0
@@ -334,7 +331,7 @@ def stitch_volume_flow(
     # Emit MOSAIC_VOLUME_STITCHED event
     emit_mosaic_psoct_event(
         MOSAIC_VOLUME_STITCHED,
-        mosaic_ident_from_project_and_mosaic_id(project_name, mosaic_id),
+        mosaic_ident,
         extra_payload={
             "volume_outputs": {mod: str(path) for mod, path in volume_outputs.items()},
         },
@@ -348,4 +345,18 @@ def stitch_volume_flow(
         mosaic_state.set_volume_stitched(True)
 
     return volume_outputs
+
+
+@flow
+def stitch_volume_event_flow(payload: Dict[str, Any]) -> Dict[str, Path]:
+    """Event wrapper for :func:`stitch_volume_flow` (expects ``mosaic_ident`` in payload)."""
+    mosaic_ident = mosaic_ident_from_payload(payload)
+    cfg = load_scan_config_for_payload(payload)
+    return stitch_volume_flow(
+        mosaic_ident,
+        cfg,
+        apply_mask=bool(payload.get("apply_mask", False)),
+        force_refresh_focus=bool(payload.get("force_refresh_focus", False)),
+        force_rerun=force_rerun_from_payload(payload),
+    )
 
