@@ -28,6 +28,16 @@ def mosaic_ident_from_project_and_mosaic_id(project_name: str, mosaic_id: int) -
     )
 
 
+def oct_batch_ident(project_name: str, mosaic_id: int, batch_id: int) -> OCTBatchId:
+    """Build canonical ``OCTBatchId`` for a mosaic batch (``slice_id`` derived from ``mosaic_id``)."""
+    return OCTBatchId(
+        project_name=project_name,
+        slice_id=slice_id_for_mosaic_id(mosaic_id),
+        mosaic_id=mosaic_id,
+        batch_id=batch_id,
+    )
+
+
 def grid_size_x_for_mosaic(cfg: PSOCTScanConfigModel, mosaic_id: int) -> int:
     return (
         cfg.acquisition.grid_size_x_tilted

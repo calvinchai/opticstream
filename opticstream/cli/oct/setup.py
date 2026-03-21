@@ -63,7 +63,7 @@ def setup(
     """
     Create or update the PSOCTScanConfig block for a project.
 
-    Run this before ``opticstream oct watch run``. The block name is derived from
+    Run this before ``opticstream oct watch``. The block name is derived from
     ``project_name`` (e.g. ``myproject`` -> ``myproject-config``).
 
     Defaults keep CLI input minimal: ``project_base_path`` is ``./``, grid sizes are ``1``.

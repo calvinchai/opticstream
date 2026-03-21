@@ -1,25 +1,19 @@
 from __future__ import annotations
 
 import logging
-import threading
+import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from queue import Empty, Queue
 
-from watchdog.observers import Observer
-
-from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
-from opticstream.events.lsm_events import STRIP_READY
+from opticstream.config import LSMScanConfig
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
+from opticstream.events.lsm_events import STRIP_READY
+from opticstream.flows.lsm.strip_process_flow import process_strip
 from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
 from opticstream.utils.filename_utils import parse_lsm_run_folder_name, parse_lsm_strip_index
-from opticstream.utils.directory_watch import (
-    NewFolderHandler,
-    polling_scanner,
-    run_watcher_until_interrupt,
-    wait_until_stable,
-)
+from opticstream.utils.polling_watcher import PollingStableWatcher
 
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -30,174 +24,192 @@ if not logging.getLogger().handlers:
 logger = logging.getLogger(__name__)
 
 
+def _is_readable_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if not os.access(path, os.R_OK | os.X_OK):
+        return False
+    try:
+        next(path.iterdir(), None)
+    except (OSError, PermissionError):
+        return False
+    return True
+
+
+def _can_snapshot_folder(folder: Path) -> bool:
+    if not _is_readable_dir(folder):
+        return False
+
+    try:
+        for p in folder.rglob("*"):
+            if p.is_file():
+                if not os.access(p, os.R_OK):
+                    return False
+                p.stat()
+        return True
+    except (OSError, PermissionError):
+        return False
+
+
 def _should_process_folder(path: Path) -> bool:
-    """
-    Return True if the folder should be processed by the watcher.
+    return (
+        path.is_dir()
+        and path.name.lower().startswith("run")
+        and _is_readable_dir(path)
+    )
 
-    By default, folders must have a name that starts with "Run" (case-insensitive).
-    """
-    return path.name.lower().startswith("run")
+
+def _folder_fingerprint(folder: Path) -> tuple[tuple[str, float, int], ...]:
+    items: list[tuple[str, float, int]] = []
+    for p in folder.rglob("*"):
+        if p.is_file():
+            stat = p.stat()
+            items.append((str(p.relative_to(folder)), stat.st_mtime, stat.st_size))
+    items.sort()
+    return tuple(items)
 
 
-def _consumer_loop(
-    queue: Queue,
-    project_name: str,
-    scan_config: LSMScanConfig,
-    stability_time: int,
-    slice_offset: int,
-    force_resend: bool,
-) -> None:
-    """
-    Consume folders from the queue, emit ``STRIP_READY``, and ensure a PENDING strip row exists.
+@dataclass(frozen=True)
+class LSMFolderCandidate:
+    folder: Path
 
-    Flow lifecycle (RUNNING / COMPLETED / FAILED) is handled inside ``process_strip``, not here.
-    """
-    while True:
+
+class LSMWatcherService:
+    def __init__(
+        self,
+        *,
+        project_name: str,
+        scan_config: LSMScanConfig,
+        watch_dir: Path,
+        slice_offset: int,
+        direct: bool,
+        force_resend: bool,
+    ) -> None:
+        self.project_name = project_name
+        self.scan_config = scan_config
+        self.watch_dir = watch_dir
+        self.slice_offset = slice_offset
+        self.direct = direct
+        self.force_resend = force_resend
+
+    def discover_candidates(self) -> list[LSMFolderCandidate]:
+        if not _is_readable_dir(self.watch_dir):
+            logger.warning("LSM watch directory is not readable: %s", self.watch_dir)
+            return []
+
+        return [
+            LSMFolderCandidate(folder=d)
+            for d in self.watch_dir.iterdir()
+            if _should_process_folder(d)
+        ]
+
+    def candidate_key(self, candidate: LSMFolderCandidate) -> str:
+        return str(candidate.folder.resolve())
+
+    def fingerprint(self, candidate: LSMFolderCandidate) -> object:
+        if not _can_snapshot_folder(candidate.folder):
+            raise OSError(f"Folder is not readable/snapshot-able: {candidate.folder}")
+        return _folder_fingerprint(candidate.folder)
+
+    def process(self, candidate: LSMFolderCandidate) -> int:
+        folder = candidate.folder
+
+        if not _can_snapshot_folder(folder):
+            logger.warning("Skipping unreadable LSM folder: %s", folder)
+            return 0
+
         try:
-            folder: Path = queue.get(timeout=1)
-        except Empty:
-            continue
-
-        try:
-            logger.info("Stability check: %s", folder.name)
-            wait_until_stable(folder, stability_time)
-
-            try:
-                slice_index, strip_id, channel_index = parse_lsm_strip_index(
-                    *parse_lsm_run_folder_name(folder.name)[1:],
-                    scan_config.strips_per_slice,
-                )
-            except Exception as exc:
-                logger.warning("Skipping folder %r: cannot parse indices (%s)", folder.name, exc)
-                continue
-
-            slice_id = slice_index + slice_offset
-            strip_ident = LSMStripId(
-                project_name=project_name,
-                slice_id=slice_id,
-                strip_id=strip_id,
-                channel_id=channel_index,
+            slice_index, strip_id, channel_index = parse_lsm_strip_index(
+                *parse_lsm_run_folder_name(folder.name)[1:],
+                self.scan_config.strips_per_slice,
             )
+        except Exception as exc:
+            logger.warning("Skipping folder %r: cannot parse indices (%s)", folder.name, exc)
+            return 0
 
-            existing = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
-            if existing is not None and not force_resend:
-                logger.info(
-                    "[SKIP] Strip state already exists for %s; not emitting STRIP_READY "
-                    "(use --force-resend to override)",
-                    strip_ident,
-                )
-                continue
+        slice_id = slice_index + self.slice_offset
+        strip_ident = LSMStripId(
+            project_name=self.project_name,
+            slice_id=slice_id,
+            strip_id=strip_id,
+            channel_id=channel_index,
+        )
 
+        existing = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
+        if existing is not None and not self.force_resend:
             logger.info(
-                "Parsed indices for folder name=%s slice=%s (base=%s offset=%s) strip=%s channel=%s",
-                folder.name,
-                slice_id,
-                slice_index,
-                slice_offset,
-                strip_id,
-                channel_index,
+                "[SKIP] Strip state already exists for %s (use --force-resend to override)",
+                strip_ident,
             )
+            return 0
 
-            extra_payload: dict = {"strip_path": str(folder)}
-            if force_resend:
-                extra_payload["force_rerun"] = True
+        if self.direct:
+            return self._process_direct(strip_ident=strip_ident, folder=folder)
 
-            logger.info(
-                "Emitting STRIP_READY for project=%s slice=%s strip=%s path=%s",
-                project_name,
-                slice_id,
-                strip_id,
-                folder,
-            )
-            start = time.perf_counter()
+        return self._process_event(strip_ident=strip_ident, folder=folder)
 
-            emit_strip_lsm_event(STRIP_READY, strip_ident, extra_payload=extra_payload)
+    def _process_event(self, *, strip_ident: LSMStripId, folder: Path) -> int:
+        extra_payload: dict = {"strip_path": str(folder)}
+        if self.force_resend:
+            extra_payload["force_rerun"] = True
 
-            with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident):
-                pass  # open it so the state is created
+        logger.info("Emitting STRIP_READY for %s from %s", strip_ident, folder)
+        start = time.perf_counter()
 
-            elapsed = time.perf_counter() - start
-            logger.info("Emitted STRIP_READY for strip=%s in %.2f s", strip_id, elapsed)
-        except Exception as exc:  # pragma: no cover - defensive logging
-            logger.exception("Error processing folder %s: %s", folder.name, exc)
+        emit_strip_lsm_event(STRIP_READY, strip_ident, extra_payload=extra_payload)
+
+        with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident):
+            pass
+
+        elapsed = time.perf_counter() - start
+        logger.info("Emitted STRIP_READY for %s in %.2f s", strip_ident, elapsed)
+        return 1
+
+    def _process_direct(self, *, strip_ident: LSMStripId, folder: Path) -> int:
+        logger.info("Direct-processing LSM strip %s from %s", strip_ident, folder)
+
+        process_strip(
+            strip_ident=strip_ident,
+            scan_config=self.scan_config,
+            strip_path=folder,
+            force_rerun=self.force_resend,
+        )
+        return 1
 
 
 def watch_lsm(
-    project_name: str,
     *,
-    scan_config: LSMScanConfig,
+    project_name: str,
     watch_dir: Path,
+    scan_config: LSMScanConfig,
     slice_offset: int = 0,
-    stability_time: int = 15,
-    poll_interval: int = 30,
+    stability_seconds: int = 15,
+    poll_interval: int = 5,
+    direct: bool = False,
     force_resend: bool = False,
 ) -> None:
-    """
-    Watch an LSM directory for new strip folders and emit ``STRIP_READY`` for Prefect.
-
-    Strip lifecycle is updated by ``process_strip`` when the event-driven flow runs.
-
-    Parameters
-    ----------
-    project_name:
-        Project identifier (used by Prefect flows and config blocks).
-    scan_config:
-        `LSMScanConfig` block instance providing output/info/archive paths and zarr configuration.
-    watch_dir:
-        Base directory to watch for new strip folders. Only immediate subdirectories whose
-        names start with "Run" (case-insensitive) are processed.
-    slice_offset:
-        Integer offset added to the slice index parsed from each folder name.
-    stability_time:
-        Seconds a folder must be unchanged before processing.
-    poll_interval:
-        Seconds between polling scans for new folders.
-    force_resend:
-        If True, emit ``STRIP_READY`` even when strip state already exists, with ``force_rerun``.
-    """
-    queue: Queue = Queue()
-    seen: set[Path] = set()
-    lock = threading.Lock()
-
-    # Seed existing folders so we process anything already on disk.
-    for d in watch_dir.iterdir():
-        if d.is_dir() and _should_process_folder(d):
-            seen.add(d)
-            queue.put(d)
-
-    # Watchdog observer.
-    observer = Observer()
-    observer.schedule(
-        NewFolderHandler(queue, seen, lock, _should_process_folder),
-        str(watch_dir),
-        recursive=False,
+    service = LSMWatcherService(
+        project_name=project_name,
+        scan_config=scan_config,
+        watch_dir=watch_dir,
+        slice_offset=slice_offset,
+        direct=direct,
+        force_resend=force_resend,
     )
-    observer.start()
 
-    # Polling fallback.
-    polling_thread = threading.Thread(
-        target=polling_scanner,
-        args=(queue, seen, lock, watch_dir, poll_interval, _should_process_folder),
-        daemon=True,
-    )
-    polling_thread.start()
-
-    # Consumer loop in its own thread so the main thread can handle KeyboardInterrupt.
-    consumer_thread = threading.Thread(
-        target=_consumer_loop,
-        args=(
-            queue,
-            project_name,
-            scan_config,
-            stability_time,
-            slice_offset,
-            force_resend,
+    watcher = PollingStableWatcher[LSMFolderCandidate, str](
+        discover_candidates=service.discover_candidates,
+        candidate_key=service.candidate_key,
+        fingerprint=service.fingerprint,
+        process=service.process,
+        poll_interval=poll_interval,
+        stability_seconds=stability_seconds,
+        running_message=(
+            f"LSM polling watcher running "
+            f"({'direct' if direct else 'event'} mode)"
         ),
-        daemon=True,
     )
-    consumer_thread.start()
-
-    run_watcher_until_interrupt(observer, running_message="LSM watcher running (watchdog + polling)")
+    watcher.run()
 
 
 @lsm_cli.command
@@ -205,26 +217,34 @@ def watch(
     project_name: str,
     watch_dir: str = ".",
     *,
-    config_block_name: str | None = None,
     slice_offset: int = 0,
     stability_seconds: int = 15,
-    poll_interval: int = 30,
+    poll_interval: int = 5,
+    direct: bool = False,
     force_resend: bool = False,
 ) -> None:
+    """
+    Poll for new LSM run folders and dispatch each stable strip either by:
+    - emitting STRIP_READY, or
+    - running the strip flow directly.
 
-    scan_config = LSMScanConfig.load(config_block_name or f"{project_name}-lsm-config")
+    Only immediate subdirectories whose names start with 'Run' are considered.
+    """
+    scan_config = LSMScanConfig.load(f"{project_name}-lsm-config")
+    watch_path = Path(watch_dir)
 
-    watch_dir = Path(watch_dir)
-
-    if not watch_dir.exists():
-        raise ValueError(f"Watch directory {watch_dir} does not exist")
+    if not watch_path.exists():
+        raise ValueError(f"Watch directory {watch_path} does not exist")
+    if not _is_readable_dir(watch_path):
+        raise ValueError(f"Watch directory {watch_path} is not readable")
 
     watch_lsm(
         project_name=project_name,
+        watch_dir=watch_path,
         scan_config=scan_config,
-        watch_dir=watch_dir,
         slice_offset=slice_offset,
-        stability_time=stability_seconds,
+        stability_seconds=stability_seconds,
         poll_interval=poll_interval,
+        direct=direct,
         force_resend=force_resend,
     )
