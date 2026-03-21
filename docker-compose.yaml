@@ -1,0 +1,84 @@
+services:
+  ### Prefect Database
+  database:
+    image: postgres:alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=prefect
+    expose:
+      - 5432
+    volumes: 
+      - db:/var/lib/postgresql/data
+    profiles: ["server"]
+
+  ### MinIO for flow storage
+  minio:
+    image: minio/minio:latest
+    entrypoint: ["minio", "server", "--address", "0.0.0.0:9000", "--console-address", "0.0.0.0:9001", "/data"]
+    volumes:
+      - "minio:/data"
+    ports:
+      - 9000:9000
+      - 9001:9001
+    profiles: ["minio"]
+
+  ### Prefect Server API and UI
+  server:
+    image: prefecthq/prefect:3-python3.12
+    restart: always
+    volumes:
+      - prefect:/root/.prefect
+    entrypoint: ["/opt/prefect/entrypoint.sh", "prefect", "server", "start"]
+    environment:
+      # Set HOST_IP for clients that reach the UI/API from another machine (browser, workers on other hosts).
+      # Option A: create a .env next to this file with HOST_IP=192.168.x.x (see .env.example)
+      # Option B: export HOST_IP=192.168.x.x before `docker compose up`
+      # Default 127.0.0.1 is for access only from the Docker host.
+      - PREFECT_UI_URL=http://${HOST_IP:-127.0.0.1}:4200/api
+      - PREFECT_API_URL=http://${HOST_IP:-127.0.0.1}:4200/api
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_API_DATABASE_CONNECTION_URL=postgresql+asyncpg://postgres:postgres@database:5432/prefect
+      - PREFECT_SERVER_UI_SHOW_PROMOTIONAL_CONTENT=false
+      - PREFECT_FLOWS_HEARTBEAT_FREQUENCY=30
+      # Uncomment the following line if you want to use the 'S3 Bucket' storage block instead of the older 'S3' storage
+      - EXTRA_PIP_PACKAGES=prefect-slack prefect-shell
+    ports:
+      - 4200:4200
+    depends_on:
+      - database
+    profiles: ["server"]
+
+  ## Prefect Worker
+  worker:
+    image: prefecthq/prefect:3-python3.12
+    restart: always
+    entrypoint: ["/opt/prefect/entrypoint.sh", "prefect", "worker", "start", "-p", "YOUR_WORK_QUEUE_NAME"]
+    environment:
+      - PREFECT_API_URL=http://server:4200/api
+#       Use PREFECT_API_KEY if connecting the worker to Prefect Cloud
+#     - PREFECT_API_KEY=YOUR_API_KEY
+    profiles: ["worker"]
+
+  ### Prefect CLI
+  cli:
+    image: prefecthq/prefect:3-python3.12
+    entrypoint: "bash"
+    working_dir: "/root/flows"
+    volumes:
+      - "./flows:/root/flows"
+    environment:
+      - PREFECT_API_URL=http://server:4200/api
+#       Use PREFECT_API_KEY to use the CLI to interact with Prefect Cloud
+#     - PREFECT_API_KEY=YOUR_API_KEY
+    profiles: ["cli"]
+
+volumes:
+  prefect:
+  db:
+  minio:
+networks:
+  default:
+    name: prefect-network
+ 
