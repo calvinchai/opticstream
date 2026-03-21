@@ -21,6 +21,7 @@ from opticstream.flows.lsm.channel_volume_flow import (
 from opticstream.flows.lsm.strip_process_flow import (
     process_strip_event,
     process_strip,
+    process_strip_event_to_deployment,
 )
 from opticstream.flows.lsm.strip_update_flow import (
     lsm_strip_update_event_flow,
@@ -46,6 +47,7 @@ __all__ = [
     "upload_channel_volume",
     "upload_channel_volume_event",
     "process_strip_event",
+    "process_strip_event_to_deployment",
     "process_strip",
     "strip_update_to_deployment",
     "upload_strip_to_dandi_event_flow_deployment",

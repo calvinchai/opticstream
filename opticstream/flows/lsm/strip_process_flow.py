@@ -15,7 +15,7 @@ from prefect.futures import PrefectFuture
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.data_processing.convert_image import convert_image
-from opticstream.events.lsm_events import STRIP_COMPRESSED
+from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_READY
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.flows.lsm.paths import strip_mip_output_path, strip_zarr_output_path
 from opticstream.state.state_guards import (
@@ -701,4 +701,22 @@ def process_strip_event(payload: Dict[str, Any]) -> None:
         scan_config=lsm_scan_config,
         force_rerun=force_rerun_from_payload(payload),
     )
+
+
+def process_strip_event_to_deployment(*, concurrent_workers: int = 2):
+    """Deployment for ``process_strip_event`` triggered by ``STRIP_READY``."""
+    from opticstream.events import get_event_trigger
+
+    return process_strip_event.to_deployment(
+        name="process_strip_event_flow_deployment",
+        tags=["lsm", "process-strip"],
+        concurrency_limit=concurrent_workers,
+        triggers=[get_event_trigger(STRIP_READY)],
+    )
+
+
+if __name__ == "__main__":
+    import prefect
+
+    prefect.serve(process_strip_event_to_deployment())
 

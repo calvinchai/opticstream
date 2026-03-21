@@ -3,16 +3,16 @@ from pathlib import Path
 import time
 import threading
 from queue import Empty, Queue
-from typing import Optional
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-from prefect.deployments import run_deployment
 
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
-from opticstream.utils.filename_utils import parse_lsm_strip_index_from_filename
-from opticstream.state.lsm_project_state import LSMProjectStateService
+from opticstream.events.lsm_events import STRIP_READY
+from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
+from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
+from opticstream.utils.filename_utils import parse_lsm_run_folder_name, parse_lsm_strip_index
 
 
 def _should_process_folder(path: Path) -> bool:
@@ -109,96 +109,75 @@ def _consumer_loop(
     scan_config: LSMScanConfig,
     stability_time: int,
     slice_offset: int,
+    force_resend: bool,
 ) -> None:
     """
-    Consume folders from the queue and dispatch Prefect flows.
+    Consume folders from the queue, emit ``STRIP_READY``, and ensure a PENDING strip row exists.
 
-    Updates the project-level strip state JSON file (RUNNING before flow,
-    COMPLETED on success, FAILED on exception) under scan_config.output_path.
+    Flow lifecycle (RUNNING / COMPLETED / FAILED) is handled inside ``process_strip``, not here.
     """
-    base_output = Path(scan_config.output_path)
-    state_service = LSMProjectStateService()
-
     while True:
         try:
             folder: Path = queue.get(timeout=1)
         except Empty:
             continue
 
-        strip_indices: Optional[tuple[int, int, int]] = None
         try:
             print(f"[WAIT] Stability check: {folder.name}")
             wait_until_stable(folder, stability_time)
 
             try:
-                slice_index, strip_index, channel_index = parse_lsm_strip_index_from_filename(
-                    folder.name
+                slice_index, strip_id, channel_index = parse_lsm_strip_index(
+                    *parse_lsm_run_folder_name(folder.name)[1:],
+                    scan_config.strips_per_slice,
                 )
             except Exception as exc:
                 print(f"[WARN] Skipping folder {folder.name!r}: cannot parse indices ({exc})")
                 continue
 
             slice_id = slice_index + slice_offset
-            strip_indices = (slice_id, strip_index, channel_index)
-
-            # Mark strip RUNNING in Prefect-backed LSM project state
-            state_service.mark_strip_started(
-                project_name,
+            strip_ident = LSMStripId(
+                project_name=project_name,
                 slice_id=slice_id,
-                strip_id=strip_index,
+                strip_id=strip_id,
                 channel_id=channel_index,
             )
+
+            existing = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
+            if existing is not None and not force_resend:
+                print(
+                    f"[SKIP] Strip state already exists for {strip_ident}; "
+                    "not emitting STRIP_READY (use --force-resend to override)"
+                )
+                continue
 
             print(
                 "[FLOW] Parsed indices for folder "
                 f"name={folder.name}, slice={slice_id} (base={slice_index}, offset={slice_offset}), "
-                f"strip={strip_index}, channel={channel_index}"
+                f"strip={strip_id}, channel={channel_index}"
             )
 
+            extra_payload: dict = {"strip_path": str(folder)}
+            if force_resend:
+                extra_payload["force_rerun"] = True
+
             print(
-                f"[FLOW] Starting process_strip_flow for "
-                f"project={project_name}, slice={slice_id}, strip={strip_index}, "
-                f"path={folder}"
+                f"[FLOW] Emitting STRIP_READY for project={project_name}, "
+                f"slice={slice_id}, strip={strip_id}, path={folder}"
             )
             start = time.perf_counter()
 
-            run_deployment(
-                "process-strip-flow/process_strip_flow_deployment",
-                parameters={
-                    "project_name": project_name,
-                    "slice_id": slice_id,
-                    "strip_id": strip_index,
-                    "strip_path": str(folder),
-                    "scan_config": scan_config,
-                },
-                timeout=0)
+            emit_strip_lsm_event(STRIP_READY, strip_ident, extra_payload=extra_payload)
+
+            with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident):
+                pass # open it so the state is created 
 
             elapsed = time.perf_counter() - start
             print(
-                f"[FLOW] Completed process_strip_flow for strip={strip_index} "
-                f"in {elapsed:.2f} s"
-            )
-
-            # Mark strip COMPLETED
-            state_service.mark_strip_completed(
-                project_name,
-                slice_id=slice_id,
-                strip_id=strip_index,
-                channel_id=channel_index,
+                f"[FLOW] Emitted STRIP_READY for strip={strip_id} in {elapsed:.2f} s"
             )
         except Exception as exc:  # pragma: no cover - defensive logging
             print(f"[ERROR] {folder.name}: {exc}")
-            if strip_indices is not None:
-                slice_id, strip_index, channel_index = strip_indices
-                try:
-                    state_service.mark_strip_failed(
-                        project_name,
-                        slice_id=slice_id,
-                        strip_id=strip_index,
-                        channel_id=channel_index,
-                    )
-                except Exception:
-                    pass
 
 
 def watch_lsm(
@@ -209,12 +188,12 @@ def watch_lsm(
     slice_offset: int = 0,
     stability_time: int = 15,
     poll_interval: int = 30,
+    force_resend: bool = False,
 ) -> None:
     """
-    Watch an LSM directory for new strip folders and dispatch Prefect flows.
+    Watch an LSM directory for new strip folders and emit ``STRIP_READY`` for Prefect.
 
-    Per-project strip state is tracked in Prefect Variables via
-    ``LSMProjectStateService``.
+    Strip lifecycle is updated by ``process_strip`` when the event-driven flow runs.
 
     Parameters
     ----------
@@ -231,6 +210,8 @@ def watch_lsm(
         Seconds a folder must be unchanged before processing.
     poll_interval:
         Seconds between polling scans for new folders.
+    force_resend:
+        If True, emit ``STRIP_READY`` even when strip state already exists, with ``force_rerun``.
     """
     queue: Queue = Queue()
     seen: set[Path] = set()
@@ -262,7 +243,14 @@ def watch_lsm(
     # Consumer loop in its own thread so the main thread can handle KeyboardInterrupt.
     consumer_thread = threading.Thread(
         target=_consumer_loop,
-        args=(queue, project_name, scan_config, stability_time, slice_offset),
+        args=(
+            queue,
+            project_name,
+            scan_config,
+            stability_time,
+            slice_offset,
+            force_resend,
+        ),
         daemon=True,
     )
     consumer_thread.start()
@@ -289,6 +277,7 @@ def watch(
     slice_offset: int = 0,
     stability_seconds: int = 15,
     poll_interval: int = 30,
+    force_resend: bool = False,
 ) -> None:
 
     scan_config = LSMScanConfig.load(config_block_name or f"{project_name}-lsm-config")
@@ -305,5 +294,5 @@ def watch(
         slice_offset=slice_offset,
         stability_time=stability_seconds,
         poll_interval=poll_interval,
+        force_resend=force_resend,
     )
-
