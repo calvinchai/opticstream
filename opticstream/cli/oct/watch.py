@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,11 +10,16 @@ from typing import Any
 
 from opticstream.cli.oct import oct_cli
 from opticstream.config.project_config import get_project_config_block
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
 from opticstream.events import BATCH_READY
 from opticstream.events.psoct_event_emitters import emit_batch_psoct_event
 from opticstream.flows.psoct.tile_batch_process_flow import process_tile_batch
 from opticstream.flows.psoct.utils import oct_batch_ident
+from opticstream.flows.psoct.utils import (
+    logical_first_mosaic_from_source_slice,
+    logical_mosaic_from_source_mosaic,
+    slice_from_mosaic,
+)
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE
 from opticstream.utils.polling_watcher import PollingStableWatcher
 from opticstream.utils.refresh_disk import RefreshHook, resolve_refresh_hook
@@ -25,6 +31,24 @@ if not logging.getLogger().handlers:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 logger = logging.getLogger(__name__)
+
+
+_COMPLEX_RE = re.compile(
+    r"^mosaic_(?P<mosaic>\d+)_image_(?P<image>\d+)_processed(?:_cropped)?\.nii$",
+    re.IGNORECASE,
+)
+_SPECTRAL_NII_RE = re.compile(
+    r"^mosaic_(?P<mosaic>\d+)_image_(?P<image>\d+)_spectral_(?P<k>\d+)\.nii$",
+    re.IGNORECASE,
+)
+_SPECTRAL_RAW_RE = re.compile(
+    r"^mosaic_(?P<mosaic>\d+)_image_(?P<image>\d+)_spectral_(?P<k>\d+)\.raw$",
+    re.IGNORECASE,
+)
+_SLICE_RE = re.compile(
+    r"^slice_(?P<slice>\d+).+\.nii$",
+    re.IGNORECASE,
+)
 
 
 def _is_readable_dir(path: Path) -> bool:
@@ -55,34 +79,6 @@ def _all_files_readable(files: tuple[Path, ...]) -> bool:
     return all(_is_readable_file(p) for p in files)
 
 
-def _is_oct_spectral_file(path: Path) -> bool:
-    return (
-        path.is_file()
-        and path.suffix == ".nii"
-        and "cropped_focus" in path.name
-        and _is_readable_file(path)
-    )
-
-
-def _parse_mosaic_ranges(mosaic_ranges_str: str) -> list[tuple[int, int]]:
-    out: list[tuple[int, int]] = []
-    for range_str in mosaic_ranges_str.split(","):
-        parts = range_str.strip().split(":")
-        if len(parts) != 2:
-            raise ValueError(f"Invalid mosaic range format: {range_str!r}. Expected 'min:max'")
-        min_id, max_id = int(parts[0]), int(parts[1])
-        out.append((min_id, max_id))
-    return out
-
-
-def _parse_mosaic_id(filename: str) -> int:
-    return int(filename.split("_")[1])
-
-
-def _parse_tile_index(filename: str) -> int:
-    return int(filename.split("_")[3])
-
-
 def _batch_fingerprint(
     files: tuple[Path, ...],
     root: Path,
@@ -95,10 +91,35 @@ def _batch_fingerprint(
     return tuple(items)
 
 
+def _parse_mosaic_ranges(mosaic_ranges_str: str) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for range_str in mosaic_ranges_str.split(","):
+        parts = range_str.strip().split(":")
+        if len(parts) != 2:
+            raise ValueError(f"Invalid mosaic range format: {range_str!r}. Expected 'min:max'")
+        out.append((int(parts[0]), int(parts[1])))
+    return out
+
+
+@dataclass(frozen=True)
+class ParsedTileFile:
+    path: Path
+    source_mosaic_id: int
+    image_index: int
+
+
+@dataclass(frozen=True)
+class ParsedSliceFile:
+    path: Path
+    source_slice_id: int
+
+
 @dataclass(frozen=True)
 class OCTBatchCandidate:
-    source_mosaic_id: int
-    mosaic_id: int
+    source_slice_id: int
+    logical_slice_id: int
+    source_mosaic_id: int | None
+    logical_mosaic_id: int
     logical_batch: int
     files: tuple[Path, ...]
 
@@ -111,41 +132,55 @@ class OCTWatcherService:
         folder_path: Path,
         project_base_path: str,
         mosaic_ranges: list[tuple[int, int]],
-        mosaic_offset: int,
+        slice_offset: int,
         batch_size: int,
         scan_config: PSOCTScanConfigModel,
         direct: bool,
         force_resend: bool,
         refresh_hook: RefreshHook | None = None,
+        min_complex_file_size_bytes: int = 1,
+        prefer_spectral_for_complex_with_spectral: bool = True,
     ) -> None:
         self.project_name = project_name
         self.folder_path = folder_path
         self.project_base_path = project_base_path
         self.mosaic_ranges = mosaic_ranges
-        self.mosaic_offset = mosaic_offset
+        self.slice_offset = slice_offset
         self.batch_size = batch_size
         self.scan_config = scan_config
         self.direct = direct
         self.force_resend = force_resend
         self.refresh_hook = refresh_hook
+        self.min_complex_file_size_bytes = min_complex_file_size_bytes
+        self.prefer_spectral_for_complex_with_spectral = prefer_spectral_for_complex_with_spectral
+
+    def _selected_tile_saving_type(self) -> TileSavingType:
+        saving_type = self.scan_config.acquisition.tile_saving_type
+        if saving_type is TileSavingType.COMPLEX_WITH_SPECTRAL:
+            return TileSavingType.SPECTRAL if self.prefer_spectral_for_complex_with_spectral else TileSavingType.COMPLEX
+        return saving_type
 
     def discover_candidates(self) -> list[OCTBatchCandidate]:
         if not _is_readable_dir(self.folder_path):
-            logger.warning("OCT watch directory is not readable: %s", self.folder_path)
+            logger.warning("OCT watch directory is not readable right now: %s", self.folder_path)
             return []
 
-        spectral_files = [
-            p for p in self.folder_path.glob("*cropped_focus*.nii")
-            if _is_oct_spectral_file(p)
-        ]
+        if self.scan_config.mosaics_per_slice == 3:
+            return self._discover_slice_candidates()
+
+        return self._discover_two_mosaic_candidates()
+
+    def _discover_two_mosaic_candidates(self) -> list[OCTBatchCandidate]:
+        parsed_files = self._discover_two_mosaic_files()
+
+        files_by_mosaic_and_image: dict[tuple[int, int], list[Path]] = defaultdict(list)
+        for parsed in parsed_files:
+            files_by_mosaic_and_image[(parsed.source_mosaic_id, parsed.image_index)].append(parsed.path)
 
         files_by_source_mosaic: dict[int, list[Path]] = defaultdict(list)
-        for f in spectral_files:
-            try:
-                source_mosaic_id = _parse_mosaic_id(f.name)
-                files_by_source_mosaic[source_mosaic_id].append(f)
-            except (ValueError, IndexError):
-                logger.warning("Could not parse mosaic_id from %s, skipping", f.name)
+        for (source_mosaic_id, _image_index), paths in files_by_mosaic_and_image.items():
+            # spectral k does not matter; pick one representative per tile
+            files_by_source_mosaic[source_mosaic_id].append(sorted(paths)[0])
 
         out: list[OCTBatchCandidate] = []
 
@@ -155,21 +190,13 @@ class OCTWatcherService:
                 if not mosaic_files:
                     continue
 
-                valid_files: list[Path] = []
-                for f in mosaic_files:
-                    try:
-                        _parse_tile_index(f.name)
-                        valid_files.append(f)
-                    except (ValueError, IndexError):
-                        logger.warning("Could not parse tile_index from %s, skipping", f.name)
+                mosaic_files.sort(key=self._image_index_from_file)
 
-                valid_files.sort(key=lambda p: _parse_tile_index(p.name))
-
-                batches: dict[int, list[Path]] = {}
-                for f in valid_files:
-                    tile_index = _parse_tile_index(f.name)
-                    logical_batch = (tile_index - 1) // self.batch_size + 1
-                    batches.setdefault(logical_batch, []).append(f)
+                batches: dict[int, list[Path]] = defaultdict(list)
+                for file_path in mosaic_files:
+                    image_index = self._image_index_from_file(file_path)
+                    logical_batch = (image_index - 1) // self.batch_size + 1
+                    batches[logical_batch].append(file_path)
 
                 for logical_batch, batch_files in sorted(batches.items()):
                     if len(batch_files) < self.batch_size:
@@ -184,12 +211,25 @@ class OCTWatcherService:
 
                     candidate_files = tuple(sorted(batch_files))
                     if not _all_files_readable(candidate_files):
+                        # transiently unreadable; let later polling iterations retry
                         continue
+
+                    source_slice_id = slice_from_mosaic(
+                        source_mosaic_id,
+                        self.scan_config.mosaics_per_slice,
+                    )
+                    logical_slice_id, logical_mosaic_id = logical_mosaic_from_source_mosaic(
+                        source_mosaic_id,
+                        mosaics_per_slice=self.scan_config.mosaics_per_slice,
+                        slice_offset=self.slice_offset,
+                    )
 
                     out.append(
                         OCTBatchCandidate(
+                            source_slice_id=source_slice_id,
+                            logical_slice_id=logical_slice_id,
                             source_mosaic_id=source_mosaic_id,
-                            mosaic_id=source_mosaic_id + self.mosaic_offset,
+                            logical_mosaic_id=logical_mosaic_id,
                             logical_batch=logical_batch,
                             files=candidate_files,
                         )
@@ -197,38 +237,153 @@ class OCTWatcherService:
 
         return out
 
+    def _discover_two_mosaic_files(self) -> list[ParsedTileFile]:
+        saving_type = self._selected_tile_saving_type()
+        out: list[ParsedTileFile] = []
+
+        for path in self.folder_path.iterdir():
+            if not path.is_file():
+                continue
+            if not _is_readable_file(path):
+                continue
+
+            parsed: ParsedTileFile | None = None
+
+            if saving_type is TileSavingType.COMPLEX:
+                parsed = self._parse_complex_file(path)
+            elif saving_type is TileSavingType.SPECTRAL:
+                parsed = self._parse_spectral_nii_file(path)
+            elif saving_type is TileSavingType.SPECTRAL_12bit:
+                parsed = self._parse_spectral_raw_file(path)
+
+            if parsed is not None:
+                out.append(parsed)
+
+        return out
+
+    def _discover_slice_candidates(self) -> list[OCTBatchCandidate]:
+        files_by_source_slice: dict[int, list[Path]] = defaultdict(list)
+
+        for path in self.folder_path.iterdir():
+            if not path.is_file():
+                continue
+            if not _is_readable_file(path):
+                continue
+
+            parsed = self._parse_slice_file(path)
+            if parsed is None:
+                continue
+
+            files_by_source_slice[parsed.source_slice_id].append(parsed.path)
+
+        out: list[OCTBatchCandidate] = []
+        for source_slice_id, files in sorted(files_by_source_slice.items()):
+            candidate_files = tuple(sorted(files))
+            if not _all_files_readable(candidate_files):
+                continue
+
+            logical_slice_id, logical_mosaic_id = logical_first_mosaic_from_source_slice(
+                source_slice_id,
+                mosaics_per_slice=self.scan_config.mosaics_per_slice,
+                slice_offset=self.slice_offset,
+            )
+
+            out.append(
+                OCTBatchCandidate(
+                    source_slice_id=source_slice_id,
+                    logical_slice_id=logical_slice_id,
+                    source_mosaic_id=None,
+                    logical_mosaic_id=logical_mosaic_id,
+                    logical_batch=1,
+                    files=candidate_files,
+                )
+            )
+
+        return out
+
+    def _parse_complex_file(self, path: Path) -> ParsedTileFile | None:
+        match = _COMPLEX_RE.match(path.name)
+        if match is None:
+            return None
+
+        try:
+            if path.stat().st_size < self.min_complex_file_size_bytes:
+                return None
+        except (OSError, PermissionError):
+            return None
+
+        return ParsedTileFile(
+            path=path,
+            source_mosaic_id=int(match.group("mosaic")),
+            image_index=int(match.group("image")),
+        )
+
+    def _parse_spectral_nii_file(self, path: Path) -> ParsedTileFile | None:
+        match = _SPECTRAL_NII_RE.match(path.name)
+        if match is None:
+            return None
+        return ParsedTileFile(
+            path=path,
+            source_mosaic_id=int(match.group("mosaic")),
+            image_index=int(match.group("image")),
+        )
+
+    def _parse_spectral_raw_file(self, path: Path) -> ParsedTileFile | None:
+        match = _SPECTRAL_RAW_RE.match(path.name)
+        if match is None:
+            return None
+        return ParsedTileFile(
+            path=path,
+            source_mosaic_id=int(match.group("mosaic")),
+            image_index=int(match.group("image")),
+        )
+
+    def _parse_slice_file(self, path: Path) -> ParsedSliceFile | None:
+        match = _SLICE_RE.match(path.name)
+        if match is None:
+            return None
+        return ParsedSliceFile(
+            path=path,
+            source_slice_id=int(match.group("slice")),
+        )
+
+    def _image_index_from_file(self, path: Path) -> int:
+        for parser in (
+            self._parse_complex_file,
+            self._parse_spectral_nii_file,
+            self._parse_spectral_raw_file,
+        ):
+            parsed = parser(path)
+            if parsed is not None:
+                return parsed.image_index
+        raise ValueError(f"Could not parse image index from {path.name!r}")
+
     def candidate_key(self, candidate: OCTBatchCandidate) -> tuple[int, int]:
-        return (candidate.mosaic_id, candidate.logical_batch)
+        return (candidate.logical_mosaic_id, candidate.logical_batch)
 
     def fingerprint(self, candidate: OCTBatchCandidate) -> object:
         if not _all_files_readable(candidate.files):
-            raise OSError(
-                f"Batch contains unreadable files: {[str(p) for p in candidate.files if not _is_readable_file(p)]}"
-            )
+            raise OSError("Candidate files are temporarily unreadable")
         return _batch_fingerprint(candidate.files, self.folder_path)
 
     def process(self, candidate: OCTBatchCandidate) -> int:
         if not _all_files_readable(candidate.files):
-            logger.warning(
-                "Skipping unreadable OCT batch source_mosaic=%s mosaic=%s logical_batch=%s",
-                candidate.source_mosaic_id,
-                candidate.mosaic_id,
+            logger.info(
+                "Candidate not ready yet; files unreadable logical_mosaic=%s logical_batch=%s",
+                candidate.logical_mosaic_id,
                 candidate.logical_batch,
             )
             return 0
 
         batch_ident = oct_batch_ident(
             self.project_name,
-            candidate.mosaic_id,
+            candidate.logical_mosaic_id,
             candidate.logical_batch,
         )
 
         existing = OCT_STATE_SERVICE.peek_batch(batch_ident=batch_ident)
         if existing is not None and not self.force_resend:
-            logger.info(
-                "[SKIP] batch state exists for %s (use --force-resend to override)",
-                batch_ident,
-            )
+            logger.info("[SKIP] batch state exists for %s", batch_ident)
             return 0
 
         if self.direct:
@@ -238,9 +393,12 @@ class OCTWatcherService:
 
     def _process_direct(self, candidate: OCTBatchCandidate, batch_ident: Any) -> int:
         logger.info(
-            "Direct-processing OCT batch source_mosaic=%s mosaic=%s logical_batch=%s files=%s",
+            "Direct-processing OCT source_slice=%s logical_slice=%s source_mosaic=%s "
+            "logical_mosaic=%s logical_batch=%s files=%s",
+            candidate.source_slice_id,
+            candidate.logical_slice_id,
             candidate.source_mosaic_id,
-            candidate.mosaic_id,
+            candidate.logical_mosaic_id,
             candidate.logical_batch,
             len(candidate.files),
         )
@@ -259,9 +417,12 @@ class OCTWatcherService:
 
     def _process_event(self, candidate: OCTBatchCandidate, batch_ident: Any) -> int:
         logger.info(
-            "Emitting BATCH_READY source_mosaic=%s mosaic=%s logical_batch=%s files=%s",
+            "Emitting BATCH_READY source_slice=%s logical_slice=%s source_mosaic=%s "
+            "logical_mosaic=%s logical_batch=%s files=%s",
+            candidate.source_slice_id,
+            candidate.logical_slice_id,
             candidate.source_mosaic_id,
-            candidate.mosaic_id,
+            candidate.logical_mosaic_id,
             candidate.logical_batch,
             len(candidate.files),
         )
@@ -285,7 +446,7 @@ def watch_oct(
     folder_path: Path,
     project_base_path: str,
     mosaic_ranges: list[tuple[int, int]],
-    mosaic_offset: int,
+    slice_offset: int,
     batch_size: int,
     scan_config: PSOCTScanConfigModel,
     stability_seconds: int = 15,
@@ -293,18 +454,20 @@ def watch_oct(
     direct: bool = True,
     force_resend: bool = False,
     refresh_hook: RefreshHook | None = None,
+    min_complex_file_size_bytes: int = 1,
 ) -> None:
     service = OCTWatcherService(
         project_name=project_name,
         folder_path=folder_path,
         project_base_path=project_base_path,
         mosaic_ranges=mosaic_ranges,
-        mosaic_offset=mosaic_offset,
+        slice_offset=slice_offset,
         batch_size=batch_size,
         scan_config=scan_config,
         direct=direct,
         force_resend=force_resend,
         refresh_hook=refresh_hook,
+        min_complex_file_size_bytes=min_complex_file_size_bytes,
     )
 
     watcher = PollingStableWatcher[OCTBatchCandidate, tuple[int, int]](
@@ -314,10 +477,7 @@ def watch_oct(
         process=service.process,
         poll_interval=poll_interval,
         stability_seconds=stability_seconds,
-        running_message=(
-            f"OCT polling watcher running "
-            f"({'direct' if direct else 'event'} mode)"
-        ),
+        running_message=f"OCT polling watcher running ({'direct' if direct else 'event'} mode)",
     )
     watcher.run()
 
@@ -326,23 +486,29 @@ def watch_oct(
 def watch(
     project_name: str,
     folder_path: str,
-    mosaic_ranges: str,
+    mosaic_ranges: str = "1:999999",
     *,
-    mosaic_offset: int = 0,
+    slice_offset: int = 0,
     stability_seconds: int = 15,
     poll_interval: int = 5,
     direct: bool = True,
     refresh: str | None = None,
     force_resend: bool = False,
+    min_complex_file_size_bytes: int = 1,
 ) -> None:
     """
-    Poll for complete OCT spectral batches in one folder and dispatch each stable batch either by:
+    Poll for complete OCT batches and dispatch each stable candidate either by:
     - running process_tile_batch directly, or
     - emitting BATCH_READY.
 
-    mosaic_ranges: comma-separated min:max ranges, e.g. "1:2,5:8"
-    mosaic_offset: logical offset applied to parsed mosaic ids for state/event identity
-    refresh: optional refresh hook name, e.g. "sas2"
+    For mosaics_per_slice == 2:
+      - grouping is mosaic/image-based
+      - mosaic_ranges applies to source mosaic ids parsed from filenames
+
+    For mosaics_per_slice == 3:
+      - discovery is slice-based from slice_<n>* files
+      - slice_offset controls logical slice numbering
+      - logical mosaic id becomes the first mosaic of that logical slice
     """
     project_config = get_project_config_block(project_name)
     if project_config is None:
@@ -363,14 +529,16 @@ def watch(
 
     refresh_hook = resolve_refresh_hook(refresh)
 
-    logger.info("Using batch_size (grid_size_y): %s", batch_size)
+    logger.info("Using batch_size=%s", batch_size)
+    logger.info("Using mosaics_per_slice=%s", scan_config.mosaics_per_slice)
+    logger.info("Using tile_saving_type=%s", scan_config.acquisition.tile_saving_type)
 
     watch_oct(
         project_name=project_name,
         folder_path=watch_path,
         project_base_path=project_base_path,
         mosaic_ranges=_parse_mosaic_ranges(mosaic_ranges),
-        mosaic_offset=mosaic_offset,
+        slice_offset=slice_offset,
         batch_size=batch_size,
         scan_config=scan_config,
         stability_seconds=stability_seconds,
@@ -378,4 +546,5 @@ def watch(
         direct=direct,
         force_resend=force_resend,
         refresh_hook=refresh_hook,
+        min_complex_file_size_bytes=min_complex_file_size_bytes,
     )

@@ -213,4 +213,3 @@ async def ensure_limit(name: str, limit: int) -> None:
     """
     async with get_client() as client:
         await client.upsert_global_concurrency_limit_by_name(name, limit)
-

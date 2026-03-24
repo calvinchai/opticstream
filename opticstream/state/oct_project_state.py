@@ -1,4 +1,4 @@
-"""OCT-specific project state models and services backed by Prefect Variables."""
+"""OCT-specific project state models and services backed by Postgres."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from typing import ClassVar, Iterator
 from pydantic import BaseModel, ConfigDict, Field
 
 from opticstream.utils.naming_convention import normalize_project_name
+from opticstream.state.project_state_postgres import PostgresProjectStateRepository
 from opticstream.state.project_state_core import (
     BaseProjectStateStore,
     PrefectProjectLock,
-    PrefectVariableProjectStateRepository,
     ProcessingState,
     ToViewMixin,
     ensure_limit,
@@ -31,8 +31,8 @@ Hierarchy (in-memory and persisted JSON):
 # ------------------------------------------------------------------------------
 
 
-def _state_variable_key(project_name: str) -> str:
-    return f"{normalize_project_name(project_name)}_oct_project_state"
+OCT_PROJECT_TYPE = "oct"
+STATE_DB_BLOCK_NAME = "opticstream-db"
 
 
 def _state_lock_name(project_name: str) -> str:
@@ -449,8 +449,13 @@ def _get_batch_view(
 # ------------------------------------------------------------------------------
 
 
-def _make_oct_repository() -> PrefectVariableProjectStateRepository[OCTProjectState]:
-    return PrefectVariableProjectStateRepository(_state_variable_key, OCTProjectState)
+def _make_oct_repository() -> PostgresProjectStateRepository[OCTProjectState]:
+    return PostgresProjectStateRepository(
+        block_name=STATE_DB_BLOCK_NAME,
+        model_cls=OCTProjectState,
+        project_type=OCT_PROJECT_TYPE,
+        table_name="project_state",
+    )
 
 
 def _make_oct_lock() -> PrefectProjectLock:

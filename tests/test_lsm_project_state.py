@@ -21,7 +21,6 @@ from opticstream.state.lsm_project_state import (
     LSMStripStateView,
     ProcessingState,
     _state_lock_name,
-    _state_variable_key,
     ensure_lock,
 )
 from opticstream.state.project_state_core import (
@@ -76,7 +75,7 @@ def real_state_service() -> LSMProjectStateService:
             Variable.set(key, state.model_dump(mode="json"), overwrite=True)
 
     repository = TestPrefectRepository(
-        key_fn=lambda _project: _state_variable_key(fixed_project_name),
+        key_fn=lambda _project: f"{fixed_project_name}_lsm_project_state",
         model_cls=LSMProjectState,
     )
     lock = PrefectProjectLock(
@@ -270,15 +269,12 @@ def test_pydantic_validation_boundaries():
         LSMStripState(slice_id=-1, strip_id=0, channel_id=1)
 
 
-def test_naming_helpers_and_ensure_lock_do_not_crash(project_name: str):
-    key = _state_variable_key(project_name)
+def test_lock_naming_helper_and_ensure_lock_do_not_crash(project_name: str):
     lock_name = _state_lock_name(project_name)
 
-    # Basic shape assertions; normalize_project_name may normalize the name, but the
-    # important part is that helpers produce distinct non-empty strings.
-    assert isinstance(key, str) and key
+    # Basic shape assertion; normalize_project_name may normalize the name, but the
+    # important part is that helper produces a non-empty string.
     assert isinstance(lock_name, str) and lock_name
-    assert key != lock_name
 
     # ensure_lock should complete without raising, even if the underlying Prefect
     # client is a no-op or test double in this environment.
@@ -425,4 +421,35 @@ def test_service_read_and_peek_missing_entities_return_none(
     strip_view = peek_view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
     assert strip_view is not None
     assert strip_view.processing_state == ProcessingState.RUNNING
+
+
+def test_project_delete_helpers_success_paths():
+    project = LSMProjectState()
+    project.get_or_create_strip_by_parts(slice_id=1, channel_id=1, strip_id=1)
+    project.get_or_create_strip_by_parts(slice_id=1, channel_id=1, strip_id=2)
+    project.get_or_create_strip_by_parts(slice_id=1, channel_id=2, strip_id=1)
+    project.get_or_create_strip_by_parts(slice_id=2, channel_id=1, strip_id=1)
+
+    assert project.delete_strip(slice_id=1, channel_id=1, strip_id=2) is True
+    assert 2 not in project.slices[1].channels[1].strips
+
+    assert project.delete_channel(slice_id=1, channel_id=2) is True
+    assert 2 not in project.slices[1].channels
+
+    assert project.delete_slice(slice_id=2) is True
+    assert 2 not in project.slices
+
+
+def test_project_delete_helpers_missing_targets_return_false():
+    project = LSMProjectState()
+    project.get_or_create_strip_by_parts(slice_id=1, channel_id=1, strip_id=1)
+
+    assert project.delete_strip(slice_id=1, channel_id=1, strip_id=999) is False
+    assert project.delete_strip(slice_id=1, channel_id=999, strip_id=1) is False
+    assert project.delete_strip(slice_id=999, channel_id=1, strip_id=1) is False
+
+    assert project.delete_channel(slice_id=1, channel_id=999) is False
+    assert project.delete_channel(slice_id=999, channel_id=1) is False
+
+    assert project.delete_slice(slice_id=999) is False
 

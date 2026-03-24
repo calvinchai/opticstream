@@ -20,10 +20,10 @@ from typing import ClassVar, Iterator
 from pydantic import BaseModel, ConfigDict, Field
 
 from opticstream.utils.naming_convention import normalize_project_name
+from opticstream.state.project_state_postgres import PostgresProjectStateRepository
 from opticstream.state.project_state_core import (
     BaseProjectStateStore,
     PrefectProjectLock,
-    PrefectVariableProjectStateRepository,
     ProcessingState,
     ToViewMixin,
     ensure_limit,
@@ -35,8 +35,8 @@ from opticstream.state.project_state_core import (
 # ------------------------------------------------------------------------------
 
 
-def _state_variable_key(project_name: str) -> str:
-    return f"{normalize_project_name(project_name)}_lsm_project_state"
+LSM_PROJECT_TYPE = "lsm"
+STATE_DB_BLOCK_NAME = "opticstream-db"
 
 
 def _state_lock_name(project_name: str) -> str:
@@ -318,6 +318,32 @@ class LSMProjectState(
             channel_id=strip_ident.channel_id,
         )
 
+    def delete_slice(self, slice_id: int) -> bool:
+        if slice_id not in self.slices:
+            return False
+        del self.slices[slice_id]
+        self.touch()
+        return True
+
+    def delete_channel(self, slice_id: int, channel_id: int) -> bool:
+        slice_state = self.slices.get(slice_id)
+        if slice_state is None or channel_id not in slice_state.channels:
+            return False
+        del slice_state.channels[channel_id]
+        self.touch()
+        return True
+
+    def delete_strip(self, slice_id: int, channel_id: int, strip_id: int) -> bool:
+        slice_state = self.slices.get(slice_id)
+        if slice_state is None:
+            return False
+        channel_state = slice_state.channels.get(channel_id)
+        if channel_state is None or strip_id not in channel_state.strips:
+            return False
+        del channel_state.strips[strip_id]
+        self.touch()
+        return True
+
 
 
 def _get_slice_view(
@@ -363,8 +389,13 @@ def _get_strip_view(
 # LSM-specific ProjectStateStore wiring
 # ------------------------------------------------------------------------------
 
-def _make_lsm_repository() -> PrefectVariableProjectStateRepository[LSMProjectState]:
-    return PrefectVariableProjectStateRepository(_state_variable_key, LSMProjectState)
+def _make_lsm_repository() -> PostgresProjectStateRepository[LSMProjectState]:
+    return PostgresProjectStateRepository(
+        block_name=STATE_DB_BLOCK_NAME,
+        model_cls=LSMProjectState,
+        project_type=LSM_PROJECT_TYPE,
+        table_name="project_state",
+    )
 
 
 def _make_lsm_lock() -> PrefectProjectLock:

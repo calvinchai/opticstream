@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import os
 from typing import List
+import os.path as op
 
 from prefect import get_run_logger, task
 from prefect.blocks.system import Secret
@@ -15,7 +16,7 @@ from prefect_shell import ShellOperation
 
 
 @task(tags=["psoct-data-archive"])
-def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = True):
+def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = True) -> str:
     """gzip the file"""
     logger = get_run_logger()
     if not output_path.endswith(".gz"):
@@ -39,7 +40,7 @@ def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = T
     if output_sha256:
         # Remove .gz extension to create hash filename
         hash_path = (
-            output_path[:-3] + ".sha256"
+            op.splitext(output_path)[0] + ".sha256"
             if output_path.endswith(".gz")
             else output_path + ".sha256"
         )
@@ -47,7 +48,7 @@ def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = T
         with open(hash_path, "w") as hash_file:
             hash_file.write(hash_digest)
         logger.info(f"SHA-256 hash: {hash_digest} written to {hash_path}")
-
+    return output_path
 
 @task(tags=["dandi-upload"], retries=1)
 def upload_to_dandi_task(file_path: str) -> None:
