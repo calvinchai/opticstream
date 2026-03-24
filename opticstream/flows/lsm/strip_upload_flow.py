@@ -4,8 +4,9 @@ from prefect import flow, get_run_logger
 
 from opticstream.config.lsm_scan_config import LSMScanConfig, get_lsm_scan_config
 from opticstream.events import get_event_trigger
-from opticstream.events.lsm_events import STRIP_COMPRESSED
+from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_UPLOADED
 from opticstream.flows.lsm.paths import strip_zarr_output_path
+from opticstream.state.milestone_wrappers_lsm import strip_processing_milestone
 from opticstream.state.state_guards import (
     RunDecision,
     force_rerun_from_payload,
@@ -14,9 +15,11 @@ from opticstream.state.state_guards import (
 from opticstream.flows.lsm.utils import strip_ident_from_payload
 from opticstream.state.lsm_project_state import LSM_STATE_SERVICE, LSMStripId
 from opticstream.tasks.dandi_upload import upload_to_dandi
+from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
-@flow(flow_run_name="upload-to-dandi-{strip_ident}")
+@flow(flow_run_name="upload-to-dandi-{strip_ident}", on_failure=[slack_notification_hook])
+@strip_processing_milestone(field_name="uploaded", success_event=STRIP_UPLOADED)
 def upload_strip_to_dandi_flow(
     strip_ident: LSMStripId,
     output_path: str,
@@ -29,19 +32,7 @@ def upload_strip_to_dandi_flow(
     """
     logger = get_run_logger()
     logger.info(f"Uploading {strip_ident} to DANDI")
-    if (
-        enter_milestone_stage(
-            item_state_view=LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident),
-            item_ident=strip_ident,
-            field_name="uploaded",
-            force_rerun=force_rerun,
-        )
-        == RunDecision.SKIPPED
-    ):
-        return
-    upload_to_dandi(output_path, dandi_instance, dandi_bin)
-    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        strip_state.set_uploaded(True)
+    upload_to_dandi(output_path, dandi_instance=dandi_instance, dandi_bin=dandi_bin)
     logger.info(f"Successfully uploaded {strip_ident} to DANDI")
 
 

@@ -544,7 +544,7 @@ def process_strip(
         else DirManifest(file_count=0, total_bytes=0, sizes={})
     )
 
-    acq = f"camera-{strip_ident.camera_id:02d}"
+    acq = f"camera-{strip_ident.channel_id:02d}"
     logger.info(f"Processing {strip_ident} (acq={acq})")
 
     archive_path = scan_config.archive_path

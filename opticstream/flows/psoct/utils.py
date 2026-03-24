@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, Tuple
+
+from pydantic import BaseModel, ConfigDict, computed_field
 
 from opticstream.config.project_config import get_project_config_block
 from opticstream.config.psoct_scan_config import (
@@ -38,80 +40,16 @@ def oct_batch_ident(project_name: str, mosaic_id: int, batch_id: int) -> OCTBatc
     )
 
 
-def grid_size_x_for_mosaic(cfg: PSOCTScanConfigModel, mosaic_id: int) -> int:
-    return (
-        cfg.acquisition.grid_size_x_tilted
-        if mosaic_id % 2 == 0
-        else cfg.acquisition.grid_size_x_normal
-    )
-
-
-def mask_threshold_for_mosaic(cfg: PSOCTScanConfigModel, mosaic_id: int) -> float:
-    return (
-        cfg.mask_threshold_tilted
-        if mosaic_id % 2 == 0
-        else cfg.mask_threshold_normal
-    )
-
-
-PROCESS_MOSAIC_FLOW_KWARGS_KEYS = (
-    "project_base_path",
-    "grid_size_x",
-    "grid_size_y",
-    "tile_overlap",
-    "mask_threshold",
-    "scan_resolution_3d",
-    "enface_modalities",
-    "dandiset_path",
-    "mosaic_enface_format",
-)
-
-
-def _process_mosaic_flow_defaults_from_config(
-    mosaic_ident: OCTMosaicId,
-    cfg: PSOCTScanConfigModel,
-) -> Dict[str, Any]:
-    """Base keyword args for :func:`process_mosaic_flow` from the project config block."""
-    return {
-        "project_base_path": str(cfg.project_base_path),
-        "grid_size_x": grid_size_x_for_mosaic(cfg, mosaic_ident.mosaic_id),
-        "grid_size_y": cfg.acquisition.grid_size_y,
-        "tile_overlap": cfg.acquisition.tile_overlap,
-        "mask_threshold": mask_threshold_for_mosaic(cfg, mosaic_ident.mosaic_id),
-        "scan_resolution_3d": cfg.acquisition.scan_resolution_3d,
-        "enface_modalities": [m.value for m in cfg.enface_modalities],
-        "dandiset_path": str(cfg.dandiset_path) if cfg.dandiset_path else None,
-        "mosaic_enface_format": cfg.mosaic_enface_format,
-    }
-
-
-def resolve_process_mosaic_flow_kwargs(
-    payload: Mapping[str, Any],
-    mosaic_ident: OCTMosaicId,
-    cfg: PSOCTScanConfigModel,
-) -> Dict[str, Any]:
-    """
-    Resolve kwargs for :func:`process_mosaic_flow` like LSM strip flows: values come
-    from the config block unless the event payload overrides a key.
-    """
-    defaults = _process_mosaic_flow_defaults_from_config(mosaic_ident, cfg)
-    resolved: Dict[str, Any] = {}
-    for key in PROCESS_MOSAIC_FLOW_KWARGS_KEYS:
-        if key in payload:
-            resolved[key] = payload[key]
-        else:
-            resolved[key] = defaults[key]
-    return resolved
-
-
 def nifti_paths_from_enface_outputs(
     enface_outputs: Mapping[str, Any],
 ) -> list[str]:
-    return [
-        outputs["nifti"]
-        for outputs in enface_outputs.values()
-        if isinstance(outputs, dict) and "nifti" in outputs
-    ]
+    paths: list[str] = []
+    for v in enface_outputs.values():
+        if isinstance(v, str):
+            paths.append(v)
+        elif isinstance(v, dict) and "nifti" in v:
+            paths.append(str(v["nifti"]))
+    return paths
 
 
 def non_empty_paths_from_mapping(paths_by_key: Mapping[str, Any]) -> list[str]:
@@ -147,8 +85,6 @@ def get_item_path(
             project_base_path = Path(project_base_path)
         else:
             raise ValueError(f"project_base_path must be a Path, got {type(project_base_path)}")
-    if isinstance(item_indent, OCTMosaicId):
-        return project_base_path / f"mosaic-{item_indent.mosaic_id:03d}"
     if isinstance(item_indent, OCTSliceId):
         return project_base_path / f"slice-{item_indent.slice_id:02d}"
     raise ValueError(f"Invalid item indent: {item_indent}")
@@ -204,10 +140,201 @@ def path_list_from_payload(payload: Mapping[str, Any], key: str = "file_list") -
         raise TypeError(f"payload[{key}] must be a list")
     return [Path(v) for v in values]
 
-from pydantic import BaseModel, ConfigDict, computed_field
 
-from opticstream.state.oct_project_state import OCTMosaicId
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+def get_slice_paths(
+    project_base_path: str, slice_id: int
+) -> Tuple[Path, Path, Path]:
+    """
+    Get standard paths for a slice directory structure.
+
+    Structure:
+    - {project_base_path}/slice-{slice_id:02d}/processed/
+    - {project_base_path}/slice-{slice_id:02d}/stitched/
+    - {project_base_path}/slice-{slice_id:02d}/complex/
+
+    Parameters
+    ----------
+    project_base_path : str
+        Base path for the project
+    slice_id : int
+        Slice id (1-indexed)
+
+    Returns
+    -------
+    Tuple[Path, Path, Path]
+        Tuple of (processed_path, stitched_path, complex_path)
+    """
+    slice_path = Path(project_base_path) / f"slice-{slice_id:02d}"
+    processed_path = slice_path / "processed/"
+    stitched_path = slice_path / "stitched/"
+    complex_path = slice_path / "complex/"
+    return processed_path, stitched_path, complex_path
+
+
+def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
+    """
+    Get the DANDI slice-specific directory path.
+
+    Structure: {dandiset_path}/sample-slice{slice_id:02d}/
+
+    Note: dandiset_path already includes derivatives/sub-{subject}/
+
+    Parameters
+    ----------
+    dandiset_path : str
+        Path to DANDI derivatives directory for the subject
+        (already includes derivatives/sub-{subject}/)
+    slice_id : int
+        Slice id (1-indexed)
+
+    Returns
+    -------
+    Path
+        Path to slice-specific directory
+    """
+    return Path(dandiset_path) / f"sample-slice{slice_id:02d}"
+
+
+def get_modality_stitching_filename(
+    project_base_path: str | Path, slice_id: int, mosaic_id: int, modality: str
+) -> Path:
+    """Path to stitched modality YAML under the slice directory."""
+    return (
+        Path(project_base_path)
+        / f"slice-{slice_id:02d}"
+        / "stitched"
+        / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
+    )
+
+
+def first_mosaic_for_slice(slice_id: int, mosaics_per_slice: int) -> int:
+    """
+    Return the first mosaic id belonging to a 1-based slice id.
+
+    Examples
+    --------
+    mosaics_per_slice=2:
+        slice 1 -> mosaic 1
+        slice 2 -> mosaic 3
+
+    mosaics_per_slice=3:
+        slice 1 -> mosaic 1
+        slice 2 -> mosaic 4
+    """
+    if slice_id < 1:
+        raise ValueError(f"slice_id must be >= 1, got {slice_id}")
+    return mosaics_per_slice * (slice_id - 1) + 1
+
+
+def slice_from_mosaic(mosaic_id: int, mosaics_per_slice: int) -> int:
+    """
+    Return the 1-based slice id for a 1-based mosaic id.
+    """
+    if mosaic_id < 1:
+        raise ValueError(f"mosaic_id must be >= 1, got {mosaic_id}")
+    return ((mosaic_id - 1) // mosaics_per_slice) + 1
+
+
+def mosaic_position_in_slice(mosaic_id: int, mosaics_per_slice: int) -> int:
+    """
+    Return the 1-based mosaic position within the slice.
+    """
+    if mosaic_id < 1:
+        raise ValueError(f"mosaic_id must be >= 1, got {mosaic_id}")
+    return ((mosaic_id - 1) % mosaics_per_slice) + 1
+
+
+def logical_mosaic_from_source_mosaic(
+    source_mosaic_id: int,
+    *,
+    mosaics_per_slice: int,
+    slice_offset: int,
+) -> tuple[int, int]:
+    """
+    Convert a source mosaic id into:
+    - logical_slice_id
+    - logical_mosaic_id
+
+    The slice offset is applied at the slice level, not as a flat mosaic offset.
+    """
+    source_slice_id = slice_from_mosaic(source_mosaic_id, mosaics_per_slice)
+    pos_in_slice = mosaic_position_in_slice(source_mosaic_id, mosaics_per_slice)
+    logical_slice_id = source_slice_id + slice_offset
+    if logical_slice_id < 1:
+        raise ValueError(
+            f"slice_offset={slice_offset} produces invalid logical_slice_id={logical_slice_id} "
+            f"from source_mosaic_id={source_mosaic_id}"
+        )
+
+    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice) + (pos_in_slice - 1)
+    return logical_slice_id, logical_mosaic_id
+
+
+def logical_first_mosaic_from_source_slice(
+    source_slice_id: int,
+    *,
+    mosaics_per_slice: int,
+    slice_offset: int,
+) -> tuple[int, int]:
+    """
+    Convert a source slice id into:
+    - logical_slice_id
+    - logical first mosaic id for that slice
+    """
+    if source_slice_id < 1:
+        raise ValueError(f"source_slice_id must be >= 1, got {source_slice_id}")
+
+    logical_slice_id = source_slice_id + slice_offset
+    if logical_slice_id < 1:
+        raise ValueError(
+            f"slice_offset={slice_offset} produces invalid logical_slice_id={logical_slice_id} "
+            f"from source_slice_id={source_slice_id}"
+        )
+
+    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice)
+    return logical_slice_id, logical_mosaic_id
+
+
+def acquisition_info_for_position(
+    mosaics_per_slice: int,
+    pos_in_slice: int,
+) -> tuple[str, str, int]:
+    """
+    Resolve per-position acquisition semantics.
+
+    Returns
+    -------
+    tuple[str, str, int]
+        (acq, config_illumination, base_mosaic_id)
+
+    Rules
+    -----
+    2 mosaics per slice:
+        pos 1 -> acq=normal,  config_illumination=normal, base_mosaic_id=1
+        pos 2 -> acq=tilted,  config_illumination=tilted, base_mosaic_id=2
+
+    3 mosaics per slice:
+        pos 1 -> acq=normal,   config_illumination=normal, base_mosaic_id=1
+        pos 2 -> acq=tiltPos,  config_illumination=normal, base_mosaic_id=2
+        pos 3 -> acq=tiltNeg,  config_illumination=normal, base_mosaic_id=3
+    """
+    if mosaics_per_slice == 2:
+        if pos_in_slice == 1:
+            return ("normal", "normal", 1)
+        if pos_in_slice == 2:
+            return ("tilted", "tilted", 2)
+
+    if mosaics_per_slice == 3:
+        if pos_in_slice == 1:
+            return ("normal", "normal", 1)
+        if pos_in_slice == 2:
+            return ("tiltPos", "normal", 2)
+        if pos_in_slice == 3:
+            return ("tiltNeg", "normal", 3)
+
+    raise ValueError(
+        f"Unsupported pos_in_slice={pos_in_slice} for mosaics_per_slice={mosaics_per_slice}"
+    )
 
 
 class MosaicContext(BaseModel):
@@ -216,24 +343,24 @@ class MosaicContext(BaseModel):
 
     Notes
     -----
-    - `acq` is the acquisition label used for naming/template selection.
-    - `config_illumination` is the legacy config bucket used to resolve old-schema
-      fields such as `grid_size_x_normal` vs `grid_size_x_tilted`.
+    - `acquisition_label` is the acquisition label used for naming/template selection.
+    - `config_illumination` is the config bucket used to resolve old-schema fields
+      such as `grid_size_x_normal` vs `grid_size_x_tilted`.
     - In 3-mosaic mode, all mosaics use `config_illumination="normal"` while
-      `acq` is one of: normal, tiltPos, tiltNeg.
+      `acquisition_label` is one of: normal, tiltPos, tiltNeg.
     """
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     slice_id: int
     mosaic_id: int
-    acq: str
+    acquisition_label: str
     config_illumination: str
     base_mosaic_id: int
 
     @computed_field
     @property
     def template_name(self) -> str:
-        return f"tile_info_{self.acq}.j2"
+        return f"tile_info_{self.acquisition_label}.j2"
 
     @computed_field
     @property
@@ -250,82 +377,111 @@ class MosaicContext(BaseModel):
     def is_tilted_config(self) -> bool:
         return self.config_illumination == "tilted"
 
+    def grid_size_x(self, config: PSOCTScanConfigModel) -> int:
+        return (
+            config.acquisition.grid_size_x_normal
+            if self.is_normal_config
+            else config.acquisition.grid_size_x_tilted
+        )
 
-def mosaic_context_from_ident(
-    mosaic_ident: OCTMosaicId,
-    config: PSOCTScanConfigModel,
+    def grid_size_y(self, config: PSOCTScanConfigModel) -> int:
+        return config.acquisition.grid_size_y
+
+    def tile_size_x(self, config: PSOCTScanConfigModel) -> int:
+        return (
+            config.acquisition.tile_size_x_normal
+            if self.is_normal_config
+            else config.acquisition.tile_size_x_tilted
+        )
+
+    def tile_size_y(self, config: PSOCTScanConfigModel) -> int:
+        return config.acquisition.tile_size_y
+
+    def mask_threshold(self, config: PSOCTScanConfigModel) -> float:
+        return (
+            config.mask_threshold_normal
+            if self.is_normal_config
+            else config.mask_threshold_tilted
+        )
+
+
+def mosaic_context_from_ids(
+    *,
+    slice_id: int,
+    mosaic_id: int,
+    mosaics_per_slice: int,
 ) -> MosaicContext:
     """
-    Build `MosaicContext` from canonical mosaic identity + project config.
-
-    Rules
-    -----
-    2 mosaics per slice:
-        pos 1 -> acq=normal,  config_illumination=normal, base_mosaic_id=1
-        pos 2 -> acq=tilted,  config_illumination=tilted, base_mosaic_id=2
-
-    3 mosaics per slice:
-        pos 1 -> acq=normal,   config_illumination=normal, base_mosaic_id=1
-        pos 2 -> acq=tiltPos,  config_illumination=normal, base_mosaic_id=2
-        pos 3 -> acq=tiltNeg,  config_illumination=normal, base_mosaic_id=3
+    Build MosaicContext from resolved ids and layout size.
     """
-    mosaics_per_slice = config.mosaics_per_slice
-    mosaic_id = mosaic_ident.mosaic_id
-    slice_id = mosaic_ident.slice_id
-    pos_in_slice = ((mosaic_id - 1) % mosaics_per_slice) + 1
-
-    if mosaics_per_slice == 3:
-        acq_by_pos = {
-            1: "normal",
-            2: "tiltPos",
-            3: "tiltNeg",
-        }
-        acq = acq_by_pos[pos_in_slice]
-        config_illumination = "normal"
-        base_mosaic_id = pos_in_slice
-
-    elif mosaics_per_slice == 2:
-        if pos_in_slice == 1:
-            acq = "normal"
-            config_illumination = "normal"
-            base_mosaic_id = 1
-        else:
-            acq = "tilted"
-            config_illumination = "tilted"
-            base_mosaic_id = 2
-    else:
-        raise ValueError(
-            f"Unsupported mosaics_per_slice={mosaics_per_slice}. Expected 2 or 3."
-        )
+    pos_in_slice = mosaic_position_in_slice(mosaic_id, mosaics_per_slice)
+    acquisition_label, config_illumination, base_mosaic_id = acquisition_info_for_position(
+        mosaics_per_slice,
+        pos_in_slice,
+    )
 
     return MosaicContext(
         slice_id=slice_id,
         mosaic_id=mosaic_id,
-        acq=acq,
+        acquisition_label=acquisition_label,
         config_illumination=config_illumination,
         base_mosaic_id=base_mosaic_id,
     )
 
 
-def get_grid_size_x(config: PSOCTScanConfigModel, ctx: MosaicContext) -> int:
-    return (
-        config.acquisition.grid_size_x_normal
-        if ctx.is_normal_config
-        else config.acquisition.grid_size_x_tilted
+def mosaic_context_from_ident(
+    mosaic_ident: OCTMosaicId,
+    config: PSOCTScanConfigModel,
+    *,
+    validate_slice_consistency: bool = False,
+) -> MosaicContext:
+    """
+    Build MosaicContext from canonical mosaic identity + project config.
+
+    Parameters
+    ----------
+    validate_slice_consistency:
+        If True, verify that mosaic_ident.slice_id matches the slice implied by
+        mosaic_ident.mosaic_id and config.mosaics_per_slice.
+    """
+    if validate_slice_consistency:
+        expected_slice_id = slice_from_mosaic(mosaic_ident.mosaic_id, config.mosaics_per_slice)
+        if expected_slice_id != mosaic_ident.slice_id:
+            raise ValueError(
+                "Inconsistent OCTMosaicId: "
+                f"slice_id={mosaic_ident.slice_id}, mosaic_id={mosaic_ident.mosaic_id}, "
+                f"expected_slice_id={expected_slice_id} for mosaics_per_slice={config.mosaics_per_slice}"
+            )
+
+    return mosaic_context_from_ids(
+        slice_id=mosaic_ident.slice_id,
+        mosaic_id=mosaic_ident.mosaic_id,
+        mosaics_per_slice=config.mosaics_per_slice,
     )
 
 
-def get_tile_size_x(config: PSOCTScanConfigModel, ctx: MosaicContext) -> int:
-    return (
-        config.acquisition.tile_size_x_normal
-        if ctx.is_normal_config
-        else config.acquisition.tile_size_x_tilted
-    )
+def grid_size_x_for_mosaic(
+    config: PSOCTScanConfigModel,
+    mosaic_ident: OCTMosaicId,
+) -> int:
+    return mosaic_context_from_ident(mosaic_ident, config).grid_size_x(config)
 
 
-def get_mask_threshold(config: PSOCTScanConfigModel, ctx: MosaicContext) -> float:
-    return (
-        config.mask_threshold_normal
-        if ctx.is_normal_config
-        else config.mask_threshold_tilted
-    )
+def tile_size_x_for_mosaic(
+    config: PSOCTScanConfigModel,
+    mosaic_ident: OCTMosaicId,
+) -> int:
+    return mosaic_context_from_ident(mosaic_ident, config).tile_size_x(config)
+
+
+def mask_threshold_for_mosaic(
+    config: PSOCTScanConfigModel,
+    mosaic_ident: OCTMosaicId,
+) -> float:
+    return mosaic_context_from_ident(mosaic_ident, config).mask_threshold(config)
+
+
+def get_slice_path(item_indent: OCTSliceId | OCTMosaicId) -> Path:
+    """Directory ``{project_base}/slice-{slice_id:02d}`` for any slice-scoped ident."""
+    project_base_path = get_project_base_path(item_indent.project_name)
+    return project_base_path / f"slice-{item_indent.slice_id:02d}"
