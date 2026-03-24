@@ -495,7 +495,7 @@ def load_tile_info(
     return tile_objects
 
 
-def process_tile_coord(
+def process_tile_coordinate(
     ideal_coord_file: str,
     stitched_coord_file: str,
     image_dir: str = ".",
@@ -583,7 +583,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    grid, tiles = process_tile_coord(
+    grid, tiles = process_tile_coordinate(
         args.ideal_coord_file,
         args.stitched_coord_file,
         image_dir=args.image_dir,

@@ -19,22 +19,18 @@ from opticstream.scripts import find_tile_plane, find_volume_surface
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
 from opticstream.events import MOSAIC_VOLUME_STITCHED
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
-from opticstream.flows.psoct.mosaic_process_flow import generate_tile_info_file_task
+from opticstream.flows.psoct.mosaic_process_flow import generate_tile_info_file
 from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.flows.psoct.utils import (
+    get_dandi_slice_path,
+    get_item_path,
+    get_modality_stitching_filename,
     load_scan_config_for_payload,
+    mosaic_context_from_ident,
     mosaic_ident_from_payload,
     normalize_float_sequence,
 )
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTMosaicId
-from opticstream.utils.utils import (
-    get_dandi_slice_path,
-    get_modality_stitching_filename,
-    get_mosaic_paths,
-    mosaic_id_to_slice_id,
-)
-
-
 @task
 def stitch_mosaic3d_task(
     tile_info_file: str,
@@ -71,11 +67,12 @@ def stitch_mosaic3d_task(
     return output_path
 
 
-@task(task_run_name="mosaic-{mosaic_id}-find-focus-plane-{illumination}")
+@task(task_run_name="mosaic-{mosaic_id}-find-focus-plane-{config_illumination}")
 def find_focus_plane_task(
     project_base_path: str,
+    slice_id: int,
     mosaic_id: int,
-    illumination: str,
+    config_illumination: str,
     signal_threshold: float = 60,
 ) -> str:
     """
@@ -85,23 +82,25 @@ def find_focus_plane_task(
     - Determines optimal focus plane for 3D volume stitching
     - Uses unfiltered surface data
     - Generates QC validation: verify focus finding overlap with intensity images
-    - Output saved as focus-{illumination}.nii in project base path
+    - Output saved as focus-{config_illumination}.nii in project base path
 
     Parameters
     ----------
     project_base_path : str
         Base path for the project
+    slice_id : int
+        1-based slice id (directory ``slice-{slice_id:02d}``)
     mosaic_id : int
-        Mosaic identifier (first slice: 1 for normal, 2 for tilted)
+        Mosaic identifier for stitched filenames under that slice
     stitched_surface_path : str
         Path to stitched surface map (unfiltered version)
-    illumination : str
-        Illumination type ("normal" or "tilted")
+    config_illumination : str
+        Config illumination bucket ("normal" or "tilted"); used for output filenames
 
     Returns
     -------
     str
-        Path to generated focus plane file (focus-{illumination}.nii)
+        Path to generated focus plane file (focus-{config_illumination}.nii)
 
     Notes
     -----
@@ -111,14 +110,16 @@ def find_focus_plane_task(
     """
     logger = get_run_logger()
     logger.info(
-        f"Finding focus plane for {illumination} illumination (mosaic {mosaic_id})"
+        f"Finding focus plane for {config_illumination} illumination (mosaic {mosaic_id})"
     )
     project_base_path = Path(project_base_path)
-    input_yaml = get_modality_stitching_filename(project_base_path, mosaic_id, "dBI")
+    input_yaml = get_modality_stitching_filename(
+        project_base_path, slice_id, mosaic_id, "dBI"
+    )
     if not input_yaml.exists():
         raise FileNotFoundError(f"dBI stitching file not found: {input_yaml}")
-    output_yaml = project_base_path / "focus_finding" / f"filtered_{illumination}.yaml"
-    focus_output_path = Path(project_base_path) / f"focus-{illumination}.nii"
+    output_yaml = project_base_path / "focus_finding" / f"filtered_{config_illumination}.yaml"
+    focus_output_path = Path(project_base_path) / f"focus-{config_illumination}.nii"
     focus_output_path.parent.mkdir(parents=True, exist_ok=True)
     # find_tile_region(
     #     input_yaml=str(input_yaml),
@@ -131,20 +132,20 @@ def find_focus_plane_task(
         yaml_path=str(output_yaml),
         output_dir=str(project_base_path / "focus_finding"),
         output_yaml=str(
-            project_base_path / "focus_finding" / f"surface_{illumination}.yaml"
+            project_base_path / "focus_finding" / f"surface_{config_illumination}.yaml"
         ),
         postfix_old="_dBI",
         postfix_new="_surf",
     )
     find_tile_plane.main(
         yaml_path=str(
-            project_base_path / "focus_finding" / f"surface_{illumination}.yaml"
+            project_base_path / "focus_finding" / f"surface_{config_illumination}.yaml"
         ),
         output=str(focus_output_path),
         base_dir=str(project_base_path / "focus_finding"),
         subsample=1,
         avg_signal_threshold=signal_threshold,
-        plot=str(project_base_path / "focus_finding" / f"plane_{illumination}.png"),
+        plot=str(project_base_path / "focus_finding" / f"plane_{config_illumination}.png"),
         outlier_method="iqr",
         outlier_iqr_factor=1.5,
         outlier_z_threshold=3.0,
@@ -194,9 +195,10 @@ def stitch_volume_flow(
     """
     logger = get_run_logger()
 
+    ctx = mosaic_context_from_ident(mosaic_ident, config)
     project_name = mosaic_ident.project_name
     mosaic_id = mosaic_ident.mosaic_id
-    project_base_path = str(config.project_base_path)
+    project_base_path = config.project_base_path
     dandiset_path = str(config.dandiset_path) if config.dandiset_path else None
     mosaic_volume_format = config.mosaic_volume_format
     scan_resolution_3d = normalize_float_sequence(config.acquisition.scan_resolution_3d)
@@ -205,21 +207,13 @@ def stitch_volume_flow(
     crop_focus_plane_depth = config.crop_focus_plane_depth
     crop_focus_plane_offset = config.crop_focus_plane_offset
 
-    # Determine if this is normal or tilted illumination
-    is_tilted = mosaic_id % 2 == 0
-    illumination = "tilted" if is_tilted else "normal"
+    base_mosaic_id = ctx.base_mosaic_id
+    run_focus_finding = ctx.is_first_slice or force_refresh_focus
 
-    # Determine base mosaic ID for this illumination type
-    base_mosaic_id = 2 if is_tilted else 1
-
-    # Check if this is first slice
-    run_focus_finding = (mosaic_id <= 2) or force_refresh_focus
-
-    # Get paths
-    processed_path, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
-    # Get template path
-    template_filename = f"tile_info_{illumination}.j2"
-    template_path = Path(project_base_path) / template_filename
+    slice_path = get_item_path(mosaic_ident, project_base_path)
+    processed_path = slice_path / "processed"
+    stitched_path = slice_path / "stitched"
+    template_path = Path(project_base_path) / ctx.template_name
 
     if not template_path.exists():
         raise FileNotFoundError(
@@ -229,22 +223,24 @@ def stitch_volume_flow(
 
     # Get mask path
     mask_path = stitched_path / f"mosaic_{mosaic_id:03d}_mask.nii.gz"
-    focus_path = Path(project_base_path) / f"focus-{illumination}.nii"
+    focus_path = Path(project_base_path) / f"focus-{ctx.config_illumination}.nii"
     if run_focus_finding:
         logger.info(
-            f"Finding focus plane for first slice (mosaic {mosaic_id}, {illumination} illumination)"
+            f"Finding focus plane for first slice (mosaic {mosaic_id}, "
+            f"{ctx.config_illumination} illumination)"
         )
         find_focus_plane_task(
-            project_base_path=project_base_path,
+            project_base_path=str(project_base_path),
+            slice_id=mosaic_ident.slice_id,
             mosaic_id=mosaic_id,
-            illumination=illumination,
+            config_illumination=ctx.config_illumination,
         )
         logger.info(
-            f"Focus plane determined for {illumination} illumination: {focus_path}"
+            f"Focus plane determined for {ctx.config_illumination} illumination: {focus_path}"
         )
     if not focus_path.exists():
         logger.warning(
-            f"Focus plane not found for {illumination} illumination. "
+            f"Focus plane not found for {ctx.config_illumination} illumination. "
             f"Using None for focus plane."
         )
         focus_path = None
@@ -253,8 +249,8 @@ def stitch_volume_flow(
     logger.info(f"Stitching volume modalities for mosaic {mosaic_id}")
     volume_futures = {}
     volume_outputs = {}
-    slice_id = mosaic_id_to_slice_id(mosaic_id)
-    acq = "tilted" if mosaic_id % 2 == 0 else "normal"
+    slice_id = mosaic_ident.slice_id
+    acquisition_label = ctx.acquisition_label
 
     # Determine output directory: use DANDI if configured, otherwise use processed_path
     if dandiset_path and mosaic_volume_format:
@@ -291,7 +287,7 @@ def stitch_volume_flow(
         # Set circular_mean based on modality
         stitching_kwargs["circular_mean"] = True if modality == "O3D" else False
 
-        generate_tile_info_file_task(
+        generate_tile_info_file(
             template_path=str(template_path),
             output_path=str(modality_tile_info),
             base_dir=str(processed_path),
@@ -305,12 +301,12 @@ def stitch_volume_flow(
             filename = mosaic_volume_format.format(
                 project_name=project_name,
                 slice_id=slice_id,
-                acq=acq,
+                acq=acquisition_label,
                 modality=modality,
             )
         else:
             # Fallback to default format
-            filename = f"{project_name}_sample-slice{slice_id:02d}_acq-{acq}_proc-{modality}_OCT.ome.zarr"
+            filename = f"{project_name}_sample-slice{slice_id:02d}_acq-{acquisition_label}_proc-{modality}_OCT.ome.zarr"
 
         output_path = output_dir / filename
         future = stitch_mosaic3d_task.submit(
@@ -338,10 +334,7 @@ def stitch_volume_flow(
     )
 
     # Update OCT project state for this mosaic
-    with OCT_STATE_SERVICE.open_mosaic_by_parts(
-        project_name=project_name,
-        mosaic_id=mosaic_id,
-    ) as mosaic_state:
+    with OCT_STATE_SERVICE.open_mosaic(mosaic_ident=mosaic_ident) as mosaic_state:
         mosaic_state.set_volume_stitched(True)
 
     return volume_outputs

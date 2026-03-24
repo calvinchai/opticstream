@@ -7,13 +7,52 @@ Includes MATLAB engine initialization and command-line fallback utilities.
 
 import os
 import subprocess
+from numbers import Number
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from prefect.logging import get_run_logger
 from prefect_shell import ShellOperation
 
 import psoct_toolbox
+
+
+def matlab_literal(value: Any) -> str:
+    """
+    Convert a Python value into a MATLAB literal string.
+
+    Supports scalars, strings, bools, vectors, and dict-backed structs.
+    """
+    if isinstance(value, dict):
+        return dict_to_matlab_literal(value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "''"
+    if isinstance(value, str):
+        escaped = value.replace("'", "''")
+        return f"'{escaped}'"
+    if isinstance(value, Number):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "[]"
+        return "[" + ", ".join(matlab_literal(v) for v in value) + "]"
+    raise TypeError(f"Unsupported value type for MATLAB literal: {type(value)}")
+
+
+def dict_to_matlab_literal(value: dict[str, Any]) -> str:
+    """
+    Convert a nested dict into a MATLAB struct literal.
+    """
+    if not value:
+        return "struct()"
+    fields: list[str] = []
+    for key, field_value in value.items():
+        key_lit = matlab_literal(str(key))
+        value_lit = matlab_literal(field_value)
+        fields.append(f"{key_lit}, {value_lit}")
+    return f"struct({', '.join(fields)})"
 
 
 def get_default_matlab_root() -> str:

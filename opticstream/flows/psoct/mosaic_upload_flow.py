@@ -33,7 +33,7 @@ from opticstream.utils import slack_notification_hook
 )
 def upload_mosaic_enface_to_dandi_flow(
     mosaic_ident: OCTMosaicId,
-    enface_outputs: Dict[str, Dict[str, str]],
+    enface_outputs: Dict[str, str],
     *,
     dandi_instance: str = "linc",
     force_rerun: bool = False,

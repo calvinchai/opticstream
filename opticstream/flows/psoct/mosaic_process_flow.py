@@ -23,7 +23,11 @@ from prefect.logging import get_run_logger
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.events.utils import get_event_trigger
 from opticstream.flows.psoct.utils import (
+    MosaicContext,
+    get_dandi_slice_path,
+    get_slice_paths,
     load_scan_config_for_payload,
+    mosaic_context_from_ident,
     mosaic_ident_from_payload,
 )
 from opticstream.state.state_guards import (
@@ -37,20 +41,12 @@ from opticstream.data_processing.stitch import (
     fit_coord_files,
     generate_mask,
 )
-from opticstream.data_processing.stitch.process_tile_coord import process_tile_coord
+from opticstream.data_processing.stitch.process_tile_coord import process_tile_coordinate
 from opticstream.events import (
     MOSAIC_READY,
     MOSAIC_ENFACE_STITCHED,
 )
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
-from opticstream.utils.utils import (
-    get_dandi_slice_path,
-    get_illumination,
-    get_mosaic_paths,
-    mosaic_id_to_slice_id,
-)
-
-
 @task
 def fiji_stitch_task(
     directory: str,
@@ -109,7 +105,7 @@ def fiji_stitch_task(
 
 
 @task
-def process_tile_coord_task(
+def process_tile_coordinate_task(
     ideal_coord_file: str,
     stitched_coord_file: str,
     image_dir: str,
@@ -140,7 +136,7 @@ def process_tile_coord_task(
     logger = get_run_logger()
     logger.info(f"Processing tile coordinates from {ideal_coord_file}")
 
-    grid, tiles = process_tile_coord(
+    grid, tiles = process_tile_coordinate(
         ideal_coord_file=ideal_coord_file,
         stitched_coord_file=stitched_coord_file,
         image_dir=image_dir,
@@ -154,7 +150,7 @@ def process_tile_coord_task(
 
 
 @task
-def generate_coord_template_task(
+def generate_coordinate_template(
     tile_coords_export_path: str,
     template_output_path: str,
     base_dir: str,
@@ -256,7 +252,7 @@ def generate_coord_template_task(
 
 
 @task(task_run_name="mosaic-{mosaic_id}-generate-tile-info-{modality}")
-def generate_tile_info_file_task(
+def generate_tile_info_file(
     template_path: str,
     output_path: str,
     base_dir: str,
@@ -343,15 +339,13 @@ def generate_tile_info_file_task(
 
 
 @task
-def stitch_mosaic2d_task(
+def stitch_mosaic2d(
     tile_info_file: str,
     nifti_output: str,
-    jpeg_output: Optional[str] = None,
-    tiff_output: Optional[str] = None,
     circular_mean: bool = False,
-) -> Dict[str, str]:
+) -> str:
     """
-    Stitch mosaic using mosaic2d.
+    Stitch mosaic using mosaic2d (NIfTI only).
 
     Parameters
     ----------
@@ -359,17 +353,13 @@ def stitch_mosaic2d_task(
         Path to tile_info_file YAML
     nifti_output : str
         Path to output NIfTI file
-    jpeg_output : str, optional
-        Path to output JPEG preview
-    tiff_output : str, optional
-        Path to output TIFF file
     circular_mean : bool
         Whether to use circular mean for orientation data
 
     Returns
     -------
-    Dict[str, str]
-        Dictionary with output file paths
+    str
+        Path to the output NIfTI file
     """
     logger = get_run_logger()
     logger.info(f"Stitching mosaic from {tile_info_file}")
@@ -378,19 +368,11 @@ def stitch_mosaic2d_task(
     mosaic2d(
         tile_info_file=tile_info_file,
         nifti_output=nifti_output,
-        jpeg_output=jpeg_output,
-        tiff_output=tiff_output,
         circular_mean=circular_mean,
     )
 
-    outputs = {"nifti": nifti_output}
-    if jpeg_output:
-        outputs["jpeg"] = jpeg_output
-    if tiff_output:
-        outputs["tiff"] = tiff_output
-
     logger.info(f"Stitched mosaic saved to {nifti_output}")
-    return outputs
+    return nifti_output
 
 
 @task
@@ -429,12 +411,12 @@ def generate_mask_task(
     return output_mask
 
 
-@task(task_run_name="{project_name}-mosaic-{mosaic_id}-symlink-enface-to-dandi")
-def symlink_enface_to_dandi_task(
-    enface_outputs: Dict[str, Dict[str, str]],
+@task(task_run_name="mosaic-{mosaic_ident}-symlink-enface-to-dandi")
+def symlink_enface_to_dandi(
+    enface_outputs: Dict[str, str],
     dandi_slice_path: Path,
-    project_name: str,
-    mosaic_id: int,
+    mosaic_ident: OCTMosaicId,
+    ctx: MosaicContext,
     mosaic_enface_format: str,
 ) -> Dict[str, Path]:
     """
@@ -445,8 +427,8 @@ def symlink_enface_to_dandi_task(
 
     Parameters
     ----------
-    enface_outputs : Dict[str, Dict[str, str]]
-        Dictionary mapping modality to output file paths (with 'nifti' key)
+    enface_outputs : Dict[str, str]
+        Modality name to stitched NIfTI path
     dandi_slice_path : Path
         Path to DANDI slice directory
     project_name : str
@@ -469,18 +451,16 @@ def symlink_enface_to_dandi_task(
     # Ensure DANDI slice directory exists
     dandi_slice_path.mkdir(parents=True, exist_ok=True)
 
-    slice_id = mosaic_id_to_slice_id(mosaic_id)
-    acq = "tilted" if mosaic_id % 2 == 0 else "normal"
+    slice_id = mosaic_ident.slice_id
+    acquisition_label = ctx.acquisition_label
     symlink_targets = {}
 
-    for modality, outputs in enface_outputs.items():
-        if not isinstance(outputs, dict) or "nifti" not in outputs:
-            logger.warning(
-                f"Skipping modality {modality}: missing 'nifti' key in outputs"
-            )
+    for modality, nifti_path in enface_outputs.items():
+        if not nifti_path:
+            logger.warning(f"Skipping modality {modality}: empty path")
             continue
 
-        source_path = Path(outputs["nifti"])
+        source_path = Path(nifti_path)
         if not source_path.exists():
             logger.warning(
                 f"Skipping modality {modality}: source file does not exist: {source_path}"
@@ -490,9 +470,9 @@ def symlink_enface_to_dandi_task(
         # Generate target filename using template
         try:
             target_filename = mosaic_enface_format.format(
-                project_name=project_name,
+                project_name=mosaic_ident.project_name,
                 slice_id=slice_id,
-                acq=acq,
+                acq=acquisition_label,
                 modality=modality,
             )
         except KeyError as e:
@@ -532,7 +512,7 @@ def stitch_2d_modality(
     scan_resolution_2d: List[float],
     mask_path: Optional[Path] = None,
     circular_mean: Optional[bool] = None,
-) -> tuple[Any, Path, Path, Path]:
+) -> tuple[Any, Path, Path]:
     """
     Generate tile info file and submit stitching task for a 2D modality.
 
@@ -564,12 +544,11 @@ def stitch_2d_modality(
 
     Returns
     -------
-    tuple[Any, Path, Path, Path]
-        Tuple of (stitch_future, tile_info_path, nifti_path, jpeg_path)
+    tuple[Any, Path, Path]
+        Tuple of (stitch_future, tile_info_path, nifti_path)
         - stitch_future: Prefect future for the stitching task
         - tile_info_path: Path to generated tile info YAML file
         - nifti_path: Path to output NIfTI file
-        - jpeg_path: Path to output JPEG file
     """
     # Determine circular_mean if not provided
     if circular_mean is None:
@@ -578,10 +557,9 @@ def stitch_2d_modality(
     # Generate output paths
     tile_info_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
     nifti_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.nii.gz"
-    jpeg_path = stitched_path / f"mosaic_{mosaic_id:03d}_{modality}.jpeg"
 
     # Generate tile_info_file using template
-    tile_info_future = generate_tile_info_file_task.submit(
+    tile_info_future = generate_tile_info_file.submit(
         template_path=str(template_path),
         output_path=str(tile_info_path),
         base_dir=str(processed_path),
@@ -592,27 +570,21 @@ def stitch_2d_modality(
     )
 
     # Submit stitch task asynchronously, waiting for tile info file generation
-    stitch_future = stitch_mosaic2d_task.submit(
+    stitch_future = stitch_mosaic2d.submit(
         tile_info_file=str(tile_info_path),
         nifti_output=str(nifti_path),
-        jpeg_output=str(jpeg_path),
         circular_mean=circular_mean,
         wait_for=[tile_info_future],
     )
 
-    return stitch_future, tile_info_path, nifti_path, jpeg_path
+    return stitch_future, tile_info_path, nifti_path
 
 
-@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
+@flow(flow_run_name="process-coords-{mosaic_ident}")
 def process_stitching_coordinates(
-    project_name: str,
-    mosaic_id: int,
-    project_base_path: str,
-    grid_size_x: int,
-    grid_size_y: int,
-    tile_overlap: float,
-    mask_threshold: float,
-    illumination: str,
+    mosaic_ident: OCTMosaicId,
+    config: PSOCTScanConfigModel,
+    ctx: MosaicContext,
 ) -> tuple[Path, Path]:
     """
     Process coordinate determination for first slice (mosaic_001 or mosaic_002).
@@ -645,11 +617,15 @@ def process_stitching_coordinates(
         Tuple of (template_path, tile_coords_export_path)
     """
     logger = get_run_logger()
-    # Use slice-based structure
-    illumination = get_illumination(mosaic_id)
-    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(
-        project_base_path, mosaic_id
+    mosaic_id = mosaic_ident.mosaic_id
+    illumination = ctx.config_illumination
+    base_processed_path, base_stitched_path, _ = get_slice_paths(
+        str(config.project_base_path), mosaic_ident.slice_id
     )
+    grid_size_x = ctx.grid_size_x(config)
+    grid_size_y = ctx.grid_size_y(config)
+    tile_overlap = config.acquisition.tile_overlap
+    mask_threshold = ctx.mask_threshold(config)
 
     logger.info(
         f"Processing coordinate determination for {illumination} illumination "
@@ -688,7 +664,7 @@ def process_stitching_coordinates(
         f"mosaic_{mosaic_id:03d}_tile_coords_export.yaml"
     )
 
-    process_tile_coord_task(
+    process_tile_coordinate_task(
         ideal_coord_file=str(ideal_coord_file),
         stitched_coord_file=str(stitched_coord_file),
         image_dir=str(base_processed_path),
@@ -697,10 +673,9 @@ def process_stitching_coordinates(
     )
 
     # Step 3: Generate Jinja2 template (once per illumination type)
-    template_filename = f"tile_info_{illumination}.j2"
-    template_path = Path(project_base_path) / template_filename
+    template_path = Path(config.project_base_path) / ctx.template_name
 
-    generate_coord_template_task(
+    generate_coordinate_template(
         tile_coords_export_path=str(tile_coords_export),
         template_output_path=str(template_path),
         base_dir=str(base_processed_path),
@@ -714,18 +689,16 @@ def process_stitching_coordinates(
     return template_path, tile_coords_export
 
 
-@flow(flow_run_name="{project_name}-mosaic-{mosaic_id}")
-def stitch_enface_modalities_flow(
-    project_name: str,
-    project_base_path: str,
-    mosaic_id: int,
+@flow(flow_run_name="stitch-enface-{mosaic_ident}")
+def stitch_enface_modalities(
+    mosaic_ident: OCTMosaicId,
+    config: PSOCTScanConfigModel,
     template_path: Path,
     processed_path: Path,
     stitched_path: Path,
     mask_path: Path,
     scan_resolution_2d: List[float],
-    enface_modalities: List[str],
-) -> Dict[str, Dict[str, str]]:
+) -> Dict[str, str]:
     """
     Subflow to stitch all 2D enface modalities.
 
@@ -756,10 +729,12 @@ def stitch_enface_modalities_flow(
 
     Returns
     -------
-    Dict[str, Dict[str, str]]
-        Dictionary mapping modality to output file paths
+    Dict[str, str]
+        Modality name to stitched NIfTI path
     """
     logger = get_run_logger()
+    mosaic_id = mosaic_ident.mosaic_id
+    enface_modalities = [m.value for m in config.enface_modalities]
     logger.info(f"Stitching enface modalities for mosaic {mosaic_id}")
 
     # Stitch all enface modalities asynchronously (using template)
@@ -770,7 +745,7 @@ def stitch_enface_modalities_flow(
             continue  # Skip MIP and AIP, already stitched
 
         # Use unified helper function for tile info generation and stitching
-        future, _, _, _ = stitch_2d_modality(
+        future, _, _ = stitch_2d_modality(
             modality=modality,
             mosaic_id=mosaic_id,
             template_path=template_path,
@@ -793,7 +768,7 @@ def stitch_enface_modalities_flow(
     return enface_outputs
 
 
-@flow(flow_run_name="process-mosaic-{mosaic_ident}")
+@flow(flow_run_name="process-{mosaic_ident}")
 def process_mosaic(
     mosaic_ident: OCTMosaicId,
     config: PSOCTScanConfigModel,
@@ -816,35 +791,6 @@ def process_mosaic(
 
     Parameters
     ----------
-    project_name : str
-        Project identifier
-    project_base_path : str
-        Base path for the project
-    mosaic_id : int
-        Mosaic identifier
-    grid_size_x : int
-        Number of columns (batches) in mosaic
-    grid_size_y : int
-        Number of rows (tiles per batch) in mosaic
-    tile_overlap : float
-        Overlap between tiles in pixels
-    mask_threshold : float
-        Threshold for mask generation and coordinate processing
-    scan_resolution_3d : Optional[List[float]], optional
-        Scan resolution for 3D volumes [x, y, z]
-        First 2 elements are used for 2D modalities
-        Default: [0.01, 0.01, 0.0025]
-    enface_modalities : Optional[List[str]], optional
-        List of enface modalities to stitch
-        Default: ["ret", "ori", "biref", "mip", "surf"]
-    volume_modalities : Optional[List[str]], optional
-        List of volume modalities to stitch
-        Default: ["dBI", "R3D", "O3D"]
-    force_refresh_coords : bool, optional
-        Force coordinate determination even if not first slice. Default: False
-    stitch_3d_volumes : bool, optional
-        Whether to stitch 3D volume modalities. Default: True
-
     Returns
     -------
     Dict[str, Any]
@@ -862,50 +808,44 @@ def process_mosaic(
     ):
         return
 
-    # Note: Event flows handle loading config blocks and providing all required values.
-    # Defaults are provided in the function signature for optional parameters.
-
+    ctx = mosaic_context_from_ident(mosaic_ident, config)
+    project_name = mosaic_ident.project_name
+    mosaic_id = mosaic_ident.mosaic_id
+    project_base_path = config.project_base_path
+    grid_size_x = ctx.grid_size_x(config)
+    grid_size_y = ctx.grid_size_y(config)
+    mask_threshold = ctx.mask_threshold(config)
+    mosaic_enface_format = config.mosaic_enface_format
+    dandiset_path = config.dandiset_path
+    processed_path, stitched_path, _ = get_slice_paths(
+        str(project_base_path), mosaic_ident.slice_id
+    )
     scan_resolution_2d = config.acquisition.scan_resolution_3d[:2]
-
-    processed_path, stitched_path, _, _ = get_mosaic_paths(project_base_path, mosaic_id)
     stitched_path.mkdir(parents=True, exist_ok=True)
 
-    # Determine if this is normal or tilted illumination
-    # Normal: odd mosaic_id (1, 3, 5, ...), Tilted: even mosaic_id (2, 4, 6, ...)
-    is_tilted = mosaic_id % 2 == 0
-    illumination = "tilted" if is_tilted else "normal"
 
-    logger.info(
-        f"Processing mosaic {mosaic_id} ({illumination} illumination) "
-        f"with grid {grid_size_x}x{grid_size_y}, mask_threshold={mask_threshold}"
+    base_mosaic_id = ctx.base_mosaic_id
+    base_mosaic_ident = OCTMosaicId(
+        project_name=project_name,
+        slice_id=1,
+        mosaic_id=base_mosaic_id,
     )
-
-    # Determine base mosaic ID for this illumination type
-    # Normal: mosaic_001, Tilted: mosaic_002
-    # Both belong to slice 1
-    base_mosaic_id = 2 if is_tilted else 1
-    base_processed_path, base_stitched_path, _, _ = get_mosaic_paths(
-        project_base_path, base_mosaic_id
+    _, base_stitched_path, _ = get_slice_paths(
+        str(project_base_path), base_mosaic_ident.slice_id
     )
 
     # Get template path and tile coordinates export path
-    template_filename = f"tile_info_{illumination}.j2"
-    template_path = Path(project_base_path) / template_filename
+    template_path = Path(project_base_path) / ctx.template_name
 
     # Check if we need to run coordinate determination
     # Only run for mosaic_001 (normal) or mosaic_002 (tilted) unless overridden
-    first_slice_run = (mosaic_ident.slice_id == 1) or force_refresh_coords
+    first_slice_run = ctx.is_first_slice or force_refresh_coords
     if first_slice_run:
         # Process first slice coordinates (Fiji stitch, coordinate processing, template generation)
-        template_path, tile_coords_export = process_stitching_coordinates(
-            project_name=project_name,
-            project_base_path=project_base_path,
-            mosaic_id=mosaic_id,
-            grid_size_x=grid_size_x,
-            grid_size_y=grid_size_y,
-            tile_overlap=tile_overlap,
-            mask_threshold=mask_threshold,
-            illumination=illumination,
+        template_path, _tile_coords_export = process_stitching_coordinates(
+            mosaic_ident=mosaic_ident,
+            config=config,
+            ctx=ctx,
         )
     else:
         logger.info(
@@ -925,7 +865,7 @@ def process_mosaic(
 
     # Step 4: Stitch AIP and MIP in parallel (both without mask) - asynchronous
     # Use unified helper function for both modalities
-    aip_future, _, aip_nifti, aip_jpeg = stitch_2d_modality(
+    aip_future, _, aip_nifti = stitch_2d_modality(
         modality="aip",
         mosaic_id=mosaic_id,
         template_path=template_path,
@@ -936,7 +876,7 @@ def process_mosaic(
         circular_mean=False,
     )
 
-    mip_future, _, mip_nifti, mip_jpeg = stitch_2d_modality(
+    mip_future, _, mip_nifti = stitch_2d_modality(
         modality="mip",
         mosaic_id=mosaic_id,
         template_path=template_path,
@@ -965,29 +905,26 @@ def process_mosaic(
     mask_future.wait()
 
     # Step 6: Stitch all enface modalities using subflow (MIP excluded, already stitched)
-    enface_outputs = stitch_enface_modalities_flow(
-        project_name=project_name,
-        project_base_path=project_base_path,
-        mosaic_id=mosaic_id,
+    enface_outputs = stitch_enface_modalities(
+        mosaic_ident=mosaic_ident,
+        config=config,
         template_path=template_path,
         processed_path=processed_path,
         stitched_path=stitched_path,
         mask_path=mask_path,
         scan_resolution_2d=scan_resolution_2d,
-        enface_modalities=enface_modalities,
     )
-    enface_outputs["aip"] = {"nifti": str(aip_nifti), "jpeg": str(aip_jpeg)}
-    enface_outputs["mip"] = {"nifti": str(mip_nifti), "jpeg": str(mip_jpeg)}
+    enface_outputs["aip"] = str(aip_nifti)
+    enface_outputs["mip"] = str(mip_nifti)
 
     # Create symlinks to DANDI directory if configured
     if dandiset_path and mosaic_enface_format:
-        slice_id = mosaic_id_to_slice_id(mosaic_id)
-        dandi_slice_path = get_dandi_slice_path(dandiset_path, slice_id)
-        symlink_targets = symlink_enface_to_dandi_task(
+        dandi_slice_path = get_dandi_slice_path(str(dandiset_path), mosaic_ident.slice_id)
+        symlink_targets = symlink_enface_to_dandi(
             enface_outputs=enface_outputs,
             dandi_slice_path=dandi_slice_path,
-            project_name=project_name,
-            mosaic_id=mosaic_id,
+            mosaic_ident=mosaic_ident,
+            ctx=ctx,
             mosaic_enface_format=mosaic_enface_format,
         )
         logger.info(
@@ -996,9 +933,9 @@ def process_mosaic(
     else:
         # Use the original NIfTI path as the symlink target, not the standardized DANDI format
         symlink_targets = {
-            modality: Path(outputs["nifti"])
-            for modality, outputs in enface_outputs.items()
-            if isinstance(outputs, dict) and "nifti" in outputs
+            modality: Path(path)
+            for modality, path in enface_outputs.items()
+            if path
         }
         if dandiset_path is None:
             logger.debug("dandiset_path not configured, skipping enface symlinking")
@@ -1021,10 +958,7 @@ def process_mosaic(
     )
 
     # Update OCT project state for this mosaic
-    with OCT_STATE_SERVICE.open_mosaic_by_parts(
-        project_name=project_name,
-        mosaic_id=mosaic_id,
-    ) as mosaic_state:
+    with OCT_STATE_SERVICE.open_mosaic(mosaic_ident=mosaic_ident) as mosaic_state:
         mosaic_state.mark_completed()
         mosaic_state.set_enface_stitched(True)
 
@@ -1054,7 +988,6 @@ def process_mosaic_event_flow(payload: Dict[str, Any]) -> Dict[str, Any]:
         cfg,
         force_refresh_coords=bool(payload.get("force_refresh_coords", False)),
         force_rerun=force_rerun_from_payload(payload),
-        flow_payload=payload,
     )
 
 def to_deployment(project_name: Optional[str] = None):

@@ -95,23 +95,30 @@ def normalize_image_index(filename: str) -> str:
     return normalized_name + ext
 
 
-def extract_tile_index_from_filename(file_path: str) -> int:
+def extract_tile_number_from_filename(file_path: str) -> int:
     """
-    Extract tile index from filename.
-
-    Extracts tile index from filename (e.g., `mosaic_001_image_0003_...` → `3`)
+    Extract tile number from an ``image_{number}`` token in filename.
 
     Parameters
     ----------
     file_path : str
-        Path to file
+        Path to file (full path or basename)
 
     Returns
     -------
     int
-        Tile index (image number)
+        Tile number parsed from ``image_{number}``
+
+    Raises
+    ------
+    ValueError
+        If filename does not contain an ``image_{number}`` token.
     """
-    return int(op.basename(file_path).split("_")[3])
+    filename = op.basename(file_path)
+    match = re.search(r"(?:^|_)image_(\d+)(?:_|\.|$)", filename)
+    if not match:
+        raise ValueError(f"Could not parse tile number from filename: {file_path}")
+    return int(match.group(1))
 
 
 def complex_to_complex_filename(complex_file: str, complex_path: Path) -> str:

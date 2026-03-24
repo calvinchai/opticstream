@@ -17,7 +17,7 @@ from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_mile
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
 from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.utils.matlab_execution import run_matlab_batch_command
-from opticstream.utils.utils import get_mosaic_paths
+from opticstream.flows.psoct.utils import get_slice_paths
 
 
 @task(task_run_name="complex-to-processed-{batch_id}")
@@ -28,7 +28,7 @@ def complex_to_processed_batch(
     config: PSOCTScanConfigModel,
 ) -> None:
     logger = get_run_logger()
-    processed_path, _, _, _ = get_mosaic_paths(str(config.project_base_path), batch_id.mosaic_id)
+    processed_path, _, _ = get_slice_paths(str(config.project_base_path), batch_id.slice_id)
     processed_path.mkdir(parents=True, exist_ok=True)
     file_list_str = ",".join(f"'{f}'" for f in file_list)
     pipeline_opts = build_pipeline_opts(config)

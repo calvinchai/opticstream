@@ -187,6 +187,18 @@ class PSOCTProcessingParams(BaseModel):
         default="find",
         description="Surface extraction spec string",
     )
+    matlab_num_workers: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Optional MATLAB parallel worker count for spectral-to-processed batch. "
+            "If None, MATLAB default pool size is used."
+        ),
+    )
+    matlab_pool_type: Literal["process", "thread"] = Field(
+        default="process",
+        description="MATLAB pool type for spectral-to-processed batch execution.",
+    )
 
 
 @with_positions
