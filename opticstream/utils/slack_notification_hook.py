@@ -2,7 +2,7 @@
 from typing import Any
 from prefect import flow
 from prefect.blocks.notifications import SlackWebhook
-from prefect.settings import PREFECT_API_URL
+from prefect.settings import PREFECT_API_URL, PREFECT_UI_URL
 
 from opticstream.config.constants import SLACK_WEBHOOK_BLOCK_NAME
 
@@ -14,8 +14,7 @@ def slack_notification_hook(flow: Any, flow_run: Any, state: Any) -> None:
     slack_webhook_block.notify(
         (
             f"Your job {flow_run.name} entered {state.name} "
-            f"with message:\n\n"
-            f"See <https://{PREFECT_API_URL.value()}/flow-runs/"
+            f"See <{PREFECT_UI_URL.value()}/runs/"
             f"flow-run/{flow_run.id}|the flow run in the UI>\n\n"
             f"Tags: {flow_run.tags}\n\n"
             f"Scheduled start: {flow_run.expected_start_time}"

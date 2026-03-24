@@ -13,7 +13,7 @@ from opticstream.config.constants import SLACK_API_TOKEN_BLOCK_NAME, SLACK_CHANN
 @task(retries=2, retry_delay_seconds=5)
 def send_slack_message(
     message: str,
-    slack_bot_token: str = SlackCredentials.load(SLACK_API_TOKEN_BLOCK_NAME).token,
+    slack_bot_token: str = SlackCredentials.load(SLACK_API_TOKEN_BLOCK_NAME).token.get_secret_value(),
     slack_channel_id: str = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get(),
 ) -> bool:
     """
@@ -71,7 +71,7 @@ def send_slack_message_webhook(
 @task(retries=2, retry_delay_seconds=5)
 def upload_multiple_files_to_slack(
     filepaths: List[str],
-    slack_bot_token: str = SlackCredentials.load(SLACK_API_TOKEN_BLOCK_NAME).token,
+    slack_bot_token: str = SlackCredentials.load(SLACK_API_TOKEN_BLOCK_NAME).token.get_secret_value(),
     slack_channel_id: str = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get(),
     titles: Optional[List[str]] = None,
     initial_comment: Optional[str] = None,

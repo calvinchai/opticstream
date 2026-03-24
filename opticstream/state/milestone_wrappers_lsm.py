@@ -97,6 +97,8 @@ def strip_processing_milestone(
 ) -> Callable[[Callable[P, R]], Callable[P, R | None]]:
     def _get_ident(*args: P.args, **kwargs: P.kwargs) -> LSMStripId:
         if "strip_ident" not in kwargs:
+            if args[0] is not None and isinstance(args[0], LSMStripId):
+                return args[0]
             raise TypeError("expected keyword argument 'strip_ident'")
         return kwargs["strip_ident"]
 
