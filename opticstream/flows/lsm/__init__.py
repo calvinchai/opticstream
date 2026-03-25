@@ -28,7 +28,9 @@ from opticstream.flows.lsm.strip_update_flow import (
     on_strip_events,
     strip_update_to_deployment,
 )
-from opticstream.flows.lsm.strip_upload_flow import to_deployment as _strip_upload_to_deployment
+from opticstream.flows.lsm.strip_upload_flow import (
+    to_deployment as _strip_upload_to_deployment,
+)
 
 (
     upload_strip_to_dandi_flow_deployment,

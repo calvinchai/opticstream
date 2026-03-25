@@ -51,9 +51,7 @@ def create_database_if_not_exists() -> None:
                 print(f"Database '{TARGET_DB}' already exists.")
             else:
                 cur.execute(
-                    sql.SQL("CREATE DATABASE {}").format(
-                        sql.Identifier(TARGET_DB)
-                    )
+                    sql.SQL("CREATE DATABASE {}").format(sql.Identifier(TARGET_DB))
                 )
                 print(f"Created database '{TARGET_DB}'.")
     finally:
@@ -95,4 +93,3 @@ def main() -> None:
     create_database_if_not_exists()
     create_table_if_not_exists()
     print("Done.")
-

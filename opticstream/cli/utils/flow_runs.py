@@ -12,7 +12,7 @@ from prefect.client.schemas.filters import (
     FlowRunFilterExpectedStartTime,
     FlowRunFilterName,
     FlowRunFilterState,
-    FlowRunFilterStateType
+    FlowRunFilterStateType,
 )
 from prefect.states import Cancelled
 
@@ -44,7 +44,9 @@ async def _cancel_flow_runs_impl(
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=older_than_days)
-    state_filter = FlowRunFilterStateType(not_any_=["COMPLETED", "FAILED", "CANCELLED", "CRASHED"])
+    state_filter = FlowRunFilterStateType(
+        not_any_=["COMPLETED", "FAILED", "CANCELLED", "CRASHED"]
+    )
     state_filter = FlowRunFilterState(type=state_filter)
     created_filter = FlowRunFilterExpectedStartTime(before_=cutoff)
     name_filter = FlowRunFilterName(like_=name) if name else None
@@ -172,4 +174,3 @@ def cancel_flow_runs(
             dry_run=dry_run,
         )
     )
-

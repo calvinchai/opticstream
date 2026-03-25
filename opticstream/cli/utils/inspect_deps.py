@@ -54,7 +54,9 @@ def inspect_deps(
                     break
             if candidate is None and files:
                 candidate = Path(dist.locate_file(files[0])).resolve()
-            pkg_path = candidate.parent if candidate and candidate.is_file() else candidate
+            pkg_path = (
+                candidate.parent if candidate and candidate.is_file() else candidate
+            )
         except im.PackageNotFoundError:
             version = None
 
@@ -75,8 +77,9 @@ def inspect_deps(
 
         print(f"Name: {spec.name}")
         print(f"Distribution: {spec.dist_name}")
-        print(f"Installed version: {version if version is not None else 'NOT INSTALLED'}")
+        print(
+            f"Installed version: {version if version is not None else 'NOT INSTALLED'}"
+        )
         print(f"Source: {source}")
         print(f"Configured Git spec: {spec.git_spec}")
         print()
-

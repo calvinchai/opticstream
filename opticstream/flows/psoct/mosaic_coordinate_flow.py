@@ -18,7 +18,9 @@ from prefect.logging import get_run_logger
 
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.data_processing.stitch import fiji_stitch, fit_coord_files
-from opticstream.data_processing.stitch.process_tile_coord import process_tile_coordinate
+from opticstream.data_processing.stitch.process_tile_coord import (
+    process_tile_coordinate,
+)
 from opticstream.flows.psoct.utils import (
     MosaicContext,
     get_mosaic_fiji_file_template,
@@ -185,7 +187,10 @@ def generate_coordinate_template(
         )
 
     mosaic_pattern = f"mosaic_{mosaic_id:03d}"
-    if mosaic_pattern in template_yaml and "{{{{ mosaic_id_str }}}}" not in template_yaml:
+    if (
+        mosaic_pattern in template_yaml
+        and "{{{{ mosaic_id_str }}}}" not in template_yaml
+    ):
         template_yaml = re.sub(
             rf"\b{mosaic_pattern}\b", r"{{{{ mosaic_id_str }}}}", template_yaml
         )
@@ -225,8 +230,8 @@ def process_stitching_coordinates(
     )
 
     file_template = get_mosaic_fiji_file_template(mosaic_id)
-    output_textfile_name =  f"TileConfiguration_{illumination}.txt"
-    
+    output_textfile_name = f"TileConfiguration_{illumination}.txt"
+
     ideal_coord_file = fiji_stitch_task(
         directory=base_processed_path,
         file_template=file_template,
@@ -245,7 +250,9 @@ def process_stitching_coordinates(
             f"Expected registered coordinate file not found: {stitched_coord_file}"
         )
 
-    tile_coords_export = get_mosaic_tile_coords_export_path(base_stitched_path, mosaic_id)
+    tile_coords_export = get_mosaic_tile_coords_export_path(
+        base_stitched_path, mosaic_id
+    )
 
     process_tile_coordinate_task(
         ideal_coord_file=ideal_coord_file,
@@ -264,6 +271,7 @@ def process_stitching_coordinates(
         mosaic_id=mosaic_id,
     )
 
-    logger.info(f"Generated template for {illumination} illumination at {template_path}")
+    logger.info(
+        f"Generated template for {illumination} illumination at {template_path}"
+    )
     return template_path, tile_coords_export
-

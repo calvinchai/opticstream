@@ -45,9 +45,7 @@ def _oct_slice_set_done(slice_ident: OCTSliceId, field_name: str) -> None:
 
 
 OCT_BATCH_MILESTONE_ADAPTER = MilestoneAdapter[OCTBatchId, Any](
-    peek_view=lambda batch_ident: OCT_STATE_SERVICE.peek_batch(
-        batch_ident=batch_ident
-    ),
+    peek_view=lambda batch_ident: OCT_STATE_SERVICE.peek_batch(batch_ident=batch_ident),
     set_done=_oct_batch_set_done,
 )
 
@@ -59,9 +57,7 @@ OCT_MOSAIC_MILESTONE_ADAPTER = MilestoneAdapter[OCTMosaicId, Any](
 )
 
 OCT_SLICE_MILESTONE_ADAPTER = MilestoneAdapter[OCTSliceId, Any](
-    peek_view=lambda slice_ident: OCT_STATE_SERVICE.peek_slice(
-        slice_ident=slice_ident
-    ),
+    peek_view=lambda slice_ident: OCT_STATE_SERVICE.peek_slice(slice_ident=slice_ident),
     set_done=_oct_slice_set_done,
 )
 

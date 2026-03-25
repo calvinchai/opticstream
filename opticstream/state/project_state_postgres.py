@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 from typing import Generic
 
-from pydantic import BaseModel
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -74,8 +73,9 @@ class PostgresProjectStateRepository(Generic[TState]):
             ON CONFLICT (project_type, project_name)
             DO UPDATE SET state = EXCLUDED.state
             """
-        ).bindparams(bindparam("state", type_=JSONB),
-)
+        ).bindparams(
+            bindparam("state", type_=JSONB),
+        )
 
         database_block = SqlAlchemyConnector.load(self._block_name)
         with database_block:

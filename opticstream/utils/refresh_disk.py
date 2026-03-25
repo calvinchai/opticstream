@@ -39,6 +39,7 @@ def sas2_refresh() -> None:
     except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
         logger.warning("Refresh hook 'sas2' failed: %s. Continuing.", exc)
 
+
 def sas3_refresh() -> None:
     """
     Refresh hook for the sas3 mount by unmounting and remounting it.
@@ -101,7 +102,9 @@ def resolve_refresh_hook(name: str | None) -> RefreshHook | None:
     raise ValueError(f"Unknown refresh hook {name!r}. Valid options: {valid}")
 
 
-def register_refresh_hook(name: str, hook: RefreshHook, *, overwrite: bool = False) -> None:
+def register_refresh_hook(
+    name: str, hook: RefreshHook, *, overwrite: bool = False
+) -> None:
     """
     Register a custom refresh hook.
 

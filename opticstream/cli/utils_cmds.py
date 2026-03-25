@@ -94,8 +94,7 @@ def _build_remote_deploy_command(
     if use_tmux:
         session_name = f"{tmux_session_prefix}-{deploy_tag}"
         tmux_cmd = (
-            f"tmux new -d -s {shlex.quote(session_name)} "
-            f"{shlex.quote(quoted_cmd)}"
+            f"tmux new -d -s {shlex.quote(session_name)} {shlex.quote(quoted_cmd)}"
         )
         parts.append(tmux_cmd)
     else:
@@ -270,5 +269,3 @@ def remote_deploy_kill(
         print(completed.stdout, end="")
     if completed.stderr:
         print(completed.stderr, end="")
-
-

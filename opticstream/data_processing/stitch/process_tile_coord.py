@@ -15,7 +15,7 @@ def _parse_line(line: str) -> Optional[Tuple[str, Tuple[float, float]]]:
     line = line.strip()
     if not line:
         return None
-    parts = line.split('; ; ')
+    parts = line.split("; ; ")
     if len(parts) != 2:
         print(f"Skipping malformed line: {line}")
         return None
@@ -38,8 +38,8 @@ class Tile:
         path: str,
         normal_coord: Tuple[float, float],
         stitched_coord: Tuple[float, float],
-        avg_signal: Optional[float] = None
-        ):
+        avg_signal: Optional[float] = None,
+    ):
         self.path = path
         self.normal_coord = normal_coord
         self.stitched_coord = stitched_coord
@@ -52,10 +52,10 @@ class Tile:
 
     def _extract_index(self, path: str) -> Optional[int]:
         filename = os.path.basename(path)
-        match = re.search(r'_image_(\d+)_', filename)
+        match = re.search(r"_image_(\d+)_", filename)
         if match:
             return int(match.group(1))
-        fallback = re.findall(r'(\d+)', filename)
+        fallback = re.findall(r"(\d+)", filename)
         if fallback:
             try:
                 return int(fallback[-1])
@@ -75,7 +75,8 @@ class Tile:
                 print(f"ERROR: File not found at {self.path}")
                 print(
                     "Place your .nii files in the same directory or update "
-                    "'image_base_path'.")
+                    "'image_base_path'."
+                )
                 print("**************************************************")
                 raise
             except Exception as e:
@@ -98,12 +99,19 @@ class Tile:
         self._avg_signal = value
 
     def __repr__(self) -> str:
-        derived_str = f"derived={self.derived_coord}" if self.derived_coord else "derived=None"
-        signal_str = f"avg_sig={self.avg_signal:.1f}" if self.avg_signal is not None else "avg_sig=None"
+        derived_str = (
+            f"derived={self.derived_coord}" if self.derived_coord else "derived=None"
+        )
+        signal_str = (
+            f"avg_sig={self.avg_signal:.1f}"
+            if self.avg_signal is not None
+            else "avg_sig=None"
+        )
         idx = f"{self.index:03d}" if self.index is not None else "None"
         return (
             f"Tile(index={idx}, path='{os.path.basename(self.path)}', normal={self.normal_coord}, "
-            f"stitched={self.stitched_coord}, {derived_str}, {signal_str})")
+            f"stitched={self.stitched_coord}, {derived_str}, {signal_str})"
+        )
 
 
 # --- Grid Class with Split Normalize & Export ---
@@ -114,8 +122,8 @@ class Grid:
         x_coords: List[float],
         y_coords: List[float],
         x_to_col: Dict[float, int],
-        y_to_row: Dict[float, int]
-        ):
+        y_to_row: Dict[float, int],
+    ):
         self.tiles_2d = tiles_2d
         self.x_coords = x_coords
         self.y_coords = y_coords
@@ -125,15 +133,16 @@ class Grid:
         self.num_cols = len(x_coords)
 
     @classmethod
-    def from_tiles(cls, tiles: List[Tile]) -> 'Grid':
+    def from_tiles(cls, tiles: List[Tile]) -> "Grid":
         if not tiles:
             return cls([], [], [], {}, {})
         x_coords = sorted({t.normal_coord[0] for t in tiles})
         y_coords = sorted({t.normal_coord[1] for t in tiles})
         x_to_col = {x: i for i, x in enumerate(x_coords)}
         y_to_row = {y: i for i, y in enumerate(y_coords)}
-        tiles_2d: List[List[Optional[Tile]]] = [[None for _ in x_coords] for _ in
-                                                y_coords]
+        tiles_2d: List[List[Optional[Tile]]] = [
+            [None for _ in x_coords] for _ in y_coords
+        ]
         for t in tiles:
             x, y = t.normal_coord
             col = x_to_col[x]
@@ -180,8 +189,9 @@ class Grid:
                 b = self._tile_at(r, c + 1)
                 if a is None or b is None:
                     continue
-                if (a.avg_signal is not None and a.avg_signal >= signal_threshold) and \
-                    (b.avg_signal is not None and b.avg_signal >= signal_threshold):
+                if (a.avg_signal is not None and a.avg_signal >= signal_threshold) and (
+                    b.avg_signal is not None and b.avg_signal >= signal_threshold
+                ):
                     dx = b.stitched_coord[0] - a.stitched_coord[0]
                     dy = b.stitched_coord[1] - a.stitched_coord[1]
                     horizontal_drifts.append((dx, dy))
@@ -192,8 +202,9 @@ class Grid:
                 b = self._tile_at(r + 1, c)
                 if a is None or b is None:
                     continue
-                if (a.avg_signal is not None and a.avg_signal >= signal_threshold) and \
-                    (b.avg_signal is not None and b.avg_signal >= signal_threshold):
+                if (a.avg_signal is not None and a.avg_signal >= signal_threshold) and (
+                    b.avg_signal is not None and b.avg_signal >= signal_threshold
+                ):
                     dx = b.stitched_coord[0] - a.stitched_coord[0]
                     dy = b.stitched_coord[1] - a.stitched_coord[1]
                     vertical_drifts.append((dx, dy))
@@ -202,21 +213,25 @@ class Grid:
         vertical_drift = (0.0, 0.0)
         if horizontal_drifts:
             horizontal_drift = tuple(
-                np.median(np.array(horizontal_drifts), axis=0).tolist())
+                np.median(np.array(horizontal_drifts), axis=0).tolist()
+            )
         if vertical_drifts:
             vertical_drift = tuple(
-                np.median(np.array(vertical_drifts), axis=0).tolist())
+                np.median(np.array(vertical_drifts), axis=0).tolist()
+            )
 
         print("\nComputed drifts:")
         print(
-            f"  horizontal_drift per column step = (dx={horizontal_drift[0]:.3f}, dy={horizontal_drift[1]:.3f})")
+            f"  horizontal_drift per column step = (dx={horizontal_drift[0]:.3f}, dy={horizontal_drift[1]:.3f})"
+        )
         print(
-            f"  vertical_drift   per row    step = (dx={vertical_drift[0]:.3f}, dy={vertical_drift[1]:.3f})")
+            f"  vertical_drift   per row    step = (dx={vertical_drift[0]:.3f}, dy={vertical_drift[1]:.3f})"
+        )
 
         for r, c, t in self.iter_tiles_row_major():
             if t is None:
                 continue
-            reliable = (t.avg_signal is not None and t.avg_signal >= signal_threshold)
+            reliable = t.avg_signal is not None and t.avg_signal >= signal_threshold
             t.derived_coord = None
             # t.derived_coord = t.stitched_coord if reliable else None
         self._tile_at(0, 0).derived_coord = (0.0, 0.0)
@@ -232,14 +247,28 @@ class Grid:
                     if t is None or t.derived_coord is not None:
                         continue
 
-                    left_idx = next((cc for cc in range(c - 1, -1, -1)
-                                     if (self._tile_at(r,
-                                                       cc) is not None and self._tile_at(
-                        r, cc).derived_coord is not None)), None)
-                    right_idx = next((cc for cc in range(c + 1, self.num_cols)
-                                      if (self._tile_at(r,
-                                                        cc) is not None and self._tile_at(
-                        r, cc).derived_coord is not None)), None)
+                    left_idx = next(
+                        (
+                            cc
+                            for cc in range(c - 1, -1, -1)
+                            if (
+                                self._tile_at(r, cc) is not None
+                                and self._tile_at(r, cc).derived_coord is not None
+                            )
+                        ),
+                        None,
+                    )
+                    right_idx = next(
+                        (
+                            cc
+                            for cc in range(c + 1, self.num_cols)
+                            if (
+                                self._tile_at(r, cc) is not None
+                                and self._tile_at(r, cc).derived_coord is not None
+                            )
+                        ),
+                        None,
+                    )
 
                     if left_idx is not None:
                         neighbor = self._tile_at(r, left_idx)
@@ -258,14 +287,28 @@ class Grid:
                         changed = True
                         continue
 
-                    up_idx = next((rr for rr in range(r - 1, -1, -1)
-                                   if (self._tile_at(rr,
-                                                     c) is not None and self._tile_at(
-                        rr, c).derived_coord is not None)), None)
-                    down_idx = next((rr for rr in range(r + 1, self.num_rows)
-                                     if (self._tile_at(rr,
-                                                       c) is not None and self._tile_at(
-                        rr, c).derived_coord is not None)), None)
+                    up_idx = next(
+                        (
+                            rr
+                            for rr in range(r - 1, -1, -1)
+                            if (
+                                self._tile_at(rr, c) is not None
+                                and self._tile_at(rr, c).derived_coord is not None
+                            )
+                        ),
+                        None,
+                    )
+                    down_idx = next(
+                        (
+                            rr
+                            for rr in range(r + 1, self.num_rows)
+                            if (
+                                self._tile_at(rr, c) is not None
+                                and self._tile_at(rr, c).derived_coord is not None
+                            )
+                        ),
+                        None,
+                    )
 
                     if up_idx is not None:
                         neighbor = self._tile_at(up_idx, c)
@@ -295,7 +338,8 @@ class Grid:
 
         if remaining_none:
             print(
-                f"Warning: {remaining_none} tiles had no propagation source; set derived_coord = stitched_coord as fallback.")
+                f"Warning: {remaining_none} tiles had no propagation source; set derived_coord = stitched_coord as fallback."
+            )
 
         print("compute_registered_offset finished.")
 
@@ -310,11 +354,14 @@ class Grid:
         num_rows = self.num_rows
         num_cols = self.num_cols
         CELL_WIDTH = cell_width
-        empty_cell = [("-" * CELL_WIDTH).center(CELL_WIDTH),
-                      ("-" * CELL_WIDTH).center(CELL_WIDTH),
-                      ("-" * CELL_WIDTH).center(CELL_WIDTH)]
-        cell_grid: List[List[List[str]]] = [[list(empty_cell) for _ in range(num_cols)]
-                                            for _ in range(num_rows)]
+        empty_cell = [
+            ("-" * CELL_WIDTH).center(CELL_WIDTH),
+            ("-" * CELL_WIDTH).center(CELL_WIDTH),
+            ("-" * CELL_WIDTH).center(CELL_WIDTH),
+        ]
+        cell_grid: List[List[List[str]]] = [
+            [list(empty_cell) for _ in range(num_cols)] for _ in range(num_rows)
+        ]
         for t in tiles:
             x_norm, y_norm = t.normal_coord
             row = self.y_to_row[y_norm]
@@ -328,8 +375,11 @@ class Grid:
             else:
                 x_line = "X: N/A"
                 y_line = "Y: N/A"
-            cell_grid[row][col] = [tile_idx.center(CELL_WIDTH),
-                                   x_line.center(CELL_WIDTH), y_line.center(CELL_WIDTH)]
+            cell_grid[row][col] = [
+                tile_idx.center(CELL_WIDTH),
+                x_line.center(CELL_WIDTH),
+                y_line.center(CELL_WIDTH),
+            ]
         total_width = num_cols * (CELL_WIDTH + 1) + 1
         separator = "-" * total_width
         print("\n--- Tile Grid Map (Displaying Derived/Corrected Coordinates) ---")
@@ -358,26 +408,35 @@ class Grid:
         header = f"{'Index':<6} | {'Normal X':<10} | {'Stitched X':<12} | {'Stitched Y':<12} | {'Derived X':<11} | {'Derived Y':<11} | {'Signal':<8}"
         print(header)
         print("-" * len(header))
-        sorted_tiles = sorted(tiles,
-                              key=lambda t: t.index if t.index is not None else float(
-                                  'inf'))
+        sorted_tiles = sorted(
+            tiles, key=lambda t: t.index if t.index is not None else float("inf")
+        )
         for t in sorted_tiles:
-            derived_x = f"{t.derived_coord[0]:.3f}" if t.derived_coord is not None else "N/A"
-            derived_y = f"{t.derived_coord[1]:.3f}" if t.derived_coord is not None else "N/A"
+            derived_x = (
+                f"{t.derived_coord[0]:.3f}" if t.derived_coord is not None else "N/A"
+            )
+            derived_y = (
+                f"{t.derived_coord[1]:.3f}" if t.derived_coord is not None else "N/A"
+            )
             signal_str = f"{t.avg_signal:.1f}" if t.avg_signal is not None else "None"
             idx = f"{t.index}" if t.index is not None else "None"
             print(
-                f"{idx:<6} | {t.normal_coord[0]:<10.3f} | {t.stitched_coord[0]:<12.3f} | {t.stitched_coord[1]:<12.3f} | {derived_x:<11} | {derived_y:<11} | {signal_str:<8}")
+                f"{idx:<6} | {t.normal_coord[0]:<10.3f} | {t.stitched_coord[0]:<12.3f} | {t.stitched_coord[1]:<12.3f} | {derived_x:<11} | {derived_y:<11} | {signal_str:<8}"
+            )
 
     def normalize_coordinates(self) -> Tuple[float, float]:
         tiles = self._flatten_tiles()
         if not tiles:
             raise ValueError("No tiles to normalize.")
-        derived_coords = [(t.derived_coord[0], t.derived_coord[1]) for t in tiles if
-                          t.derived_coord is not None]
+        derived_coords = [
+            (t.derived_coord[0], t.derived_coord[1])
+            for t in tiles
+            if t.derived_coord is not None
+        ]
         if not derived_coords:
             raise ValueError(
-                "Derived coordinates are missing for all tiles. Cannot normalize.")
+                "Derived coordinates are missing for all tiles. Cannot normalize."
+            )
         xs, ys = zip(*derived_coords)
         min_x = min(xs)
         min_y = min(ys)
@@ -389,20 +448,23 @@ class Grid:
                 norm_y = round(t.derived_coord[1] - min_y, 3)
                 t.normalized_coord = (norm_x, norm_y)
         print(
-            f"\nNormalized coordinates set on tiles. Minimum offsets found: X={min_x:.3f}, Y={min_y:.3f}")
+            f"\nNormalized coordinates set on tiles. Minimum offsets found: X={min_x:.3f}, Y={min_y:.3f}"
+        )
         return min_x, min_y
 
     def export_to_yaml(
-        self, output_filename: str = "tile_coords_export.yaml",
-        use_normalized: bool = True
-        ):
+        self,
+        output_filename: str = "tile_coords_export.yaml",
+        use_normalized: bool = True,
+    ):
         tiles = self._flatten_tiles()
         if not tiles:
             print("No tiles to export.")
             return
         if use_normalized:
-            if any(t.normalized_coord is None for t in tiles if
-                   t.derived_coord is not None):
+            if any(
+                t.normalized_coord is None for t in tiles if t.derived_coord is not None
+            ):
                 try:
                     self.normalize_coordinates()
                 except ValueError as e:
@@ -424,15 +486,15 @@ class Grid:
                 y_val = round(t.derived_coord[1], 3)
             avg_sig_int = int(t.avg_signal) if t.avg_signal is not None else None
             tile_data = {
-                'filepath': os.path.basename(t.path),
-                'tile_number': t.index,
-                'x': x_val,
-                'y': y_val,
-                'avg_signal': avg_sig_int
+                "filepath": os.path.basename(t.path),
+                "tile_number": t.index,
+                "x": x_val,
+                "y": y_val,
+                "avg_signal": avg_sig_int,
             }
             yaml_list.append(tile_data)
         try:
-            with open(output_filename, 'w') as f:
+            with open(output_filename, "w") as f:
                 yaml.dump(yaml_list, f, sort_keys=False, default_flow_style=False)
             print(f"Successfully exported {len(yaml_list)} tiles to {output_filename}")
         except Exception as e:
@@ -443,48 +505,49 @@ class Grid:
 def load_tile_info(
     ideal_coord_file: str | Path,
     stitched_coord_file: str | Path,
-    image_base_path: str | Path = "."
-    ) -> List[Tile]:
+    image_base_path: str | Path = ".",
+) -> List[Tile]:
     ideal_coord_file = str(Path(ideal_coord_file))
     stitched_coord_file = str(Path(stitched_coord_file))
     image_base_path = str(Path(image_base_path))
     tiles_data: Dict[str, Dict] = {}
     print(f"Loading ideal coordinates from: {ideal_coord_file}")
     try:
-        with open(ideal_coord_file, 'r') as f:
+        with open(ideal_coord_file, "r") as f:
             for line in f:
                 parsed = _parse_line(line)
                 if parsed:
                     filename, normal_coord = parsed
-                    tiles_data[filename] = {'normal': normal_coord}
+                    tiles_data[filename] = {"normal": normal_coord}
     except FileNotFoundError:
         print(f"Error: Ideal coordinate file not found: {ideal_coord_file}")
         return []
     print(f"Found {len(tiles_data)} tiles in ideal file.")
     print(f"Loading stitched coordinates from: {stitched_coord_file}")
     try:
-        with open(stitched_coord_file, 'r') as f:
+        with open(stitched_coord_file, "r") as f:
             for line in f:
                 parsed = _parse_line(line)
                 if parsed:
                     filename, stitched_coord = parsed
                     if filename in tiles_data:
-                        tiles_data[filename]['stitched'] = stitched_coord
+                        tiles_data[filename]["stitched"] = stitched_coord
                     else:
                         print(
-                            f"Warning: {filename} in stitched file but not in ideal file. Skipping.")
+                            f"Warning: {filename} in stitched file but not in ideal file. Skipping."
+                        )
     except FileNotFoundError:
         print(f"Error: Stitched coordinate file not found: {stitched_coord_file}")
         return []
     tile_objects: List[Tile] = []
     for filename, data in tiles_data.items():
-        if 'normal' in data and 'stitched' in data:
+        if "normal" in data and "stitched" in data:
             full_path = os.path.join(image_base_path, filename)
             tile_obj = Tile(
                 path=full_path,
-                normal_coord=data['normal'],
-                stitched_coord=data['stitched'],
-                avg_signal=None
+                normal_coord=data["normal"],
+                stitched_coord=data["stitched"],
+                avg_signal=None,
             )
             try:
                 _ = tile_obj.avg_signal
@@ -506,8 +569,8 @@ def process_tile_coordinate(
     export: Optional[str | Path] = None,
     export_raw: bool = False,
     threshold: float = 55.0,
-    verbose: bool = True
-    ) -> Tuple[Grid, List[Tile]]:
+    verbose: bool = True,
+) -> Tuple[Grid, List[Tile]]:
     """
     Programmatic API mirroring the CLI.
 
@@ -570,25 +633,46 @@ def process_tile_coordinate(
 # --- CLI wiring ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Load and process tile coordinate information from two files.")
-    parser.add_argument("ideal_coord_file",
-                        help="Path to the file with ideal (normal) coordinates.")
-    parser.add_argument("stitched_coord_file",
-                        help="Path to the file with stitched (registered) coordinates.")
-    parser.add_argument("--image_dir", default=".",
-                        help="Directory path where the .nii files are stored (default: current directory).")
+        description="Load and process tile coordinate information from two files."
+    )
+    parser.add_argument(
+        "ideal_coord_file", help="Path to the file with ideal (normal) coordinates."
+    )
+    parser.add_argument(
+        "stitched_coord_file",
+        help="Path to the file with stitched (registered) coordinates.",
+    )
+    parser.add_argument(
+        "--image_dir",
+        default=".",
+        help="Directory path where the .nii files are stored (default: current directory).",
+    )
 
     # New options:
-    parser.add_argument("--export", nargs="?", const="tile_coords_export.yaml",
-                        default=None,
-                        help="If supplied, export results to YAML. Optionally provide filename. "
-                             "If no filename provided, defaults to 'tile_coords_export.yaml'.")
-    parser.add_argument("--threshold", type=float, default=55.0,
-                        help="Average-signal threshold to mark tiles as reliable (default: 55.0).")
-    parser.add_argument("--export-raw", action="store_true",
-                        help="Export raw derived coordinates instead of normalized (use with --export).")
-    parser.add_argument("--quiet", action="store_true",
-                        help="Suppress verbose prints (still prints warnings/errors).")
+    parser.add_argument(
+        "--export",
+        nargs="?",
+        const="tile_coords_export.yaml",
+        default=None,
+        help="If supplied, export results to YAML. Optionally provide filename. "
+        "If no filename provided, defaults to 'tile_coords_export.yaml'.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=55.0,
+        help="Average-signal threshold to mark tiles as reliable (default: 55.0).",
+    )
+    parser.add_argument(
+        "--export-raw",
+        action="store_true",
+        help="Export raw derived coordinates instead of normalized (use with --export).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress verbose prints (still prints warnings/errors).",
+    )
 
     args = parser.parse_args()
 
@@ -599,5 +683,5 @@ if __name__ == "__main__":
         export=args.export,
         export_raw=args.export_raw,
         threshold=args.threshold,
-        verbose=not args.quiet
+        verbose=not args.quiet,
     )

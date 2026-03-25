@@ -5,7 +5,10 @@ from pathlib import Path
 
 from prefect import flow, get_run_logger, task
 
-from opticstream.artifacts.publish_hooks import publish_oct_mosaic_hook, publish_oct_project_hook
+from opticstream.artifacts.publish_hooks import (
+    publish_oct_mosaic_hook,
+    publish_oct_project_hook,
+)
 from opticstream.events.psoct_event_emitters import emit_batch_psoct_event
 from opticstream.events.psoct_events import BATCH_ARCHIVED
 from opticstream.flows.psoct.tile_file_reference import TileFileReference
@@ -15,7 +18,10 @@ from opticstream.tasks.common_tasks import archive_tile_task
 from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
-@task(on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook], on_failure=[slack_notification_hook])
+@task(
+    on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
+    on_failure=[slack_notification_hook],
+)
 @oct_batch_processing_milestone(field_name="archived")
 def archive_tile_batch(
     batch_id: OCTBatchId,
@@ -57,7 +63,9 @@ def archive_tile_batch(
         )
 
     emit_batch_psoct_event(
-        BATCH_ARCHIVED, batch_id, extra_payload={"archived_file_paths": archived_file_paths}
+        BATCH_ARCHIVED,
+        batch_id,
+        extra_payload={"archived_file_paths": archived_file_paths},
     )
 
 
@@ -111,5 +119,3 @@ def archive_tile_batch_flow(
         archive_tile_name_format=archive_tile_name_format,
         force_rerun=force_rerun,
     )
-
-

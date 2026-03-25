@@ -1,8 +1,7 @@
-
-
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
 from opticstream.state.lsm_project_state import ensure_lock
+
 
 @lsm_cli.command
 def update_block() -> None:
@@ -10,6 +9,7 @@ def update_block() -> None:
     Update the LSMScanConfig block.
     """
     LSMScanConfig.register_type_and_schema()
+
 
 @lsm_cli.command
 def create_lock(
@@ -19,6 +19,7 @@ def create_lock(
     Create the LSM project state lock.
     """
     ensure_lock(project_name)
+
 
 @lsm_cli.command
 def setup(
@@ -30,7 +31,6 @@ def setup(
     output_path: str,
 ) -> None:
     from pathlib import Path
-
 
     block_name = config_block_name or f"{project_name}-lsm-config"
     LSMScanConfig.register_type_and_schema()
@@ -77,4 +77,3 @@ def setup(
             print(f"  - {p}")
     if not created and not verified:
         print("No directories to create or verify from LSMScanConfig.")
-

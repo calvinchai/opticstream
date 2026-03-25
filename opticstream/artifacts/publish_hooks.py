@@ -7,8 +7,14 @@ from typing import Any
 
 from prefect.logging.loggers import flow_run_logger
 
-from opticstream.artifacts.lsm import publish_lsm_project_artifact, publish_lsm_slice_artifact
-from opticstream.artifacts.oct import publish_oct_mosaic_artifact, publish_oct_project_artifact
+from opticstream.artifacts.lsm import (
+    publish_lsm_project_artifact,
+    publish_lsm_slice_artifact,
+)
+from opticstream.artifacts.oct import (
+    publish_oct_mosaic_artifact,
+    publish_oct_project_artifact,
+)
 from opticstream.state.lsm_project_state import LSMProjectId, LSMSliceId
 from opticstream.state.oct_project_state import OCTMosaicId, OCTProjectId
 from opticstream.utils.flow_run_name_parse import (

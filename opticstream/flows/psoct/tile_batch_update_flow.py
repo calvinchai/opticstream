@@ -22,11 +22,11 @@ def check_mosaic_ready(mosaic_ident: OCTMosaicId, total_batches: int) -> bool:
     if mosaic_view.all_batches_done(total_batches=total_batches):
         emit_mosaic_psoct_event(MOSAIC_READY, mosaic_ident)
 
+
 @flow
 def on_batch_events(event: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     mosaic_ident = mosaic_ident_from_payload(payload)
     cfg = load_scan_config_for_payload(payload)
-    artifact_key = publish_mosaic_artifact_task(mosaic_ident)
     total_batches = (
         cfg.acquisition.grid_size_x_tilted
         if mosaic_ident.mosaic_id % 2 == 0
@@ -34,4 +34,3 @@ def on_batch_events(event: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     if event == BATCH_PROCESSED:
         check_mosaic_ready(mosaic_ident, total_batches)
-

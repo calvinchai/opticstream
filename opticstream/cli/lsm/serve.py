@@ -21,7 +21,7 @@ def serve(
     process_strip_flow_deployment = process_strip.to_deployment(
         name="process_strip_flow_deployment",
         tags=["lsm", "process-strip"],
-        concurrency_limit=concurrent_workers
+        concurrency_limit=concurrent_workers,
     )
     process_strip_event_flow_deployment = process_strip_event_to_deployment(
         concurrent_workers=concurrent_workers,
@@ -33,4 +33,3 @@ def serve(
         upload_strip_to_dandi_event_flow_deployment,
         lsm_strip_update_event_flow_deployment,
     )
-

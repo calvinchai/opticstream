@@ -9,4 +9,3 @@ def normalize_project_name(project_name: str) -> str:
     so filesystem-style project names map to a single canonical string.
     """
     return project_name.lower().replace("_", "-")
-

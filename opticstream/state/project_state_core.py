@@ -45,11 +45,9 @@ class ProcessingState(str, Enum):
 class StateRepository(Protocol, Generic[TState]):
     """Persistence abstraction for project state."""
 
-    def load(self, project_name: str) -> TState:
-        ...
+    def load(self, project_name: str) -> TState: ...
 
-    def save(self, project_name: str, state: TState) -> None:
-        ...
+    def save(self, project_name: str, state: TState) -> None: ...
 
 
 class PrefectVariableProjectStateRepository(Generic[TState]):
@@ -79,7 +77,7 @@ class PrefectVariableProjectStateRepository(Generic[TState]):
 
     def save(self, project_name: str, state: TState) -> None:
         key = self._key_fn(project_name)
-        Variable.set(key, state.model_dump(mode='json'), overwrite=True)
+        Variable.set(key, state.model_dump(mode="json"), overwrite=True)
 
 
 class ProjectLock(Protocol):
@@ -90,8 +88,7 @@ class ProjectLock(Protocol):
         self,
         project_name: str,
         timeout_seconds: float | None = None,
-    ) -> Iterator[None]:
-        ...
+    ) -> Iterator[None]: ...
 
 
 class PrefectProjectLock:
@@ -201,7 +198,6 @@ class BaseProjectStateStore(Generic[TState]):
         """
         with self.locked(project_name, timeout_seconds=timeout_seconds) as state:
             yield getter(state)
-
 
 
 async def ensure_limit(name: str, limit: int) -> None:

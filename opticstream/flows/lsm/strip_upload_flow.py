@@ -8,17 +8,17 @@ from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_UPLOADED
 from opticstream.flows.lsm.paths import strip_zarr_output_path
 from opticstream.state.milestone_wrappers_lsm import strip_processing_milestone
 from opticstream.state.state_guards import (
-    RunDecision,
     force_rerun_from_payload,
-    enter_milestone_stage,
 )
 from opticstream.flows.lsm.utils import strip_ident_from_payload
-from opticstream.state.lsm_project_state import LSM_STATE_SERVICE, LSMStripId
+from opticstream.state.lsm_project_state import LSMStripId
 from opticstream.tasks.dandi_upload import upload_to_dandi
 from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
-@flow(flow_run_name="upload-to-dandi-{strip_ident}", on_failure=[slack_notification_hook])
+@flow(
+    flow_run_name="upload-to-dandi-{strip_ident}", on_failure=[slack_notification_hook]
+)
 @strip_processing_milestone(field_name="uploaded", success_event=STRIP_UPLOADED)
 def upload_strip_to_dandi_flow(
     strip_ident: LSMStripId,
@@ -77,6 +77,7 @@ def upload_strip_to_dandi_event_flow(payload: Dict[str, Any]) -> None:
         **config,
     )
 
+
 def to_deployment():
     upload_strip_to_dandi_flow_deployment = upload_strip_to_dandi_flow.to_deployment(
         name="upload_strip_to_dandi_flow"
@@ -89,4 +90,7 @@ def to_deployment():
             ],
         )
     )
-    return upload_strip_to_dandi_flow_deployment, upload_strip_to_dandi_event_flow_deployment
+    return (
+        upload_strip_to_dandi_flow_deployment,
+        upload_strip_to_dandi_event_flow_deployment,
+    )

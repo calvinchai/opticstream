@@ -5,7 +5,10 @@ from typing import Any, Dict, Literal
 
 from prefect import flow, get_run_logger, task
 
-from opticstream.artifacts.publish_hooks import publish_oct_mosaic_hook, publish_oct_project_hook
+from opticstream.artifacts.publish_hooks import (
+    publish_oct_mosaic_hook,
+    publish_oct_project_hook,
+)
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
 from opticstream.events import BATCH_PROCESSED
 from opticstream.flows.psoct.tile_batch_archive_flow import archive_tile_batch
@@ -29,7 +32,11 @@ from opticstream.flows.psoct.utils import (
 )
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
-from opticstream.state.state_guards import enter_flow_stage, force_rerun_from_payload, should_skip_run
+from opticstream.state.state_guards import (
+    enter_flow_stage,
+    force_rerun_from_payload,
+    should_skip_run,
+)
 from opticstream.utils.matlab_execution import run_matlab_batch_command_or_cli
 
 
@@ -39,7 +46,10 @@ def _determine_processing_mode(
 ) -> Literal["spectral", "complex"]:
     if tile_saving_type in (TileSavingType.SPECTRAL, TileSavingType.SPECTRAL_12bit):
         return "spectral"
-    if tile_saving_type in (TileSavingType.COMPLEX, TileSavingType.COMPLEX_WITH_SPECTRAL):
+    if tile_saving_type in (
+        TileSavingType.COMPLEX,
+        TileSavingType.COMPLEX_WITH_SPECTRAL,
+    ):
         return "complex"
     raise ValueError(f"Invalid tile saving type: {tile_saving_type}")
 
@@ -106,7 +116,9 @@ def complex_to_processed_tile_batch(
     flow_run_name="process-tile-batch-{batch_id}",
     on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
 )
-@oct_batch_processing_milestone(field_name="enface_processed", success_event=BATCH_PROCESSED)
+@oct_batch_processing_milestone(
+    field_name="enface_processed", success_event=BATCH_PROCESSED
+)
 def process_tile_batch(
     batch_id: OCTBatchId,
     config: PSOCTScanConfigModel,

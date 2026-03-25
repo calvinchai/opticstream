@@ -8,42 +8,85 @@ from pydantic import BaseModel, Field, field_validator
 from opticstream.config.utils import with_positions
 from opticstream.utils.naming_convention import normalize_project_name
 
+
 @with_positions
 class LSMScanConfigModel(BaseModel):
     project_name: str = Field(..., min_length=1)
-    project_base_path: Path = Field(..., description="Base filesystem path for project data")
+    project_base_path: Path = Field(
+        ..., description="Base filesystem path for project data"
+    )
     info_file: Path = Field(..., description="Path to the info .mat file")
-    generate_zarr: bool = Field(default=True, description="Whether to generate the Zarr output")
-    output_path: Path | None = Field(default=None, description="Path to the output directory for compressed strips")
-    output_format: Optional[str] = Field(default=(
-        "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}.ome.zarr"
-    ), min_length=1)
-    generate_mip: bool = Field(default=True, description="Whether to generate the MIP output")
-    output_mip_format: Optional[str] = Field(default=(
-        "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
-    ), min_length=1)
-    output_mip_preview_window: List[float] = Field((0,1000), description="Preview window for the MIP output. If not set, the full range of the MIP will be used.")
-    generate_archive: bool = Field(default=True, description="Whether to copy the raw spooled strips to an archive")
-    archive_path: Path | None = Field(default=None, description="Path to the archive directory for backup of compressed strips")
+    generate_zarr: bool = Field(
+        default=True, description="Whether to generate the Zarr output"
+    )
+    output_path: Path | None = Field(
+        default=None, description="Path to the output directory for compressed strips"
+    )
+    output_format: Optional[str] = Field(
+        default=(
+            "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}.ome.zarr"
+        ),
+        min_length=1,
+    )
+    generate_mip: bool = Field(
+        default=True, description="Whether to generate the MIP output"
+    )
+    output_mip_format: Optional[str] = Field(
+        default=(
+            "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
+        ),
+        min_length=1,
+    )
+    output_mip_preview_window: List[float] = Field(
+        (0, 1000),
+        description="Preview window for the MIP output. If not set, the full range of the MIP will be used.",
+    )
+    generate_archive: bool = Field(
+        default=True, description="Whether to copy the raw spooled strips to an archive"
+    )
+    archive_path: Path | None = Field(
+        default=None,
+        description="Path to the archive directory for backup of compressed strips",
+    )
 
-    delete_strip: bool = Field(default=False, description="Whether to delete the raw spooled strips after compression and backup")
-    rename_strip: bool = Field(default=True, description="Whether to rename the raw spooled strips after compression and backup, if delete_strip is False")
-    strips_per_slice: int = Field(default=100, ge=1, description="Number of strips per slice to process")
+    delete_strip: bool = Field(
+        default=False,
+        description="Whether to delete the raw spooled strips after compression and backup",
+    )
+    rename_strip: bool = Field(
+        default=True,
+        description="Whether to rename the raw spooled strips after compression and backup, if delete_strip is False",
+    )
+    strips_per_slice: int = Field(
+        default=100, ge=1, description="Number of strips per slice to process"
+    )
 
     zarr_config: ZarrConfig = Field(default_factory=ZarrConfig)
 
-    dandi_bin: str = Field(default="dandi", min_length=1, description="Path to the DANDI CLI binary, useful for installation in a separate conda/venv environment")
-    dandi_instance: str = Field(default="linc", min_length=1, description="DANDI instance to use for upload")
-    dandiset_path: str = Field(default="linc://000052/", description="Path to the DANDI set to use for upload")
+    dandi_bin: str = Field(
+        default="dandi",
+        min_length=1,
+        description="Path to the DANDI CLI binary, useful for installation in a separate conda/venv environment",
+    )
+    dandi_instance: str = Field(
+        default="linc", min_length=1, description="DANDI instance to use for upload"
+    )
+    dandiset_path: str = Field(
+        default="linc://000052/", description="Path to the DANDI set to use for upload"
+    )
 
-    # for acquisition host 
+    # for acquisition host
     cpu_affinity: List[int] = Field(
         default_factory=list,
         description="Range of CPU cores to use for processing. If empty, all cores will be used.",
     )
-    num_workers: int = Field(default=6, ge=1, description="Number of workers to use for compression")
+    num_workers: int = Field(
+        default=6, ge=1, description="Number of workers to use for compression"
+    )
 
-    stitch_volume: bool = Field(default=False, description="Whether to stitch the volume from the strips")
+    stitch_volume: bool = Field(
+        default=False, description="Whether to stitch the volume from the strips"
+    )
     channel_volume_zarr_size_threshold: int = Field(
         default=10**9,
         ge=1,
@@ -63,7 +106,9 @@ class LSMScanConfigModel(BaseModel):
         if len(value) not in (0, 2):
             raise ValueError("output_mip_preview_window must have 0 or 2 values")
         if len(value) == 2 and value[0] >= value[1]:
-            raise ValueError("output_mip_preview_window must be [min, max] with min < max")
+            raise ValueError(
+                "output_mip_preview_window must be [min, max] with min < max"
+            )
         return value
 
     @field_validator("cpu_affinity")
@@ -134,8 +179,13 @@ class LSMScanConfigOverrides(BaseModel):
     channel_volume_zarr_size_threshold: Optional[int] = Field(default=None, ge=1)
     skip_channel_volume_zarr_validation: Optional[bool] = None
 
-def get_lsm_scan_config(project_name: str, override_config_name: Optional[str] = None) -> LSMScanConfig:
+
+def get_lsm_scan_config(
+    project_name: str, override_config_name: Optional[str] = None
+) -> LSMScanConfig:
     """
     Get the scan configuration for a project.
     """
-    return LSMScanConfig.load(override_config_name or f"{normalize_project_name(project_name)}-lsm-config")
+    return LSMScanConfig.load(
+        override_config_name or f"{normalize_project_name(project_name)}-lsm-config"
+    )

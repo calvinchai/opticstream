@@ -6,6 +6,7 @@ Blocks provide typed configuration schemas with validation and UI management.
 
 See: https://docs.prefect.io/v3/concepts/blocks
 """
+
 from typing import Any, Dict, List, Literal, Optional
 from enum import Enum
 from pathlib import Path
@@ -26,6 +27,7 @@ class TileSavingType(str, Enum):
     SPECTRAL_12bit = "spectral_12bit"
     COMPLEX_WITH_SPECTRAL = "complex_with_spectral"
 
+
 class EnfaceModality(str, Enum):
     """Enumeration of enface modalities."""
 
@@ -45,9 +47,11 @@ class VolumeModality(str, Enum):
     R3D = "R3D"
     O3D = "O3D"
 
+
 @with_positions
 class PSOCTAcquisitionParams(BaseModel):
     """Physical / hardware facts about the acquisition."""
+
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
     grid_size_x_normal: int = Field(
         ...,
@@ -94,7 +98,11 @@ class PSOCTAcquisitionParams(BaseModel):
         description="Overlap between tiles in percentage (default: 20.0)",
     )
     scan_resolution_3d: List[float] = Field(
-        (0.01, 0.01, 0.0025), # Intentional default value, default factory does not work with prefect blocks UI
+        (
+            0.01,
+            0.01,
+            0.0025,
+        ),  # Intentional default value, default factory does not work with prefect blocks UI
         description=(
             "Scan resolution for 3D volumes [x, y, z] in millimeters "
             "(default: [0.01, 0.01, 0.0025])"
@@ -119,7 +127,9 @@ class PSOCTAcquisitionParams(BaseModel):
     @classmethod
     def validate_scan_resolution_3d(cls, value: List[float]) -> List[float]:
         if len(value) != 3:
-            raise ValueError("scan_resolution_3d must contain exactly 3 values [x, y, z]")
+            raise ValueError(
+                "scan_resolution_3d must contain exactly 3 values [x, y, z]"
+            )
         if any(v <= 0 for v in value):
             raise ValueError("scan_resolution_3d values must be > 0")
         return value
@@ -148,9 +158,7 @@ class PSOCTProcessingParams(BaseModel):
     )
     ori_method: str = Field(
         default="circularMean",
-        description=(
-            "Orientation estimation method"
-        ),
+        description=("Orientation estimation method"),
     )
     ori_method_args: Dict[str, Any] = Field(
         default_factory=dict,
@@ -208,9 +216,12 @@ class PSOCTScanConfigModel(BaseModel):
     Stores all project-specific parameters needed for processing workflows.
     Block instances should be saved with name: "{project_name}-config"
 
-    Please repect the validation rules and constraints defined in the models, some validation rules are not enforced by the Prefect blocks UI but will be enforced by 
+    Please repect the validation rules and constraints defined in the models, some validation rules are not enforced by the Prefect blocks UI but will be enforced by
     """
-    model_config = ConfigDict(extra="forbid", validate_assignment=True, revalidate_instances="always")
+
+    model_config = ConfigDict(
+        extra="forbid", validate_assignment=True, revalidate_instances="always"
+    )
 
     project_name: str = Field(
         ...,
@@ -284,18 +295,14 @@ class PSOCTScanConfigModel(BaseModel):
         ),
     )
     mosaic_mask_format: str = Field(
-        default=(
-            "{project_name}_sample-slice{slice_id:03d}_acq-{acq}_OCT_mask.nii.gz"
-        ),
+        default=("{project_name}_sample-slice{slice_id:03d}_acq-{acq}_OCT_mask.nii.gz"),
         description=(
             "Filename template for stitched mask outputs "
             "(supports placeholders: project_name, slice_id, acq)"
         ),
     )
     slice_registered_format: str = Field(
-        default=(
-            "{project_name}_sample-slice{slice_id:03d}_proc-3daxis_OCT.nii.gz"
-        ),
+        default=("{project_name}_sample-slice{slice_id:03d}_proc-3daxis_OCT.nii.gz"),
         description=(
             "Filename template for slice-registered axis outputs "
             "(supports placeholders: project_name, slice_id)"
@@ -303,7 +310,14 @@ class PSOCTScanConfigModel(BaseModel):
     )
 
     enface_modalities: List[EnfaceModality] = Field(
-        default=[EnfaceModality.RET, EnfaceModality.ORI, EnfaceModality.BIREF, EnfaceModality.MIP, EnfaceModality.SURF, EnfaceModality.AIP],
+        default=[
+            EnfaceModality.RET,
+            EnfaceModality.ORI,
+            EnfaceModality.BIREF,
+            EnfaceModality.MIP,
+            EnfaceModality.SURF,
+            EnfaceModality.AIP,
+        ],
         description="Enface modalities to computed, exported, and stitched, aip is always included",
     )
     volume_modalities: List[VolumeModality] = Field(
@@ -336,7 +350,6 @@ class PSOCTScanConfigModel(BaseModel):
     )
 
 
-
 class PSOCTScanConfig(PSOCTScanConfigModel, Block):
     """
     Project-level configuration block.
@@ -344,10 +357,16 @@ class PSOCTScanConfig(PSOCTScanConfigModel, Block):
     Stores all project-specific parameters needed for processing workflows.
     Block instances should be saved with name: "{project_name}-config"
     """
-    
-def get_psoct_scan_config(project_name: str, override_config_name: Optional[str] = None) -> PSOCTScanConfig:
+
+
+def get_psoct_scan_config(
+    project_name: str, override_config_name: Optional[str] = None
+) -> PSOCTScanConfig:
     """
     Get the scan configuration for a project.
     """
     from opticstream.utils.naming_convention import normalize_project_name
-    return PSOCTScanConfig.load(override_config_name or f"{normalize_project_name(project_name)}-config")
+
+    return PSOCTScanConfig.load(
+        override_config_name or f"{normalize_project_name(project_name)}-config"
+    )

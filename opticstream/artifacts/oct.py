@@ -47,7 +47,9 @@ class OCTBatchProgressSummary:
         return pct(self.enface_processed, self.total_batches)
 
 
-def summarize_oct_batches(batches: Sequence[OCTBatchStateView]) -> OCTBatchProgressSummary:
+def summarize_oct_batches(
+    batches: Sequence[OCTBatchStateView],
+) -> OCTBatchProgressSummary:
     total = len(batches)
     if total == 0:
         return OCTBatchProgressSummary(0, 0, 0, 0, 0)
@@ -88,7 +90,9 @@ class OCTProjectTableStats:
     volume_uploaded_count: int
 
 
-def summarize_oct_project_table_rows(table: Sequence[dict[str, Any]]) -> OCTProjectTableStats:
+def summarize_oct_project_table_rows(
+    table: Sequence[dict[str, Any]],
+) -> OCTProjectTableStats:
     total_mosaics = len(table)
     complete_mosaics = sum(
         1
@@ -109,7 +113,9 @@ def summarize_oct_project_table_rows(table: Sequence[dict[str, Any]]) -> OCTProj
     )
 
 
-def build_oct_mosaic_batch_status_table_rows(mosaic_view: OCTMosaicStateView) -> list[dict[str, Any]]:
+def build_oct_mosaic_batch_status_table_rows(
+    mosaic_view: OCTMosaicStateView,
+) -> list[dict[str, Any]]:
     """
     One row per batch (sorted by batch id); columns are batch index and per-batch flags only.
 
@@ -141,7 +147,8 @@ def build_oct_mosaic_description(
 ) -> str:
     status_text = (
         "✅ COMPLETE - All batches enface-processed"
-        if summary.total_batches > 0 and summary.enface_processed == summary.total_batches
+        if summary.total_batches > 0
+        and summary.enface_processed == summary.total_batches
         else "⏳ IN PROGRESS - Processing batches..."
     )
     return f"""Mosaic {mosaic_id} Processing Progress
@@ -266,7 +273,9 @@ def publish_oct_project_artifact(
             table_data.append(build_oct_project_mosaic_row(mosaic_view))
 
     if not table_data:
-        logger.warning("No valid mosaic states found for project %s", project_ident.project_name)
+        logger.warning(
+            "No valid mosaic states found for project %s", project_ident.project_name
+        )
         return ""
 
     artifact_key = build_oct_project_artifact_key(project_ident.project_name)

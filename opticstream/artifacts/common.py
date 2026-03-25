@@ -22,10 +22,7 @@ def timestamp_str() -> str:
 
 
 def milestone_icons(overall_pct: float) -> list[str]:
-    return [
-        "✅" if overall_pct >= t else "⏳"
-        for t in (25.0, 50.0, 75.0, 100.0)
-    ]
+    return ["✅" if overall_pct >= t else "⏳" for t in (25.0, 50.0, 75.0, 100.0)]
 
 
 def format_milestone_lines(overall_pct: float) -> str:

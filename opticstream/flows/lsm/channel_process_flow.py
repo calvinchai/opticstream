@@ -105,9 +105,7 @@ def stitch_channel_mips(
     )
     stitched_path = op.join(output_root, stitched_name)
 
-    logger.info(
-        f"Channel-level stitched QC image would be written to {stitched_path}"
-    )
+    logger.info(f"Channel-level stitched QC image would be written to {stitched_path}")
     return stitched_path
 
 
@@ -142,10 +140,10 @@ def process_channel(
     channel_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
     if (
         enter_flow_stage(
-        channel_view,
-        force_rerun=force_rerun,
-        skip_if_running=True,
-        item_ident=channel_ident,
+            channel_view,
+            force_rerun=force_rerun,
+            skip_if_running=True,
+            item_ident=channel_ident,
         )
         == RunDecision.SKIPPED
     ):
@@ -172,9 +170,7 @@ def process_channel(
 
         expected = scan_config.strips_per_slice
         if len(mip_paths) < expected or mip_stitched_path is None:
-            with LSM_STATE_SERVICE.open_channel(
-                channel_ident=channel_ident
-            ) as ch:
+            with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as ch:
                 ch.mark_failed()
             raise RuntimeError(
                 f"MIP stitch failed for {channel_ident}: "
@@ -196,7 +192,9 @@ def process_channel(
         channel_ident,
         extra_payload={
             "mip_stitched_path": mip_stitched_path,
-            "mip_count": scan_config.strips_per_slice if scan_config.generate_mip else 0,
+            "mip_count": scan_config.strips_per_slice
+            if scan_config.generate_mip
+            else 0,
         },
     )
     logger.info(

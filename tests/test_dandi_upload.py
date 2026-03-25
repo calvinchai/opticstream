@@ -21,4 +21,3 @@ def test_build_dandi_upload_command_includes_linc_instance_flag() -> None:
     assert "-i linc" in cmd
     assert "/tmp/file1.nii" in cmd
     assert "/tmp/file2.nii" in cmd
-

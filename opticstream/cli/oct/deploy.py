@@ -14,6 +14,7 @@ from opticstream.events import (
 
 COMMON_TAGS = ["linc", "psoct"]
 
+
 @oct_cli.command
 def deploy(
     *,
@@ -21,7 +22,6 @@ def deploy(
     deployment_name: str = "dynamic",
     work_pool_name: str = "psoct",
 ):
-
     if project_name == "all":
         project_name = None
 
@@ -37,7 +37,6 @@ def deploy(
         build=False,
         push=False,
     )
-
 
     register_slice_flow.from_source(
         source=Path(__file__).parent.parent.parent / "flows",
@@ -241,7 +240,13 @@ def deploy(
     ).deploy(
         name=deployment_name,
         work_pool_name=work_pool_name,
-        tags=["event-driven", "slack-notifications", "mosaic-qc", "enface", *COMMON_TAGS],
+        tags=[
+            "event-driven",
+            "slack-notifications",
+            "mosaic-qc",
+            "enface",
+            *COMMON_TAGS,
+        ],
         triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=project_name)],
         build=False,
         push=False,

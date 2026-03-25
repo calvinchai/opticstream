@@ -20,16 +20,17 @@ from scipy import ndimage
 app = App(name="generate_mask")
 
 
-def load_image(input_path: Union[str, Path]) -> Tuple[
-    np.ndarray, Optional[nib.Nifti1Image], Optional[np.ndarray]]:
+def load_image(
+    input_path: Union[str, Path],
+) -> Tuple[np.ndarray, Optional[nib.Nifti1Image], Optional[np.ndarray]]:
     """
     Load image from file, supporting both nifti and regular image formats.
-    
+
     Parameters
     ----------
     input_path : str
         Path to input file
-        
+
     Returns
     -------
     data : np.ndarray
@@ -41,7 +42,7 @@ def load_image(input_path: Union[str, Path]) -> Tuple[
     """
     input_path_obj = Path(input_path)
     suffix = input_path_obj.suffix.lower()
-    if suffix in ['.nii', '.gz', '.nii.gz']:
+    if suffix in [".nii", ".gz", ".nii.gz"]:
         # Load nifti file
         nifti_img = nib.load(str(input_path_obj))
         data = np.asarray(nifti_img.dataobj)
@@ -75,11 +76,11 @@ def save_mask(
     mask: np.ndarray,
     output_path: Union[str, Path],
     nifti_img: Optional[nib.Nifti1Image] = None,
-    affine: Optional[np.ndarray] = None
+    affine: Optional[np.ndarray] = None,
 ):
     """
     Save mask to file, format determined by output file extension.
-    
+
     Parameters
     ----------
     mask : np.ndarray
@@ -97,7 +98,7 @@ def save_mask(
     # Ensure mask is uint8 with values 0 and 1
     mask_uint8 = (mask.astype(np.uint8) * 255).astype(np.uint8)
 
-    if suffix in ['.nii', '.nii.gz', '.gz']:
+    if suffix in [".nii", ".nii.gz", ".gz"]:
         # Save as nifti
         if nifti_img is not None and affine is not None:
             # Use original nifti header and affine
@@ -108,22 +109,19 @@ def save_mask(
             # Create default affine
             mask_img = nib.Nifti1Image(mask_uint8, np.eye(4))
         nib.save(mask_img, str(output_path_obj))
-    elif suffix in ['.tif', '.tiff']:
+    elif suffix in [".tif", ".tiff"]:
         # Save as TIFF
         imageio.imwrite(str(output_path_obj), mask_uint8)
     else:
         # Save as regular image (PNG, JPEG, etc.)
-        mask_image = Image.fromarray(mask_uint8, mode='L')
+        mask_image = Image.fromarray(mask_uint8, mode="L")
         mask_image.save(str(output_path_obj))
 
 
-def ensure_single_component(
-    mask: np.ndarray,
-    keep_largest: bool = True
-) -> np.ndarray:
+def ensure_single_component(mask: np.ndarray, keep_largest: bool = True) -> np.ndarray:
     """
     Ensure mask has only one connected component for background and object.
-    
+
     Parameters
     ----------
     mask : np.ndarray
@@ -131,7 +129,7 @@ def ensure_single_component(
     keep_largest : bool
         If True, keep the largest component. If False, keep the component
         that contains the center of the image.
-        
+
     Returns
     -------
     mask : np.ndarray
@@ -157,8 +155,9 @@ def ensure_single_component(
             # Center is background, find largest background component
             labeled_bg, num_bg = ndimage.label(~mask.astype(bool))
             if num_bg > 1:
-                bg_sizes = ndimage.sum(~mask.astype(bool), labeled_bg,
-                                       range(1, num_bg + 1))
+                bg_sizes = ndimage.sum(
+                    ~mask.astype(bool), labeled_bg, range(1, num_bg + 1)
+                )
                 largest_bg = np.argmax(bg_sizes) + 1
                 # Keep everything except the largest background component
                 result = mask.copy()
@@ -192,7 +191,7 @@ def main(
 ):
     """
     Generate binary mask from input image or nifti file.
-    
+
     Parameters
     ----------
     input : str
@@ -217,7 +216,8 @@ def main(
     print(f"Loading input from {input_path}...")
     data, nifti_img, affine = load_image(input_path)
     print(
-        f"  Shape: {data.shape}, dtype: {data.dtype}, range: [{data.min():.2f}, {data.max():.2f}]")
+        f"  Shape: {data.shape}, dtype: {data.dtype}, range: [{data.min():.2f}, {data.max():.2f}]"
+    )
 
     # Apply Gaussian filter if requested
     if gaussian:
@@ -229,14 +229,16 @@ def main(
     print(f"Creating binary mask with threshold={threshold}...")
     mask = (data > threshold).astype(np.uint8)
     print(
-        f"  Foreground pixels: {np.sum(mask)}, Background pixels: {np.sum(~mask.astype(bool))}")
+        f"  Foreground pixels: {np.sum(mask)}, Background pixels: {np.sum(~mask.astype(bool))}"
+    )
 
     # Ensure single component if requested
     if single_component:
         print("Ensuring single connected component...")
         mask = ensure_single_component(mask, keep_largest=True)
         print(
-            f"  After single component: Foreground pixels: {np.sum(mask)}, Background pixels: {np.sum(~mask.astype(bool))}")
+            f"  After single component: Foreground pixels: {np.sum(mask)}, Background pixels: {np.sum(~mask.astype(bool))}"
+        )
 
     # Save mask
     print(f"Saving mask to {output_path}...")
@@ -246,4 +248,3 @@ def main(
 
 if __name__ == "__main__":
     app()
-

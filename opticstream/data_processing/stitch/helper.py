@@ -41,21 +41,21 @@ def _blending_ramp(
     wx = np.ones(shape[0], dtype=np.float32)
     wy = np.ones(shape[1], dtype=np.float32)
     if overlap[0] > 0:
-        wx[:overlap[0]] = np.linspace(0, 1, overlap[0], dtype=np.float32)
-        wx[-overlap[0]:] = np.linspace(1, 0, overlap[0], dtype=np.float32)
+        wx[: overlap[0]] = np.linspace(0, 1, overlap[0], dtype=np.float32)
+        wx[-overlap[0] :] = np.linspace(1, 0, overlap[0], dtype=np.float32)
     if overlap[1] > 0:
-        wy[:overlap[1]] = np.linspace(0, 1, overlap[1], dtype=np.float32)
-        wy[-overlap[1]:] = np.linspace(1, 0, overlap[1], dtype=np.float32)
+        wy[: overlap[1]] = np.linspace(0, 1, overlap[1], dtype=np.float32)
+        wy[-overlap[1] :] = np.linspace(1, 0, overlap[1], dtype=np.float32)
     return np.outer(wx, wy)
 
 
 def _combine_block(
     _, block_tiles, block_weights, circular_mean, *args, block_info=None, **kwargs
-    ):
-    chunk_id = tuple(block_info[None]['chunk-location'][:2])
+):
+    chunk_id = tuple(block_info[None]["chunk-location"][:2])
     paints = block_tiles[chunk_id]
     weights = block_weights[chunk_id]
-    shape = block_info[None]['chunk-shape']
+    shape = block_info[None]["chunk-shape"]
 
     if not paints:
         return np.broadcast_to(np.zeros((), dtype=np.float32), shape)
@@ -69,13 +69,8 @@ def _combine_block(
 
 
 def stitch_tiles(
-    tile_infos,
-    full_shape,
-    blend_ramp,
-    chunk_size=None,
-    circular_mean=False,
-    **_
-    ):
+    tile_infos, full_shape, blend_ramp, chunk_size=None, circular_mean=False, **_
+):
     """
     Chunk‐aligned padding + per‐block summation (build_slice_chunked_padding).
     """
@@ -83,12 +78,8 @@ def stitch_tiles(
         chunk_size = tile_infos[0].image.shape[:2]
     pw, ph = chunk_size
     no_chunk_dim = full_shape[2:]
-    canvas = da.zeros(full_shape,
-                      chunks=(pw, ph, *no_chunk_dim),
-                      dtype=np.float32)
-    weight = da.zeros(full_shape[:2],
-                      chunks=(pw, ph),
-                      dtype=np.float32)
+    canvas = da.zeros(full_shape, chunks=(pw, ph, *no_chunk_dim), dtype=np.float32)
+    weight = da.zeros(full_shape[:2], chunks=(pw, ph), dtype=np.float32)
 
     # collect per‐chunk pieces
     block_tiles = defaultdict(list)
@@ -108,18 +99,21 @@ def stitch_tiles(
         y_end = (y1c + 1) * ph
 
         if not circular_mean:
-            block_canvas = da.zeros((x_end - x_start, y_end - y_start, *no_chunk_dim),
-                                    chunks=(pw, ph, *no_chunk_dim),
-                                    dtype=np.float32)
+            block_canvas = da.zeros(
+                (x_end - x_start, y_end - y_start, *no_chunk_dim),
+                chunks=(pw, ph, *no_chunk_dim),
+                dtype=np.float32,
+            )
         else:
             block_canvas = da.zeros(
                 (x_end - x_start, y_end - y_start, *no_chunk_dim, 2),
                 chunks=(pw, ph, *no_chunk_dim, 2),
-                dtype=np.float32)
+                dtype=np.float32,
+            )
 
-        block_weight = da.zeros((x_end - x_start, y_end - y_start),
-                                chunks=(pw, ph),
-                                dtype=np.float32)
+        block_weight = da.zeros(
+            (x_end - x_start, y_end - y_start), chunks=(pw, ph), dtype=np.float32
+        )
 
         # place tile into that big block
         xs = slice(x0 - x_start, x0 - x_start + pw)
@@ -142,10 +136,15 @@ def stitch_tiles(
                 block_tiles[bid].append(block_canvas[sub_x, sub_y, ...])
                 block_weights[bid].append(block_weight[sub_x, sub_y])
 
-    canvas = da.map_blocks(_combine_block, canvas, block_tiles, block_weights,
-                           circular_mean,
-                           dtype=canvas.dtype,
-                           chunks=(pw, ph, *no_chunk_dim))
+    canvas = da.map_blocks(
+        _combine_block,
+        canvas,
+        block_tiles,
+        block_weights,
+        circular_mean,
+        dtype=canvas.dtype,
+        chunks=(pw, ph, *no_chunk_dim),
+    )
     # crop canvas to get rid of excessive padded pixels
-    canvas = canvas[:full_shape[0], :full_shape[1], ...]
+    canvas = canvas[: full_shape[0], : full_shape[1], ...]
     return canvas

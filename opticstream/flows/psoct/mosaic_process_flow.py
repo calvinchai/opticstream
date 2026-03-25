@@ -55,6 +55,7 @@ from opticstream.flows.psoct.tile_batch_processed_validation import (
 )
 from opticstream.utils.slack_notification_hook import slack_notification_hook
 
+
 @task
 def generate_mask_task(
     input_image: Path,
@@ -476,7 +477,9 @@ def process_mosaic(
 
     # Create symlinks to DANDI directory if configured
     if dandiset_path and mosaic_enface_format:
-        dandi_slice_path = get_dandi_slice_path(str(dandiset_path), mosaic_ident.slice_id)
+        dandi_slice_path = get_dandi_slice_path(
+            str(dandiset_path), mosaic_ident.slice_id
+        )
         symlink_targets = symlink_enface_to_dandi(
             enface_outputs=enface_outputs,
             dandi_slice_path=dandi_slice_path,
@@ -500,9 +503,7 @@ def process_mosaic(
         mosaic_ident,
         extra_payload={
             "enface_outputs": enface_outputs,
-            "symlink_targets": {
-                k: str(v) for k, v in symlink_targets.items()
-            }
+            "symlink_targets": {k: str(v) for k, v in symlink_targets.items()}
             if symlink_targets
             else {},
         },
@@ -534,6 +535,7 @@ def process_mosaic_event_flow(payload: Dict[str, Any]) -> Dict[str, Any]:
         force_rerun=force_rerun_from_payload(payload),
     )
 
+
 def to_deployment(project_name: Optional[str] = None):
     return process_mosaic_event_flow.to_deployment(
         name="process_mosaic_event_flow",
@@ -542,4 +544,3 @@ def to_deployment(project_name: Optional[str] = None):
             get_event_trigger(MOSAIC_READY, project_name=project_name),
         ],
     )
-

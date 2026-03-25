@@ -136,7 +136,9 @@ class PollingStableWatcher(Generic[T, K]):
             if record.fingerprint != current_fingerprint:
                 record.fingerprint = current_fingerprint
                 record.stable_since = now if self.stability_seconds == 0 else None
-                logger.info("Candidate changed; resetting stability timer: %r", candidate)
+                logger.info(
+                    "Candidate changed; resetting stability timer: %r", candidate
+                )
                 continue
 
             if record.stable_since is None:
@@ -150,7 +152,9 @@ class PollingStableWatcher(Generic[T, K]):
 
             try:
                 dispatched = self.process(candidate)
-                logger.info("Processed candidate=%r dispatched=%s", candidate, dispatched)
+                logger.info(
+                    "Processed candidate=%r dispatched=%s", candidate, dispatched
+                )
             except Exception as exc:
                 logger.exception("Error processing candidate %r: %s", candidate, exc)
             finally:
@@ -161,5 +165,3 @@ class PollingStableWatcher(Generic[T, K]):
         disappeared_keys = set(self._stability) - seen_keys
         for key in disappeared_keys:
             self._stability.pop(key, None)
-
-

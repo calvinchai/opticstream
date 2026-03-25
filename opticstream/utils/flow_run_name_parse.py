@@ -31,6 +31,8 @@ def parse_flow_run_name_fields(flow_run_name: str) -> dict[str, str | int]:
     return parsed
 
 
-def missing_required_fields(parsed: dict[str, Any], required_fields: tuple[str, ...]) -> list[str]:
+def missing_required_fields(
+    parsed: dict[str, Any], required_fields: tuple[str, ...]
+) -> list[str]:
     """Return required fields that are missing in parsed values."""
     return [field for field in required_fields if field not in parsed]

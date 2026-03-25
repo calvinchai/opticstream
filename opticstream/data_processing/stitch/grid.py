@@ -35,7 +35,16 @@ COLUMN_BASED_ORDERS = ["down-right", "down-left", "up-right", "up-left"]
 class Tile:
     """Single tile with coordinate, filepath, and grid position."""
 
-    __slots__ = ("x", "y", "filepath", "index", "row", "col", "normalized_coord", "avg_signal")
+    __slots__ = (
+        "x",
+        "y",
+        "filepath",
+        "index",
+        "row",
+        "col",
+        "normalized_coord",
+        "avg_signal",
+    )
 
     def __init__(
         self,
@@ -93,7 +102,9 @@ class Grid:
         self.rows = rows
         self.columns = columns
         self.index_base = index_base
-        self.direction = direction if direction is not None else self._default_direction()
+        self.direction = (
+            direction if direction is not None else self._default_direction()
+        )
         self._validate_direction()
 
         # Build tiles with index and (row, col) from layout; x, y, filepath empty
@@ -131,7 +142,10 @@ class Grid:
             elif order == "right-up":
                 row_range, col_range = range(self.rows - 1, -1, -1), range(self.columns)
             else:  # left-up
-                row_range, col_range = range(self.rows - 1, -1, -1), range(self.columns - 1, -1, -1)
+                row_range, col_range = (
+                    range(self.rows - 1, -1, -1),
+                    range(self.columns - 1, -1, -1),
+                )
             for r in row_range:
                 for c in col_range:
                     yield r, c
@@ -143,7 +157,10 @@ class Grid:
             elif order == "up-right":
                 col_range, row_range = range(self.columns), range(self.rows - 1, -1, -1)
             else:  # up-left
-                col_range, row_range = range(self.columns - 1, -1, -1), range(self.rows - 1, -1, -1)
+                col_range, row_range = (
+                    range(self.columns - 1, -1, -1),
+                    range(self.rows - 1, -1, -1),
+                )
             for c in col_range:
                 for r in row_range:
                     yield r, c
@@ -157,7 +174,11 @@ class Grid:
             else:
                 row_range, first_left = range(self.rows - 1, -1, -1), False
             for row_pos, r in enumerate(row_range):
-                col_range = range(self.columns) if (row_pos % 2 == 0) == first_left else range(self.columns - 1, -1, -1)
+                col_range = (
+                    range(self.columns)
+                    if (row_pos % 2 == 0) == first_left
+                    else range(self.columns - 1, -1, -1)
+                )
                 for c in col_range:
                     yield r, c
         else:  # snake-by-columns
@@ -170,7 +191,11 @@ class Grid:
             else:
                 col_range, first_down = range(self.columns - 1, -1, -1), False
             for col_pos, c in enumerate(col_range):
-                row_range = range(self.rows) if (col_pos % 2 == 0) == first_down else range(self.rows - 1, -1, -1)
+                row_range = (
+                    range(self.rows)
+                    if (col_pos % 2 == 0) == first_down
+                    else range(self.rows - 1, -1, -1)
+                )
                 for r in row_range:
                     yield r, c
 
@@ -192,9 +217,12 @@ class Grid:
                 col=col,
             )
         except (KeyError, ValueError):
-            return path_template.replace("{tile_number}", str(tile_number)).replace(
-                "{index}", str(index)
-            ).replace("{row}", str(row)).replace("{col}", str(col))
+            return (
+                path_template.replace("{tile_number}", str(tile_number))
+                .replace("{index}", str(index))
+                .replace("{row}", str(row))
+                .replace("{col}", str(col))
+            )
 
     def generate_tiles(
         self,
@@ -223,10 +251,14 @@ class Grid:
             # Lookup by index (user-facing: 0- or 1-based)
             if self.index_base == 1:
                 if key < 1 or key > len(self._tiles):
-                    raise IndexError(f"Index {key} out of range (1-based, {len(self._tiles)} tiles)")
+                    raise IndexError(
+                        f"Index {key} out of range (1-based, {len(self._tiles)} tiles)"
+                    )
                 return self._tiles[key - 1]
             if key < 0 or key >= len(self._tiles):
-                raise IndexError(f"Index {key} out of range (0-based, {len(self._tiles)} tiles)")
+                raise IndexError(
+                    f"Index {key} out of range (0-based, {len(self._tiles)} tiles)"
+                )
             return self._tiles[key]
         if isinstance(key, tuple) and len(key) == 2:
             r, c = key
@@ -396,12 +428,14 @@ class Grid:
             avg = entry.get("avg_signal")
             if avg is not None:
                 avg = float(avg)
-            entries.append({
-                "filepath": entry.get("filepath", ""),
-                "x": float(entry.get("x", 0)),
-                "y": float(entry.get("y", 0)),
-                "avg_signal": avg,
-            })
+            entries.append(
+                {
+                    "filepath": entry.get("filepath", ""),
+                    "x": float(entry.get("x", 0)),
+                    "y": float(entry.get("y", 0)),
+                    "avg_signal": avg,
+                }
+            )
 
         if len(entries) != len(self._tiles):
             raise ValueError(
@@ -438,11 +472,13 @@ class Grid:
             m = pattern.match(line)
             if not m:
                 continue
-            entries.append({
-                "filepath": m.group(1).strip(),
-                "x": float(m.group(2)),
-                "y": float(m.group(3)),
-            })
+            entries.append(
+                {
+                    "filepath": m.group(1).strip(),
+                    "x": float(m.group(2)),
+                    "y": float(m.group(3)),
+                }
+            )
 
         if len(entries) != len(self._tiles):
             raise ValueError(
@@ -456,4 +492,10 @@ class Grid:
             t.filepath = e["filepath"]
 
 
-__all__ = ["Grid", "Tile", "VALID_GRID_TYPES", "ROW_BASED_ORDERS", "COLUMN_BASED_ORDERS"]
+__all__ = [
+    "Grid",
+    "Tile",
+    "VALID_GRID_TYPES",
+    "ROW_BASED_ORDERS",
+    "COLUMN_BASED_ORDERS",
+]

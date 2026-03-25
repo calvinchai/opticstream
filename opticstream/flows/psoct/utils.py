@@ -22,7 +22,9 @@ def slice_id_for_mosaic_id(mosaic_id: int) -> int:
     return mosaic_id // 2
 
 
-def mosaic_ident_from_project_and_mosaic_id(project_name: str, mosaic_id: int) -> OCTMosaicId:
+def mosaic_ident_from_project_and_mosaic_id(
+    project_name: str, mosaic_id: int
+) -> OCTMosaicId:
     return OCTMosaicId(
         project_name=project_name,
         slice_id=slice_id_for_mosaic_id(mosaic_id),
@@ -84,10 +86,13 @@ def get_item_path(
         if isinstance(project_base_path, str):
             project_base_path = Path(project_base_path)
         else:
-            raise ValueError(f"project_base_path must be a Path, got {type(project_base_path)}")
+            raise ValueError(
+                f"project_base_path must be a Path, got {type(project_base_path)}"
+            )
     if isinstance(item_indent, OCTSliceId):
         return project_base_path / f"slice-{item_indent.slice_id:02d}"
     raise ValueError(f"Invalid item indent: {item_indent}")
+
 
 def _model_from_payload(payload: Mapping[str, Any], key: str, model_type: Any) -> Any:
     if key not in payload:
@@ -121,7 +126,9 @@ def load_scan_config_for_payload(payload: Mapping[str, Any]) -> PSOCTScanConfigM
         elif isinstance(raw_ident, Mapping):
             project_name = raw_ident.get("project_name")
     if project_name is None:
-        raise KeyError("payload must include project_name or mosaic_ident with project_name")
+        raise KeyError(
+            "payload must include project_name or mosaic_ident with project_name"
+        )
     override = payload.get("override_config")
     if override is not None:
         cfg = get_psoct_scan_config(project_name, override_config_name=override)
@@ -134,7 +141,9 @@ def load_scan_config_for_payload(payload: Mapping[str, Any]) -> PSOCTScanConfigM
     return PSOCTScanConfigModel.model_validate(cfg.model_dump())
 
 
-def path_list_from_payload(payload: Mapping[str, Any], key: str = "file_list") -> list[Path]:
+def path_list_from_payload(
+    payload: Mapping[str, Any], key: str = "file_list"
+) -> list[Path]:
     values = payload.get(key, [])
     if not isinstance(values, list):
         raise TypeError(f"payload[{key}] must be a list")
@@ -225,7 +234,6 @@ def get_mosaic_nifti_path(
     return Path(stitched_path) / f"{mosaic_prefix(mosaic_id)}_{modality}.nii.gz"
 
 
-
 def get_mosaic_tile_coords_export_path(
     stitched_path: str | Path, mosaic_id: int
 ) -> Path:
@@ -297,7 +305,9 @@ def logical_mosaic_from_source_mosaic(
             f"from source_mosaic_id={source_mosaic_id}"
         )
 
-    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice) + (pos_in_slice - 1)
+    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice) + (
+        pos_in_slice - 1
+    )
     return logical_slice_id, logical_mosaic_id
 
 
@@ -380,6 +390,7 @@ class MosaicContext(BaseModel):
     - In 3-mosaic mode, all mosaics use `config_illumination="normal"` while
       `acquisition_label` is one of: normal, tiltPos, tiltNeg.
     """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     slice_id: int
@@ -446,9 +457,11 @@ def mosaic_context_from_ids(
     Build MosaicContext from resolved ids and layout size.
     """
     pos_in_slice = mosaic_position_in_slice(mosaic_id, mosaics_per_slice)
-    acquisition_label, config_illumination, base_mosaic_id = acquisition_info_for_position(
-        mosaics_per_slice,
-        pos_in_slice,
+    acquisition_label, config_illumination, base_mosaic_id = (
+        acquisition_info_for_position(
+            mosaics_per_slice,
+            pos_in_slice,
+        )
     )
 
     return MosaicContext(
@@ -476,7 +489,9 @@ def mosaic_context_from_ident(
         mosaic_ident.mosaic_id and config.mosaics_per_slice.
     """
     if validate_slice_consistency:
-        expected_slice_id = slice_from_mosaic(mosaic_ident.mosaic_id, config.mosaics_per_slice)
+        expected_slice_id = slice_from_mosaic(
+            mosaic_ident.mosaic_id, config.mosaics_per_slice
+        )
         if expected_slice_id != mosaic_ident.slice_id:
             raise ValueError(
                 "Inconsistent OCTMosaicId: "

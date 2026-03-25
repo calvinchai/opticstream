@@ -30,7 +30,9 @@ def test_parse_with_prefix_and_extra_fields():
 
 
 def test_parse_lsm_ident_fields():
-    parsed = parse_flow_run_name_fields("project_name='111' slice_id=1 channel_id=1 strip_id=1")
+    parsed = parse_flow_run_name_fields(
+        "project_name='111' slice_id=1 channel_id=1 strip_id=1"
+    )
     assert parsed == {
         "project_name": "111",
         "slice_id": 1,
@@ -41,4 +43,6 @@ def test_parse_lsm_ident_fields():
 
 def test_missing_required_fields():
     parsed = parse_flow_run_name_fields("project_name='111' mosaic_id=4")
-    assert missing_required_fields(parsed, ("project_name", "slice_id", "mosaic_id")) == ["slice_id"]
+    assert missing_required_fields(
+        parsed, ("project_name", "slice_id", "mosaic_id")
+    ) == ["slice_id"]

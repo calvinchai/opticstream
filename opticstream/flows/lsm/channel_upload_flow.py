@@ -13,7 +13,6 @@ from opticstream.events.lsm_events import CHANNEL_VOLUME_UPLOADED
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.flows.lsm.paths import channel_zarr_volume_path
 from opticstream.state.state_guards import (
-    RunDecision,
     force_rerun_from_payload,
     enter_milestone_stage,
     should_skip_run,

@@ -1,10 +1,9 @@
-
 from typing import Any
-from prefect import flow
 from prefect.blocks.notifications import SlackWebhook
-from prefect.settings import PREFECT_API_URL, PREFECT_UI_URL
+from prefect.settings import PREFECT_UI_URL
 
 from opticstream.config.constants import SLACK_WEBHOOK_BLOCK_NAME
+
 
 def slack_notification_hook(flow: Any, flow_run: Any, state: Any) -> None:
     """

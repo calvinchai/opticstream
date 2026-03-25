@@ -15,10 +15,8 @@ from opticstream.state.lsm_project_state import (
 )
 from opticstream.state.milestone_runtime import MilestoneAdapter, guarded_milestone
 from opticstream.state.milestone_hooks import (
-    channel_failure_slack_hook,
     strip_failure_slack_hook,
 )
-from opticstream.state.oct_project_state import OCTBatchId
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -49,9 +47,7 @@ CHANNEL_MILESTONE_ADAPTER = MilestoneAdapter[LSMChannelId, Any](
 )
 
 STRIP_MILESTONE_ADAPTER = MilestoneAdapter[LSMStripId, Any](
-    peek_view=lambda strip_ident: LSM_STATE_SERVICE.peek_strip(
-        strip_ident=strip_ident
-    ),
+    peek_view=lambda strip_ident: LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident),
     set_done=_strip_set_done,
 )
 

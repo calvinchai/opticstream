@@ -1,4 +1,5 @@
 import argparse
+
 # Import complex2volume
 # Note: This assumes the script is run from the oct-pipe root directory
 # or that the package is properly installed
@@ -27,19 +28,19 @@ from volume_3d.complex2vol import complex2volume
 def find_surface_gradient(inten: np.ndarray) -> np.ndarray:
     """
     Find surface z-indices using gradient-based method (vectorized).
-    
+
     This implements the MATLAB algorithm from Complex2Processed.m (lines 98-123).
     The algorithm:
     1. Applies 1D Gaussian smoothing along z-axis
     2. Computes gradient using a custom kernel
     3. Finds maximum gradient position for each pixel
     4. Applies median filtering
-    
+
     Parameters
     ----------
     inten : np.ndarray
         3D intensity volume, shape (nx, ny, nz)
-        
+
     Returns
     -------
     np.ndarray
@@ -60,7 +61,7 @@ def find_surface_gradient(inten: np.ndarray) -> np.ndarray:
     return surf
     # Compute gradient using convolution along z-axis
     # Use mode='constant' with cval=0 to match MATLAB's conv behavior
-    grad = -convolve1d(data, kernel, axis=2, mode='constant', cval=0.0)
+    grad = -convolve1d(data, kernel, axis=2, mode="constant", cval=0.0)
 
     # Find valid length for each pixel (where inten > 0.01)
     valid_len = np.sum(inten > 0.01, axis=2)  # Shape: (nx, ny)
@@ -82,8 +83,9 @@ def find_surface_gradient(inten: np.ndarray) -> np.ndarray:
     # z_positions_in_grad < valid_len - w + 1
     # This matches MATLAB: positions = (w+1):(valid_len-w+1)
     max_valid_pos = (valid_len - w + 1)[:, :, None]  # Shape: (nx, ny, 1)
-    z_pos_mask = z_positions_in_grad[None, None,
-                 :] < max_valid_pos  # Shape: (nx, ny, grad_nz)
+    z_pos_mask = (
+        z_positions_in_grad[None, None, :] < max_valid_pos
+    )  # Shape: (nx, ny, grad_nz)
 
     # Apply mask to gradient: set invalid positions to -inf so they won't be selected
     grad_masked = np.where(z_pos_mask, grad, -np.inf)
@@ -99,7 +101,7 @@ def find_surface_gradient(inten: np.ndarray) -> np.ndarray:
 
     # Median filtering with 3x3 kernel and symmetric padding
     # MATLAB's 'symmetric' mode corresponds to 'reflect' in scipy
-    surf = median_filter(surf, size=3, mode='reflect')
+    surf = median_filter(surf, size=3, mode="reflect")
 
     return surf.astype(np.int32)
 
@@ -108,12 +110,12 @@ def compute_orientation_circular_mean(O3D_enface: ArrayLike) -> da.Array:
     """
     Compute circular mean of O3D over enface volume using doubled-angle trick.
     O3D is 180°-periodic, so we double the angles before averaging.
-    
+
     Parameters
     ----------
     O3D_enface : ArrayLike
         3D enface volume of O3D, shape (nx, ny, depth)
-        
+
     Returns
     -------
     da.Array
@@ -135,18 +137,18 @@ def compute_orientation_circular_mean(O3D_enface: ArrayLike) -> da.Array:
 
 def compute_orientation_histogram(
     O3D_enface: ArrayLike, binsize: float = 1.0
-    ) -> np.ndarray:
+) -> np.ndarray:
     """
     Compute orientation using histogram-based mode finding (matches orien_enface.m).
     For each pixel, finds the bin with maximum count in histogram of O3D values.
-    
+
     Parameters
     ----------
     O3D_enface : ArrayLike
         3D enface volume of O3D, shape (nx, ny, depth)
     binsize : float, default=1.0
         Bin size in degrees for histogram
-        
+
     Returns
     -------
     np.ndarray
@@ -177,7 +179,7 @@ def compute_birefringence_slope_fit(
     """
     Compute birefringence using simple slope fitting (old method).
     Fits slope of OPD (cycles*lambda) vs depth to estimate Δn.
-    
+
     Parameters
     ----------
     R3D_enface : ArrayLike
@@ -212,7 +214,7 @@ def compute_birefringence_unwrap_fit(
     """
     Compute birefringence using unwrapped retardance and slope fitting (new method).
     Unwraps retardance using Stokes parameters, then fits slope on multiple segments.
-    
+
     Parameters
     ----------
     R3D : ArrayLike
@@ -227,7 +229,7 @@ def compute_birefringence_unwrap_fit(
         Axial voxel size in micrometers
     wavelength_um : float
         Wavelength in micrometers
-        
+
     Returns
     -------
     np.ndarray
@@ -247,7 +249,7 @@ def compute_birefringence_unwrap_fit(
     V = gaussian_filter(np.cos(2 * RET), sigma=(1.5, 1.5, 5))
 
     # Normalize the Stokes vectors
-    norms = np.sqrt(Q ** 2 + U ** 2 + V ** 2) + np.finfo(float).eps
+    norms = np.sqrt(Q**2 + U**2 + V**2) + np.finfo(float).eps
     Q = Q / norms
     U = U / norms
     V = V / norms
@@ -280,7 +282,7 @@ class EnfaceVolume:
     ):
         """
         Initialize EnfaceVolume for computing enface projections from 3D volumes.
-        
+
         Parameters
         ----------
         dBI3D : ArrayLike
@@ -366,12 +368,12 @@ class EnfaceVolume:
     def find_surface(self, method: str = "default") -> da.Array:
         """
         Find surface z-indices for each (x, y) position.
-        
+
         Parameters
         ----------
         method : str
             Method to use: "default" (gradient-based) or "argmax"
-            
+
         Returns
         -------
         da.Array
@@ -395,7 +397,7 @@ class EnfaceVolume:
 
             # Convert back to dask array if input was dask
             if isinstance(dBI3D, da.Array):
-                return da.from_array(surf, chunks='auto')
+                return da.from_array(surf, chunks="auto")
             else:
                 return surf
         else:
@@ -405,7 +407,7 @@ class EnfaceVolume:
     def aip(self) -> da.Array:
         """
         Average Intensity Projection (AIP): mean dBI over [surf, surf+depth].
-        
+
         Returns
         -------
         da.Array
@@ -419,7 +421,7 @@ class EnfaceVolume:
     def mip(self) -> da.Array:
         """
         Maximum Intensity Projection (MIP): max dBI over [surf, surf+depth].
-        
+
         Returns
         -------
         da.Array
@@ -433,7 +435,7 @@ class EnfaceVolume:
     def ret(self) -> da.Array:
         """
         Retardance (RET): mean R3D over [surf, surf+depth] in degrees.
-        
+
         Returns
         -------
         da.Array
@@ -447,11 +449,11 @@ class EnfaceVolume:
     def ori(self) -> da.Array:
         """
         Orientation (ORI): computed from O3D over [surf, surf+depth].
-        
+
         Method depends on orientation_method:
         - "circular_mean": circular mean using doubled-angle trick (default)
         - "histogram": histogram-based mode finding (matches orien_enface.m)
-        
+
         Returns
         -------
         da.Array
@@ -461,27 +463,29 @@ class EnfaceVolume:
             O3D_enface = self.O3D_enface
 
             if self.orientation_method == "histogram":
-                self._ori = compute_orientation_histogram(O3D_enface,
-                                                          self.orientation_binsize)
+                self._ori = compute_orientation_histogram(
+                    O3D_enface, self.orientation_binsize
+                )
                 # Convert to dask array if input was dask
                 if isinstance(O3D_enface, da.Array):
-                    self._ori = da.from_array(self._ori, chunks='auto')
+                    self._ori = da.from_array(self._ori, chunks="auto")
             elif self.orientation_method == "circular_mean":
                 self._ori = compute_orientation_circular_mean(O3D_enface)
             else:
                 raise ValueError(
-                    f"Unknown orientation method: {self.orientation_method}")
+                    f"Unknown orientation method: {self.orientation_method}"
+                )
         return self._ori
 
     @property
     def biref(self) -> da.Array:
         """
         Birefringence (BIREF): computed from R3D (and optionally O3D) over [surf, surf+depth].
-        
+
         Method depends on birefringence_method:
         - "slope_fit": simple slope fitting of OPD vs depth (old method, matches fitBirefringence)
         - "unwrap_fit": unwrap retardance using Stokes parameters, then slope fitting (new method, matches unwarp_new_fitting)
-        
+
         Returns
         -------
         da.Array
@@ -503,10 +507,11 @@ class EnfaceVolume:
                 )
             else:
                 raise ValueError(
-                    f"Unknown birefringence method: {self.birefringence_method}")
+                    f"Unknown birefringence method: {self.birefringence_method}"
+                )
             # Convert to dask array if input was dask
             if isinstance(self.R3D, da.Array):
-                self._biref = da.from_array(self._biref, chunks='auto')
+                self._biref = da.from_array(self._biref, chunks="auto")
         return self._biref
 
     @property
@@ -515,7 +520,7 @@ class EnfaceVolume:
         3D enface volume of dBI starting from surface.
         Each A-line starts at surface[x,y] and extends for depth pixels.
         Values beyond nz are filled with NaN.
-        
+
         Returns
         -------
         da.Array
@@ -531,7 +536,7 @@ class EnfaceVolume:
         3D enface volume of R3D starting from surface.
         Each A-line starts at surface[x,y] and extends for depth pixels.
         Values beyond nz are filled with NaN.
-        
+
         Returns
         -------
         da.Array
@@ -547,7 +552,7 @@ class EnfaceVolume:
         3D enface volume of O3D starting from surface.
         Each A-line starts at surface[x,y] and extends for depth pixels.
         Values beyond nz are filled with NaN.
-        
+
         Returns
         -------
         da.Array
@@ -570,9 +575,7 @@ class EnfaceVolume:
         start = self.surface
         # after padding, surface and stop_idx do not need to be clipped (already done)
         # so, for each (x, y), make gather indices: [start, start+1, ..., start+depth-1]
-        gather_indices = (
-            start[..., None] + da.arange(self.depth)[None, None, :]
-        )
+        gather_indices = start[..., None] + da.arange(self.depth)[None, None, :]
 
         # Broadcast indices for later use with take_along_axis
         # Input to np.take_along_axis must match the dimension
@@ -609,7 +612,7 @@ def process_enface_volumes(
 ) -> dict:
     """
     Wrapper function to process enface volumes from nifti files.
-    
+
     Parameters
     ----------
     complex_path : str or Path, optional
@@ -658,7 +661,7 @@ def process_enface_volumes(
         Output path for ORI (Orientation) nifti file
     output_biref : str or Path, optional
         Output path for BIREF (Birefringence) nifti file
-        
+
     Returns
     -------
     dict
@@ -670,24 +673,28 @@ def process_enface_volumes(
         if dbi3d_path is not None or r3d_path is not None or o3d_path is not None:
             raise ValueError(
                 "Cannot specify both complex_path and individual volume paths. "
-                "Use either complex_path or dbi3d_path/r3d_path/o3d_path.")
+                "Use either complex_path or dbi3d_path/r3d_path/o3d_path."
+            )
         # Load complex data and convert to volumes
         print(f"Loading complex data from {complex_path}")
         complex_img = nib.load(str(complex_path))
 
         # Convert to dask array for complex2volume
-        complex_da = da.from_array(complex_img.dataobj, chunks='auto')
+        complex_da = da.from_array(complex_img.dataobj, chunks="auto")
 
         print("Converting complex data to volumes...")
-        dBI3D, R3D, O3D = complex2volume(complex_da, flip_orientation=flip_orientation,
-                                         offset=offset)
+        dBI3D, R3D, O3D = complex2volume(
+            complex_da, flip_orientation=flip_orientation, offset=offset
+        )
 
         # Convert back to numpy arrays
         dBI3D = np.asarray(dBI3D.compute())
         R3D = np.asarray(R3D.compute())
         O3D = np.asarray(O3D.compute())
-        nib.save(Nifti1Image(dBI3D, complex_img.affine, complex_img.header),
-                 "/scratch/dBI3D.nii.gz")
+        nib.save(
+            Nifti1Image(dBI3D, complex_img.affine, complex_img.header),
+            "/scratch/dBI3D.nii.gz",
+        )
         # Get affine and header from complex file for saving
         reference_img = complex_img
         reference_affine = reference_img.affine
@@ -697,7 +704,8 @@ def process_enface_volumes(
         if dbi3d_path is None or r3d_path is None or o3d_path is None:
             raise ValueError(
                 "Either complex_path must be provided, or all three volume paths "
-                "(dbi3d_path, r3d_path, o3d_path) must be provided.")
+                "(dbi3d_path, r3d_path, o3d_path) must be provided."
+            )
 
         print(f"Loading dBI3D from {dbi3d_path}")
         dbi3d_img = nib.load(str(dbi3d_path))
@@ -738,9 +746,12 @@ def process_enface_volumes(
     # Compute and save AIP if requested
     if output_aip is not None:
         print("Computing AIP...")
-        aip = enface_vol.aip.compute() if isinstance(enface_vol.aip,
-                                                     da.Array) else enface_vol.aip
-        results['aip'] = aip
+        aip = (
+            enface_vol.aip.compute()
+            if isinstance(enface_vol.aip, da.Array)
+            else enface_vol.aip
+        )
+        results["aip"] = aip
         print(f"Saving AIP to {output_aip}")
         aip_img = Nifti1Image(aip, reference_affine, reference_header)
         nib.save(aip_img, str(output_aip))
@@ -748,9 +759,12 @@ def process_enface_volumes(
     # Compute and save MIP if requested
     if output_mip is not None:
         print("Computing MIP...")
-        mip = enface_vol.mip.compute() if isinstance(enface_vol.mip,
-                                                     da.Array) else enface_vol.mip
-        results['mip'] = mip
+        mip = (
+            enface_vol.mip.compute()
+            if isinstance(enface_vol.mip, da.Array)
+            else enface_vol.mip
+        )
+        results["mip"] = mip
         print(f"Saving MIP to {output_mip}")
         mip_img = Nifti1Image(mip, reference_affine, reference_header)
         nib.save(mip_img, str(output_mip))
@@ -758,9 +772,12 @@ def process_enface_volumes(
     # Compute and save RET if requested
     if output_ret is not None:
         print("Computing RET...")
-        ret = enface_vol.ret.compute() if isinstance(enface_vol.ret,
-                                                     da.Array) else enface_vol.ret
-        results['ret'] = ret
+        ret = (
+            enface_vol.ret.compute()
+            if isinstance(enface_vol.ret, da.Array)
+            else enface_vol.ret
+        )
+        results["ret"] = ret
         print(f"Saving RET to {output_ret}")
         ret_img = Nifti1Image(ret, reference_affine, reference_header)
         nib.save(ret_img, str(output_ret))
@@ -768,9 +785,12 @@ def process_enface_volumes(
     # Compute and save ORI if requested
     if output_ori is not None:
         print("Computing ORI...")
-        ori = enface_vol.ori.compute() if isinstance(enface_vol.ori,
-                                                     da.Array) else enface_vol.ori
-        results['ori'] = ori
+        ori = (
+            enface_vol.ori.compute()
+            if isinstance(enface_vol.ori, da.Array)
+            else enface_vol.ori
+        )
+        results["ori"] = ori
         print(f"Saving ORI to {output_ori}")
         ori_img = Nifti1Image(ori, reference_affine, reference_header)
         nib.save(ori_img, str(output_ori))
@@ -778,9 +798,12 @@ def process_enface_volumes(
     # Compute and save BIREF if requested
     if output_biref is not None:
         print("Computing BIREF...")
-        biref = enface_vol.biref.compute() if isinstance(enface_vol.biref,
-                                                         da.Array) else enface_vol.biref
-        results['biref'] = biref
+        biref = (
+            enface_vol.biref.compute()
+            if isinstance(enface_vol.biref, da.Array)
+            else enface_vol.biref
+        )
+        results["biref"] = biref
         print(f"Saving BIREF to {output_biref}")
         biref_img = Nifti1Image(biref, reference_affine, reference_header)
         nib.save(biref_img, str(output_biref))
@@ -793,7 +816,7 @@ def main():
     """Command-line interface for processing enface volumes."""
     parser = argparse.ArgumentParser(
         description="Process 3D OCT volumes to generate enface projections",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Input arguments: either complex_path or all three volume paths
@@ -802,28 +825,28 @@ def main():
         type=str,
         default=None,
         help="Path to nifti file containing complex data (will be converted to dBI3D, R3D, O3D). "
-             "If provided, --dbi3d, --r3d, and --o3d are not needed."
+        "If provided, --dbi3d, --r3d, and --o3d are not needed.",
     )
     parser.add_argument(
         "--dbi3d",
         type=str,
         default=None,
         help="Path to nifti file containing dBI3D volume (backscatter in dB). "
-             "Required if --complex is not provided."
+        "Required if --complex is not provided.",
     )
     parser.add_argument(
         "--r3d",
         type=str,
         default=None,
         help="Path to nifti file containing R3D volume (retardance in degrees). "
-             "Required if --complex is not provided."
+        "Required if --complex is not provided.",
     )
     parser.add_argument(
         "--o3d",
         type=str,
         default=None,
         help="Path to nifti file containing O3D volume (optic axis orientation in degrees). "
-             "Required if --complex is not provided."
+        "Required if --complex is not provided.",
     )
 
     # Complex conversion parameters
@@ -831,13 +854,13 @@ def main():
         "--flip-orientation",
         action="store_true",
         default=False,
-        help="Flip orientation when converting from complex data (only used with --complex)"
+        help="Flip orientation when converting from complex data (only used with --complex)",
     )
     parser.add_argument(
         "--offset",
         type=float,
         default=100.0,
-        help="Offset in degrees for orientation calculation when converting from complex data (only used with --complex)"
+        help="Offset in degrees for orientation calculation when converting from complex data (only used with --complex)",
     )
 
     # Surface parameters
@@ -845,40 +868,37 @@ def main():
         "--surface",
         type=str,
         default="find",
-        help="Surface specification: 'find' (auto-detect), integer (constant z-index), or path to nifti file with 2D surface map"
+        help="Surface specification: 'find' (auto-detect), integer (constant z-index), or path to nifti file with 2D surface map",
     )
     parser.add_argument(
         "--surface-finding-method",
         type=str,
         default="default",
         choices=["default", "argmax"],
-        help="Method for surface finding when surface='find'"
+        help="Method for surface finding when surface='find'",
     )
     parser.add_argument(
         "--skip-depth",
         type=int,
         default=0,
-        help="Number of pixels to skip from surface"
+        help="Number of pixels to skip from surface",
     )
     parser.add_argument(
         "--depth",
         type=int,
         default=80,
-        help="Number of pixels below surface for enface window"
+        help="Number of pixels below surface for enface window",
     )
 
     # Physical parameters
     parser.add_argument(
-        "--wavelength-um",
-        type=float,
-        default=1.0,
-        help="Wavelength in micrometers"
+        "--wavelength-um", type=float, default=1.0, help="Wavelength in micrometers"
     )
     parser.add_argument(
         "--voxel-size-z-um",
         type=float,
         default=2.0,
-        help="Axial voxel size in micrometers"
+        help="Axial voxel size in micrometers",
     )
 
     # Orientation parameters
@@ -887,13 +907,13 @@ def main():
         type=str,
         default="circular_mean",
         choices=["circular_mean", "histogram"],
-        help="Method for computing orientation"
+        help="Method for computing orientation",
     )
     parser.add_argument(
         "--orientation-binsize",
         type=float,
         default=1.0,
-        help="Bin size in degrees for histogram method (only used when orientation-method='histogram')"
+        help="Bin size in degrees for histogram method (only used when orientation-method='histogram')",
     )
 
     # Birefringence parameters
@@ -902,7 +922,7 @@ def main():
         type=str,
         default="slope_fit",
         choices=["slope_fit", "unwrap_fit"],
-        help="Method for computing birefringence"
+        help="Method for computing birefringence",
     )
 
     # Output paths for each modality
@@ -910,31 +930,31 @@ def main():
         "--output-aip",
         type=str,
         default=None,
-        help="Output path for AIP (Average Intensity Projection) nifti file"
+        help="Output path for AIP (Average Intensity Projection) nifti file",
     )
     parser.add_argument(
         "--output-mip",
         type=str,
         default=None,
-        help="Output path for MIP (Maximum Intensity Projection) nifti file"
+        help="Output path for MIP (Maximum Intensity Projection) nifti file",
     )
     parser.add_argument(
         "--output-ret",
         type=str,
         default=None,
-        help="Output path for RET (Retardance) nifti file"
+        help="Output path for RET (Retardance) nifti file",
     )
     parser.add_argument(
         "--output-ori",
         type=str,
         default=None,
-        help="Output path for ORI (Orientation) nifti file"
+        help="Output path for ORI (Orientation) nifti file",
     )
     parser.add_argument(
         "--output-biref",
         type=str,
         default=None,
-        help="Output path for BIREF (Birefringence) nifti file"
+        help="Output path for BIREF (Birefringence) nifti file",
     )
 
     args = parser.parse_args()
@@ -944,11 +964,14 @@ def main():
         if args.dbi3d is not None or args.r3d is not None or args.o3d is not None:
             parser.error(
                 "Cannot specify both --complex and individual volume paths (--dbi3d, --r3d, --o3d). "
-                "Use either --complex or all three volume paths.")
+                "Use either --complex or all three volume paths."
+            )
     else:
         if args.dbi3d is None or args.r3d is None or args.o3d is None:
-            parser.error("Either --complex must be provided, or all three volume paths "
-                         "(--dbi3d, --r3d, --o3d) must be provided.")
+            parser.error(
+                "Either --complex must be provided, or all three volume paths "
+                "(--dbi3d, --r3d, --o3d) must be provided."
+            )
 
     # Handle surface parameter: if it's a path to a file, load it
     surface = args.surface
@@ -965,7 +988,8 @@ def main():
                 surface = int(surface)
             except ValueError:
                 raise ValueError(
-                    f"Surface must be 'find', an integer, or a path to a nifti file. Got: {surface}")
+                    f"Surface must be 'find', an integer, or a path to a nifti file. Got: {surface}"
+                )
     elif str(surface).isdigit():
         surface = int(surface)
 

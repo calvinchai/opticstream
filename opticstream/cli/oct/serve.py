@@ -23,8 +23,12 @@ from opticstream.flows.psoct.tile_batch_process_flow import (
 )
 from opticstream.flows.psoct.slice_process_flow import register_slice_event_flow
 from opticstream.flows.state_management_flow import unified_state_management_event_flow
-from opticstream.flows.psoct.tile_batch_upload_flow import upload_to_linc_batch_event_flow
-from opticstream.flows.psoct.mosaic_upload_flow import upload_mosaic_enface_to_dandi_event_flow
+from opticstream.flows.psoct.tile_batch_upload_flow import (
+    upload_to_linc_batch_event_flow,
+)
+from opticstream.flows.psoct.mosaic_upload_flow import (
+    upload_mosaic_enface_to_dandi_event_flow,
+)
 from opticstream.flows.psoct.mosaic_volume_upload_flow import (
     upload_mosaic_volume_to_dandi_event_flow,
 )
@@ -98,7 +102,9 @@ def build_deployments(
             name=deployment_name,
             tags=["event-driven", "upload", "dandi", "enface", *COMMON_TAGS],
             triggers=[
-                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
+                get_event_trigger(
+                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
+                ),
             ],
         ),
         upload_mosaic_volume_to_dandi_event_flow.to_deployment(
@@ -124,9 +130,16 @@ def build_deployments(
         ),
         stitch_volume_event_flow.to_deployment(
             name=deployment_name,
-            tags=["event-driven", "mosaic-processing", "volume-stitching", *COMMON_TAGS],
+            tags=[
+                "event-driven",
+                "mosaic-processing",
+                "volume-stitching",
+                *COMMON_TAGS,
+            ],
             triggers=[
-                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
+                get_event_trigger(
+                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
+                ),
             ],
             concurrency_limit=1,
         ),
@@ -168,16 +181,31 @@ def build_deployments(
         # ============================================================================
         slack_enface_notification_flow.to_deployment(
             name=deployment_name,
-            tags=["event-driven", "slack-notifications", "enface-stitched", *COMMON_TAGS],
+            tags=[
+                "event-driven",
+                "slack-notifications",
+                "enface-stitched",
+                *COMMON_TAGS,
+            ],
             triggers=[
-                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
+                get_event_trigger(
+                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
+                ),
             ],
         ),
         mosaic_enface_qc_slack_event_flow.to_deployment(
             name=deployment_name,
-            tags=["event-driven", "slack-notifications", "mosaic-qc", "enface", *COMMON_TAGS],
+            tags=[
+                "event-driven",
+                "slack-notifications",
+                "mosaic-qc",
+                "enface",
+                *COMMON_TAGS,
+            ],
             triggers=[
-                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
+                get_event_trigger(
+                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
+                ),
             ],
         ),
     ]

@@ -26,11 +26,7 @@ def wait_until_stable(folder: Path, stable_seconds: int) -> None:
     last_change = time.time()
 
     def snapshot() -> list[tuple[str, float]]:
-        return [
-            (p.name, p.stat().st_mtime)
-            for p in folder.rglob("*")
-            if p.is_file()
-        ]
+        return [(p.name, p.stat().st_mtime) for p in folder.rglob("*") if p.is_file()]
 
     prev = snapshot()
 

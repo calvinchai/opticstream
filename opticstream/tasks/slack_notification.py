@@ -8,12 +8,19 @@ from prefect.blocks.system import Secret
 from prefect.blocks.notifications import SlackWebhook
 from prefect_slack import SlackCredentials
 
-from opticstream.config.constants import SLACK_API_TOKEN_BLOCK_NAME, SLACK_CHANNEL_BLOCK_NAME, SLACK_WEBHOOK_BLOCK_NAME
+from opticstream.config.constants import (
+    SLACK_API_TOKEN_BLOCK_NAME,
+    SLACK_CHANNEL_BLOCK_NAME,
+    SLACK_WEBHOOK_BLOCK_NAME,
+)
+
 
 @task(retries=2, retry_delay_seconds=5)
 def send_slack_message(
     message: str,
-    slack_bot_token: str = SlackCredentials.load(SLACK_API_TOKEN_BLOCK_NAME).token.get_secret_value(),
+    slack_bot_token: str = SlackCredentials.load(
+        SLACK_API_TOKEN_BLOCK_NAME
+    ).token.get_secret_value(),
     slack_channel_id: str = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get(),
 ) -> bool:
     """
@@ -57,9 +64,10 @@ def send_slack_message(
         logger_instance.error(f"Slack API error: {e.response['error']}")
         raise
 
+
 @task(retries=2, retry_delay_seconds=5)
 def send_slack_message_webhook(
-    body:str,
+    body: str,
     subject: Optional[str] = None,
     webhook: SlackWebhook = SlackWebhook.load(SLACK_WEBHOOK_BLOCK_NAME),
 ) -> bool:
@@ -68,10 +76,13 @@ def send_slack_message_webhook(
     """
     webhook.notify(body, subject=subject)
 
+
 @task(retries=2, retry_delay_seconds=5)
 def upload_multiple_files_to_slack(
     filepaths: List[str],
-    slack_bot_token: str = SlackCredentials.load(SLACK_API_TOKEN_BLOCK_NAME).token.get_secret_value(),
+    slack_bot_token: str = SlackCredentials.load(
+        SLACK_API_TOKEN_BLOCK_NAME
+    ).token.get_secret_value(),
     slack_channel_id: str = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get(),
     titles: Optional[List[str]] = None,
     initial_comment: Optional[str] = None,

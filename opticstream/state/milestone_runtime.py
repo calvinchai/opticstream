@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -85,4 +84,3 @@ def guarded_milestone(
         return wrapper
 
     return decorator
-    

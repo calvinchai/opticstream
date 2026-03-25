@@ -17,15 +17,21 @@ class _FakeIdent:
         return self._ident
 
 
-def test_emit_scoped_ident_event_merges_shared_adapter_and_extra_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_emit_scoped_ident_event_merges_shared_adapter_and_extra_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     emitted: dict[str, object] = {}
 
-    def _fake_emit_event(event: str, *, resource: dict[str, str], payload: dict[str, object]) -> None:
+    def _fake_emit_event(
+        event: str, *, resource: dict[str, str], payload: dict[str, object]
+    ) -> None:
         emitted["event"] = event
         emitted["resource"] = resource
         emitted["payload"] = payload
 
-    monkeypatch.setattr("opticstream.events.event_emitter_core.emit_event", _fake_emit_event)
+    monkeypatch.setattr(
+        "opticstream.events.event_emitter_core.emit_event", _fake_emit_event
+    )
 
     ident = _FakeIdent(project_name="proj-a", ident="proj-a/slice-1/ch-1")
     adapter = ScopedEventAdapter[_FakeIdent](
@@ -62,7 +68,9 @@ def test_emit_scoped_ident_event_rejects_shared_resource_override() -> None:
         build_ident_payload=lambda _i: {"channel_ident": {"id": "x"}},
     )
 
-    with pytest.raises(ValueError, match="extra_resource cannot override shared resource keys"):
+    with pytest.raises(
+        ValueError, match="extra_resource cannot override shared resource keys"
+    ):
         emit_scoped_ident_event(
             "evt",
             ident,
@@ -77,7 +85,9 @@ def test_emit_scoped_ident_event_rejects_payload_override() -> None:
         build_ident_payload=lambda _i: {"channel_ident": {"id": "x"}},
     )
 
-    with pytest.raises(ValueError, match="extra_payload cannot override base payload keys"):
+    with pytest.raises(
+        ValueError, match="extra_payload cannot override base payload keys"
+    ):
         emit_scoped_ident_event(
             "evt",
             ident,

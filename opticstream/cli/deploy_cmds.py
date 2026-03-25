@@ -132,9 +132,7 @@ def deploy(
     """
     if flow_name not in FLOW_DEPLOYMENTS:
         available = ", ".join(sorted(FLOW_DEPLOYMENTS))
-        raise ValueError(
-            f"Unknown flow '{flow_name}'. Available flows: {available}"
-        )
+        raise ValueError(f"Unknown flow '{flow_name}'. Available flows: {available}")
 
     spec = FLOW_DEPLOYMENTS[flow_name]
     commands = _build_prefect_deploy_commands(
@@ -147,4 +145,3 @@ def deploy(
             print(" ".join(cmd))
         else:
             subprocess.run(cmd, check=True)
-

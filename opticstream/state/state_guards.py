@@ -1,7 +1,5 @@
 from contextlib import AbstractContextManager
 from enum import Enum
-from functools import wraps
-import inspect
 from typing import Any, Callable, Mapping
 
 from prefect import get_run_logger
@@ -36,8 +34,7 @@ def _default_state_opener(
     if isinstance(item_ident, OCTMosaicId):
         return lambda: OCT_STATE_SERVICE.open_mosaic(mosaic_ident=item_ident)
     raise TypeError(
-        "unsupported item_ident type for default open_state: "
-        f"{type(item_ident)!r}"
+        f"unsupported item_ident type for default open_state: {type(item_ident)!r}"
     )
 
 
@@ -170,6 +167,6 @@ def enter_milestone_stage(
 
     return RunDecision.RESTARTED if is_rerun else RunDecision.STARTED
 
+
 def should_skip_run(run_decision: RunDecision) -> bool:
     return run_decision == RunDecision.SKIPPED
-

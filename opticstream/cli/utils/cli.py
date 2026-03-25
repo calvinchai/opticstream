@@ -53,4 +53,3 @@ def _resolve_deps(selected: Optional[List[str]]) -> list[_DepSpec]:
             raise ValueError(f"Unknown dependency {name!r}. Valid options: {valid}")
         resolved.append(_DEPS[name])
     return resolved
-

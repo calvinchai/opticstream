@@ -56,4 +56,3 @@ def upload_mosaic_volume_to_dandi_event_flow(payload: Dict[str, Any]) -> Dict[st
         volume_outputs=payload.get("volume_outputs", {}),
         force_rerun=force_rerun_from_payload(payload),
     )
-

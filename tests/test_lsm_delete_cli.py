@@ -28,7 +28,13 @@ def test_validate_delete_args_accepts_required_combinations():
     ("kind", "slice_id", "channel_id", "strip_id", "expected_message"),
     [
         ("slice", None, None, None, "`--slice-id` is required when `--kind slice`."),
-        ("channel", None, None, None, "`--slice-id` is required when `--kind channel`."),
+        (
+            "channel",
+            None,
+            None,
+            None,
+            "`--slice-id` is required when `--kind channel`.",
+        ),
         ("channel", 1, None, None, "`--channel-id` is required when `--kind channel`."),
         ("strip", None, None, None, "`--slice-id` is required when `--kind strip`."),
         ("strip", 1, None, None, "`--channel-id` is required when `--kind strip`."),

@@ -243,9 +243,7 @@ def register_slice_flow(
     # Emit event that slice registration is complete
     emit_slice_psoct_event(
         SLICE_REGISTERED,
-        slice_ident=(
-            OCTSliceId(project_name=project_name, slice_id=slice_id)
-        ),
+        slice_ident=(OCTSliceId(project_name=project_name, slice_id=slice_id)),
         extra_payload={
             "normal_mosaic_id": normal_mosaic_id,
             "tilted_mosaic_id": tilted_mosaic_id,

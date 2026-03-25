@@ -14,6 +14,8 @@ from .init import init_cli
 from .oct import oct_cli
 from .lsm import lsm_cli  # noqa: F401
 from .utils import utils_cli  # noqa: F401
+
+
 def main() -> None:
     """
     Entry point for the `opticstream` console script.
@@ -23,4 +25,3 @@ def main() -> None:
     """
 
     app()
-

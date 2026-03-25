@@ -85,9 +85,7 @@ def test_get_dir_manifest_and_compare(tmp_path):
 
 def test_strip_zarr_output_path_uses_project_base_when_output_none():
     cfg = _minimal_cfg(output_path=None)
-    sid = LSMStripId(
-        project_name="myproj", slice_id=2, strip_id=7, channel_id=1
-    )
+    sid = LSMStripId(project_name="myproj", slice_id=2, strip_id=7, channel_id=1)
     p = strip_zarr_output_path(sid, cfg)
     assert p.startswith("/base")
     assert "slice02" in p or "02" in p
@@ -96,18 +94,14 @@ def test_strip_zarr_output_path_uses_project_base_when_output_none():
 
 def test_strip_zarr_output_path_prefers_output_path():
     cfg = _minimal_cfg(output_path="/out")
-    sid = LSMStripId(
-        project_name="myproj", slice_id=1, strip_id=1, channel_id=2
-    )
+    sid = LSMStripId(project_name="myproj", slice_id=1, strip_id=1, channel_id=2)
     p = strip_zarr_output_path(sid, cfg)
     assert p.startswith("/out")
 
 
 def test_strip_mip_output_path():
     cfg = _minimal_cfg(output_path="/z")
-    sid = LSMStripId(
-        project_name="myproj", slice_id=1, strip_id=3, channel_id=1
-    )
+    sid = LSMStripId(project_name="myproj", slice_id=1, strip_id=3, channel_id=1)
     p = strip_mip_output_path(sid, cfg)
     assert p.startswith("/z")
     assert "proc-mip" in p
@@ -157,9 +151,7 @@ def test_channel_ident_from_payload_dict():
 
 
 def test_channel_ident_from_strip():
-    sid = LSMStripId(
-        project_name="p", slice_id=1, strip_id=5, channel_id=2
-    )
+    sid = LSMStripId(project_name="p", slice_id=1, strip_id=5, channel_id=2)
     cid = channel_ident_from_strip(sid)
     assert cid.project_name == "p"
     assert cid.slice_id == 1

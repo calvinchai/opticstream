@@ -40,10 +40,7 @@ def build_dandi_upload_command(
     if not file_list:
         raise ValueError("file_list must not be empty")
 
-    file_paths = [
-        os.path.realpath(p) if realpath else p
-        for p in file_list
-    ]
+    file_paths = [os.path.realpath(p) if realpath else p for p in file_list]
     file_paths_str = " ".join(shlex.quote(p) for p in file_paths)
 
     command = f"{shlex.quote(dandi_bin)} upload "
@@ -51,14 +48,11 @@ def build_dandi_upload_command(
         command += f"-i {shlex.quote(dandi_instance)} "
 
     # Match the CLI flags used elsewhere in the codebase.
-    command += (
-        f"{file_paths_str} -J {shlex.quote(max_jobs)} "
-        f"--allow-any-path"
-    )
+    command += f"{file_paths_str} -J {shlex.quote(max_jobs)} --allow-any-path"
     if dandi_instance == "dandi":
-        command += f" --existing overwrite --validation skip"
+        command += " --existing overwrite --validation skip"
     else:
-        command += f" --existing OVERWRITE --validation SKIP"
+        command += " --existing OVERWRITE --validation SKIP"
 
     # DANDI CLI errors can sometimes be clearer when run from file directory.
     working_dir = os.path.dirname(file_list[0]) if file_list[0] else os.getcwd()
@@ -143,7 +137,13 @@ def upload_to_dandi(
     """
     Upload the file to DANDI.
     """
-    return upload_to_dandi_batch.fn([file_path], dandi_instance=dandi_instance, dandi_bin=dandi_bin, realpath=realpath, max_jobs=max_jobs)
+    return upload_to_dandi_batch.fn(
+        [file_path],
+        dandi_instance=dandi_instance,
+        dandi_bin=dandi_bin,
+        realpath=realpath,
+        max_jobs=max_jobs,
+    )
 
 
 __all__ = [

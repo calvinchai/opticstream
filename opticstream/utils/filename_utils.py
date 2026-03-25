@@ -234,14 +234,19 @@ def parse_lsm_run_folder_name(folder_name: str) -> tuple[int, int, int]:
     name = op.basename(folder_name.rstrip(op.sep))
     m = _LSM_RUN_FOLDER_RE.match(name)
     if not m:
-        raise ValueError(f"Folder name does not match LSM run pattern 'Run<N>[_C2][_<suffix>]': {folder_name!r}")
+        raise ValueError(
+            f"Folder name does not match LSM run pattern 'Run<N>[_C2][_<suffix>]': {folder_name!r}"
+        )
     run_index = int(m.group(1))
     channel_index = 2 if m.group(2) else 1
     suffix = m.group(4)
     strip_index = int(suffix) + 1 if suffix is not None else 1
     return (run_index, strip_index, channel_index)
 
-def parse_lsm_strip_index(strip_index: int, channel_index: int, strips_per_slice: int) -> Tuple[int, int, int]:
+
+def parse_lsm_strip_index(
+    strip_index: int, channel_index: int, strips_per_slice: int
+) -> Tuple[int, int, int]:
     """
     Parse an LSM strip index into a slice index, strip index, and channel index.
 
@@ -259,8 +264,8 @@ def parse_lsm_strip_index(strip_index: int, channel_index: int, strips_per_slice
     Tuple[int, int, int]
         (slice_index, strip_index_within_slice, channel_index)
     """
-    slice_index = (strip_index-1) // strips_per_slice + 1
-    strip_index_within_slice = (strip_index-1) % strips_per_slice + 1
+    slice_index = (strip_index - 1) // strips_per_slice + 1
+    strip_index_within_slice = (strip_index - 1) % strips_per_slice + 1
     return (slice_index, strip_index_within_slice, channel_index)
 
 

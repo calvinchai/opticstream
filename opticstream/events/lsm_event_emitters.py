@@ -6,7 +6,10 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from opticstream.events.event_emitter_core import ScopedEventAdapter, emit_scoped_ident_event
+from opticstream.events.event_emitter_core import (
+    ScopedEventAdapter,
+    emit_scoped_ident_event,
+)
 from opticstream.state.lsm_project_state import LSMChannelId, LSMStripId
 
 

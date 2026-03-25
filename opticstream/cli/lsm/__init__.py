@@ -7,4 +7,3 @@ from . import setup  # noqa: F401 - register lsm setup commands
 from . import delete  # noqa: F401 - register lsm delete commands
 
 __all__ = ["lsm_cli", "serve", "watch", "setup", "delete"]
-

@@ -60,7 +60,9 @@ def complex_to_processed_batch(
     flow_run_name="process-complex-tile-batch-{batch_id}",
     on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
 )
-@oct_batch_processing_milestone(field_name="enface_processed", success_event=BATCH_PROCESSED)
+@oct_batch_processing_milestone(
+    field_name="enface_processed", success_event=BATCH_PROCESSED
+)
 def process_complex_tile_batch(
     batch_id: OCTBatchId,
     config: PSOCTScanConfigModel,

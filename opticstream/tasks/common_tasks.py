@@ -16,7 +16,9 @@ from prefect_shell import ShellOperation
 
 
 @task(tags=["psoct-data-archive"])
-def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = True) -> str:
+def archive_tile_task(
+    input_path: str, output_path: str, output_sha256: bool = True
+) -> str:
     """gzip the file"""
     logger = get_run_logger()
     if not output_path.endswith(".gz"):
@@ -49,6 +51,7 @@ def archive_tile_task(input_path: str, output_path: str, output_sha256: bool = T
             hash_file.write(hash_digest)
         logger.info(f"SHA-256 hash: {hash_digest} written to {hash_path}")
     return output_path
+
 
 @task(tags=["dandi-upload"], retries=1)
 def upload_to_dandi_task(file_path: str) -> None:

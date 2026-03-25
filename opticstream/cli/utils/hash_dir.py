@@ -62,4 +62,3 @@ def hash_dir(
         writer = csv.DictWriter(f, fieldnames=["path", "hash", "algorithm"])
         writer.writeheader()
         writer.writerows(rows)
-

@@ -96,7 +96,9 @@ def _parse_mosaic_ranges(mosaic_ranges_str: str) -> list[tuple[int, int]]:
     for range_str in mosaic_ranges_str.split(","):
         parts = range_str.strip().split(":")
         if len(parts) != 2:
-            raise ValueError(f"Invalid mosaic range format: {range_str!r}. Expected 'min:max'")
+            raise ValueError(
+                f"Invalid mosaic range format: {range_str!r}. Expected 'min:max'"
+            )
         out.append((int(parts[0]), int(parts[1])))
     return out
 
@@ -152,17 +154,25 @@ class OCTWatcherService:
         self.force_resend = force_resend
         self.refresh_hook = refresh_hook
         self.min_complex_file_size_bytes = min_complex_file_size_bytes
-        self.prefer_spectral_for_complex_with_spectral = prefer_spectral_for_complex_with_spectral
+        self.prefer_spectral_for_complex_with_spectral = (
+            prefer_spectral_for_complex_with_spectral
+        )
 
     def _selected_tile_saving_type(self) -> TileSavingType:
         saving_type = self.scan_config.acquisition.tile_saving_type
         if saving_type is TileSavingType.COMPLEX_WITH_SPECTRAL:
-            return TileSavingType.SPECTRAL if self.prefer_spectral_for_complex_with_spectral else TileSavingType.COMPLEX
+            return (
+                TileSavingType.SPECTRAL
+                if self.prefer_spectral_for_complex_with_spectral
+                else TileSavingType.COMPLEX
+            )
         return saving_type
 
     def discover_candidates(self) -> list[OCTBatchCandidate]:
         if not _is_readable_dir(self.folder_path):
-            logger.warning("OCT watch directory is not readable right now: %s", self.folder_path)
+            logger.warning(
+                "OCT watch directory is not readable right now: %s", self.folder_path
+            )
             return []
 
         if self.scan_config.mosaics_per_slice == 3:
@@ -175,17 +185,24 @@ class OCTWatcherService:
 
         files_by_mosaic_and_image: dict[tuple[int, int], list[Path]] = defaultdict(list)
         for parsed in parsed_files:
-            files_by_mosaic_and_image[(parsed.source_mosaic_id, parsed.image_index)].append(parsed.path)
+            files_by_mosaic_and_image[
+                (parsed.source_mosaic_id, parsed.image_index)
+            ].append(parsed.path)
 
         files_by_source_mosaic: dict[int, list[Path]] = defaultdict(list)
-        for (source_mosaic_id, _image_index), paths in files_by_mosaic_and_image.items():
+        for (
+            source_mosaic_id,
+            _image_index,
+        ), paths in files_by_mosaic_and_image.items():
             # spectral k does not matter; pick one representative per tile
             files_by_source_mosaic[source_mosaic_id].append(sorted(paths)[0])
 
         out: list[OCTBatchCandidate] = []
 
         for min_source_mosaic_id, max_source_mosaic_id in self.mosaic_ranges:
-            for source_mosaic_id in range(min_source_mosaic_id, max_source_mosaic_id + 1):
+            for source_mosaic_id in range(
+                min_source_mosaic_id, max_source_mosaic_id + 1
+            ):
                 mosaic_files = files_by_source_mosaic.get(source_mosaic_id)
                 if not mosaic_files:
                     continue
@@ -218,10 +235,12 @@ class OCTWatcherService:
                         source_mosaic_id,
                         self.scan_config.mosaics_per_slice,
                     )
-                    logical_slice_id, logical_mosaic_id = logical_mosaic_from_source_mosaic(
-                        source_mosaic_id,
-                        mosaics_per_slice=self.scan_config.mosaics_per_slice,
-                        slice_offset=self.slice_offset,
+                    logical_slice_id, logical_mosaic_id = (
+                        logical_mosaic_from_source_mosaic(
+                            source_mosaic_id,
+                            mosaics_per_slice=self.scan_config.mosaics_per_slice,
+                            slice_offset=self.slice_offset,
+                        )
                     )
 
                     out.append(
@@ -282,10 +301,12 @@ class OCTWatcherService:
             if not _all_files_readable(candidate_files):
                 continue
 
-            logical_slice_id, logical_mosaic_id = logical_first_mosaic_from_source_slice(
-                source_slice_id,
-                mosaics_per_slice=self.scan_config.mosaics_per_slice,
-                slice_offset=self.slice_offset,
+            logical_slice_id, logical_mosaic_id = (
+                logical_first_mosaic_from_source_slice(
+                    source_slice_id,
+                    mosaics_per_slice=self.scan_config.mosaics_per_slice,
+                    slice_offset=self.slice_offset,
+                )
             )
 
             out.append(

@@ -30,6 +30,7 @@ def _mock_logger(monkeypatch):
     class _Logger:
         def info(self, *_args, **_kwargs):
             return None
+
         def warning(self, *_args, **_kwargs):
             return None
 

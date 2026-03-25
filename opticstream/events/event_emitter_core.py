@@ -32,14 +32,15 @@ _SHARED_RESOURCE_KEYS = {
 }
 
 
-def _validate_no_resource_key_conflicts(extra_resource: Mapping[str, str] | None) -> None:
+def _validate_no_resource_key_conflicts(
+    extra_resource: Mapping[str, str] | None,
+) -> None:
     if not extra_resource:
         return
     conflicts = _SHARED_RESOURCE_KEYS.intersection(extra_resource.keys())
     if conflicts:
         raise ValueError(
-            "extra_resource cannot override shared resource keys: "
-            f"{sorted(conflicts)}"
+            f"extra_resource cannot override shared resource keys: {sorted(conflicts)}"
         )
 
 
@@ -52,8 +53,7 @@ def _validate_no_payload_key_conflicts(
     conflicts = set(base_payload.keys()).intersection(extra_payload.keys())
     if conflicts:
         raise ValueError(
-            "extra_payload cannot override base payload keys: "
-            f"{sorted(conflicts)}"
+            f"extra_payload cannot override base payload keys: {sorted(conflicts)}"
         )
 
 

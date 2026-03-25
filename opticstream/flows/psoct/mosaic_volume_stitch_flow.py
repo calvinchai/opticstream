@@ -11,20 +11,27 @@ are stitched. It handles:
 
 from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from niizarr import ZarrConfig
-from opticstream.artifacts.publish_hooks import publish_oct_mosaic_hook, publish_oct_project_hook
+from opticstream.artifacts.publish_hooks import (
+    publish_oct_mosaic_hook,
+    publish_oct_project_hook,
+)
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.scripts import find_tile_plane
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
 from opticstream.events import MOSAIC_VOLUME_STITCHED
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.flows.psoct.mosaic_coordinate_flow import generate_tile_info_file
-from opticstream.state.state_guards import enter_milestone_stage, force_rerun_from_payload, should_skip_run
+from opticstream.state.state_guards import (
+    enter_milestone_stage,
+    force_rerun_from_payload,
+    should_skip_run,
+)
 from opticstream.flows.psoct.utils import (
     get_dandi_slice_path,
     get_mosaic_nifti_path,
@@ -167,7 +174,9 @@ def find_focus_plane_task(
     logger.info(
         f"Finding focus plane for {config_illumination} illumination (mosaic {mosaic_ident.mosaic_id})"
     )
-    slice_path, _, stitched_path, _ = get_slice_paths(project_base_path, mosaic_ident.slice_id)
+    slice_path, _, stitched_path, _ = get_slice_paths(
+        project_base_path, mosaic_ident.slice_id
+    )
     slice_focus_dir = slice_path / "focus_finding"
     slice_focus_dir.mkdir(parents=True, exist_ok=True)
 
@@ -175,7 +184,9 @@ def find_focus_plane_task(
         stitched_path, mosaic_ident.mosaic_id, "surf"
     )
     if not surface_tile_info_path.exists():
-        raise FileNotFoundError(f"surface info file not found: {surface_tile_info_path}")
+        raise FileNotFoundError(
+            f"surface info file not found: {surface_tile_info_path}"
+        )
     filtered_tile_info_path = slice_focus_dir / f"filtered_{config_illumination}.yaml"
     focus_plane_path_slice = slice_focus_dir / f"focus-{config_illumination}.nii"
     focus_plane_path_base = Path(project_base_path) / f"focus-{config_illumination}.nii"
@@ -278,7 +289,9 @@ def stitch_volume_flow(
             mosaic_state.mark_completed()
         return {}
     if not config.stitch_3d_volumes:
-        logger.info(f"Skipping volume stitching for mosaic {mosaic_ident} as stitch_3d_volumes is disabled")
+        logger.info(
+            f"Skipping volume stitching for mosaic {mosaic_ident} as stitch_3d_volumes is disabled"
+        )
         with OCT_STATE_SERVICE.open_mosaic(mosaic_ident=mosaic_ident) as mosaic_state:
             mosaic_state.mark_completed()
         return {}
@@ -299,11 +312,11 @@ def stitch_volume_flow(
             f"Template not found: {template_path}. "
             f"Coordinate determination must be run for mosaic {ctx.base_mosaic_id} first."
         )
-    
+
     focus_plane_path = None
     if apply_focus_plane:
         focus_plane_path = project_base_path / f"focus-{ctx.config_illumination}.nii"
-        
+
         if ctx.is_first_slice or force_refresh_focus:
             logger.info(
                 f"Finding focus plane for first slice (mosaic {mosaic_id}, "
@@ -341,7 +354,9 @@ def stitch_volume_flow(
             )
 
     for modality in (m.value for m in config.volume_modalities):
-        modality_tile_info_path = get_mosaic_tile_info_path(stitched_path, mosaic_id, modality)
+        modality_tile_info_path = get_mosaic_tile_info_path(
+            stitched_path, mosaic_id, modality
+        )
 
         generate_tile_info_file(
             template_path=template_path,
@@ -370,7 +385,9 @@ def stitch_volume_flow(
             output_zarr_path,
             zarr_config=config.zarr_config,
             focus_plane_path=focus_plane_path,
-            mask_path=get_mosaic_nifti_path(stitched_path, mosaic_id, "mask") if apply_mask else None,
+            mask_path=get_mosaic_nifti_path(stitched_path, mosaic_id, "mask")
+            if apply_mask
+            else None,
             normalize_focus_plane=True,
             crop_focus_plane_depth=config.crop_focus_plane_depth,
             crop_focus_plane_offset=config.crop_focus_plane_offset,
@@ -420,4 +437,3 @@ def stitch_volume_event_flow(payload: Dict[str, Any]) -> Dict[str, Path]:
         force_refresh_focus=bool(payload.get("force_refresh_focus", False)),
         force_rerun=force_rerun_from_payload(payload),
     )
-

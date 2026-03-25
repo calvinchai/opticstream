@@ -41,4 +41,3 @@ def convert_image_cmd(
         quality=quality,
         output_format=output_format,
     )
-

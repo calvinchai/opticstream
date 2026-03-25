@@ -29,13 +29,17 @@ def _strip_formatted_output_path(
     )
 
 
-def strip_zarr_output_path(strip_ident: LSMStripId, scan_config: LSMScanConfigModel) -> str:
+def strip_zarr_output_path(
+    strip_ident: LSMStripId, scan_config: LSMScanConfigModel
+) -> str:
     """Per-strip compressed zarr path (same convention as process_strip)."""
     fmt = scan_config.output_format or ""
     return _strip_formatted_output_path(strip_ident, scan_config, fmt)
 
 
-def strip_mip_output_path(strip_ident: LSMStripId, scan_config: LSMScanConfigModel) -> str:
+def strip_mip_output_path(
+    strip_ident: LSMStripId, scan_config: LSMScanConfigModel
+) -> str:
     """Per-strip MIP output path (same convention as process_strip)."""
     fmt = scan_config.output_mip_format or ""
     return _strip_formatted_output_path(strip_ident, scan_config, fmt)

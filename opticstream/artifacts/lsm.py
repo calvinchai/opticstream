@@ -123,7 +123,11 @@ def build_project_strip_summary_rows(
             total_completed_strips += completed
             total_strip_slots += total
 
-    return [r.to_table_row() for r in rollups], total_completed_strips, total_strip_slots
+    return (
+        [r.to_table_row() for r in rollups],
+        total_completed_strips,
+        total_strip_slots,
+    )
 
 
 def build_slice_strip_matrix_rows(
@@ -213,13 +217,17 @@ def publish_lsm_project_artifact(
     strips_per_slice = cfg.strips_per_slice
 
     artifact_key = build_lsm_project_artifact_key(project_name)
-    table_data, total_completed_strips, total_strip_slots = build_project_strip_summary_rows(
-        state=state,
-        strips_per_slice=strips_per_slice,
+    table_data, total_completed_strips, total_strip_slots = (
+        build_project_strip_summary_rows(
+            state=state,
+            strips_per_slice=strips_per_slice,
+        )
     )
 
     if not table_data:
-        logger.warning("No slice/channel rows in LSM state for artifact %s", artifact_key)
+        logger.warning(
+            "No slice/channel rows in LSM state for artifact %s", artifact_key
+        )
         return ""
 
     description = build_lsm_project_strip_summary_description(
@@ -269,7 +277,9 @@ def publish_lsm_slice_artifact(
         slice_view=slice_view,
         strips_per_slice=strips_per_slice,
     )
-    description = build_lsm_slice_matrix_description(project_name=project_name, slice_id=slice_id)
+    description = build_lsm_slice_matrix_description(
+        project_name=project_name, slice_id=slice_id
+    )
     publish_table_artifact(key=artifact_key, table=slice_table, description=description)
     return artifact_key
 

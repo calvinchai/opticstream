@@ -109,7 +109,9 @@ class LSMStripStateView(LSMStateView):
     uploaded: bool = False
 
 
-class LSMStripState(LSMStateMutationsMixin, LSMStripStateView, ToViewMixin[LSMStripStateView]):
+class LSMStripState(
+    LSMStateMutationsMixin, LSMStripStateView, ToViewMixin[LSMStripStateView]
+):
     model_config = ConfigDict(frozen=False)
     VIEW_MODEL: ClassVar[type[LSMStripStateView]] = LSMStripStateView
 
@@ -133,10 +135,11 @@ class LSMStripState(LSMStateMutationsMixin, LSMStripStateView, ToViewMixin[LSMSt
     def reset_uploaded(self) -> None:
         self.uploaded = False
         self.touch()
-    
+
     def reset_archived(self) -> None:
         self.archived = False
         self.touch()
+
 
 class LSMChannelStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
@@ -152,7 +155,7 @@ class LSMChannelStateView(LSMStateView):
             i in self.strips and self.strips[i].finished
             for i in range(1, total_strips + 1)
         )
-    
+
     def all_compressed(self, total_strips: int) -> bool:
         return all(
             i in self.strips and self.strips[i].compressed
@@ -217,7 +220,9 @@ class LSMSliceStateView(LSMStateView):
         )
 
 
-class LSMSliceState(LSMStateMutationsMixin, LSMSliceStateView, ToViewMixin[LSMSliceStateView]):
+class LSMSliceState(
+    LSMStateMutationsMixin, LSMSliceStateView, ToViewMixin[LSMSliceStateView]
+):
     model_config = ConfigDict(frozen=False)
     VIEW_MODEL: ClassVar[type[LSMSliceStateView]] = LSMSliceStateView
     channels: dict[int, LSMChannelState] = Field(default_factory=dict)
@@ -345,7 +350,6 @@ class LSMProjectState(
         return True
 
 
-
 def _get_slice_view(
     state: LSMProjectState,
     *,
@@ -388,6 +392,7 @@ def _get_strip_view(
 # ------------------------------------------------------------------------------
 # LSM-specific ProjectStateStore wiring
 # ------------------------------------------------------------------------------
+
 
 def _make_lsm_repository() -> PostgresProjectStateRepository[LSMProjectState]:
     return PostgresProjectStateRepository(

@@ -23,9 +23,7 @@ def _matlab_quote(value: str) -> str:
 
 def _mstruct(field: object | None) -> str:
     """PipelineOpts sub-struct → MATLAB ``struct(...)`` literal."""
-    return dict_to_matlab_literal(
-        field.to_matlab_struct() if field is not None else {}
-    )
+    return dict_to_matlab_literal(field.to_matlab_struct() if field is not None else {})
 
 
 def _batch_preamble(
@@ -38,7 +36,9 @@ def _batch_preamble(
     Shared: processed dir, ``PipelineOpts``, cell path list, MATLAB tile index vector literal,
     output dir literal, opts mat file, num workers, pool type.
     """
-    _, processed_path, _, _ = get_slice_paths(str(config.project_base_path), batch_id.slice_id)
+    _, processed_path, _, _ = get_slice_paths(
+        str(config.project_base_path), batch_id.slice_id
+    )
     processed_path.mkdir(parents=True, exist_ok=True)
 
     pipeline_opts = build_pipeline_opts(
@@ -46,11 +46,17 @@ def _batch_preamble(
         illumination=mosaic_context.config_illumination,
     )
 
-    file_list_str = ",".join(_matlab_quote(str(ref.file_path)) for ref in file_reference_list)
-    tile_indices_lit = "[" + ",".join(str(ref.tile_number) for ref in file_reference_list) + "]"
+    file_list_str = ",".join(
+        _matlab_quote(str(ref.file_path)) for ref in file_reference_list
+    )
+    tile_indices_lit = (
+        "[" + ",".join(str(ref.tile_number) for ref in file_reference_list) + "]"
+    )
     output_dir_lit = _matlab_quote(str(processed_path))
     opts_mat_file_lit = (
-        "''" if not pipeline_opts.opts_mat_file else _matlab_quote(pipeline_opts.opts_mat_file)
+        "''"
+        if not pipeline_opts.opts_mat_file
+        else _matlab_quote(pipeline_opts.opts_mat_file)
     )
     num_workers_lit = (
         "[]"

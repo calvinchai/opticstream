@@ -47,7 +47,9 @@ def state_service() -> LSMProjectStateService:
                 self._states[project_name] = LSMProjectState()
             return self._states[project_name]
 
-        def save(self, project_name: str, state: LSMProjectState) -> None:  # pragma: no cover - no-op
+        def save(
+            self, project_name: str, state: LSMProjectState
+        ) -> None:  # pragma: no cover - no-op
             # The state objects are kept by reference in _states; nothing to do.
             self._states[project_name] = state
 
@@ -281,11 +283,15 @@ def test_lock_naming_helper_and_ensure_lock_do_not_crash(project_name: str):
     ensure_lock(project_name)
 
 
-def test_service_open_and_read_round_trip(project_name: str, state_service: LSMProjectStateService):
+def test_service_open_and_read_round_trip(
+    project_name: str, state_service: LSMProjectStateService
+):
     project_ident = LSMProjectId(project_name=project_name)
     with state_service.open_project(project_ident) as project:
         assert isinstance(project, LSMProjectState)
-        strip = project.get_or_create_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
+        strip = project.get_or_create_strip_by_parts(
+            slice_id=1, strip_id=1, channel_id=1
+        )
         strip.mark_completed()
 
     project_view = state_service.read_project(project_ident)
@@ -296,11 +302,15 @@ def test_service_open_and_read_round_trip(project_name: str, state_service: LSMP
 
 
 @pytest.mark.integration
-def test_real_prefect_store_open_and_read_round_trip(real_state_service: LSMProjectStateService):
+def test_real_prefect_store_open_and_read_round_trip(
+    real_state_service: LSMProjectStateService,
+):
     project_ident = LSMProjectId(project_name="pytest")
     with real_state_service.open_project(project_ident) as project:
         assert isinstance(project, LSMProjectState)
-        strip = project.get_or_create_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
+        strip = project.get_or_create_strip_by_parts(
+            slice_id=1, strip_id=1, channel_id=1
+        )
         strip.mark_completed()
 
     project_view = real_state_service.read_project(project_ident)
@@ -413,7 +423,9 @@ def test_service_read_and_peek_missing_entities_return_none(
     # After mutating via open_project, peek_project should reflect the latest
     # state without further modification.
     with state_service.open_project(project_ident) as project:
-        strip = project.get_or_create_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
+        strip = project.get_or_create_strip_by_parts(
+            slice_id=1, strip_id=1, channel_id=1
+        )
         strip.mark_started()
 
     peek_view = state_service.peek_project(project_ident)
@@ -452,4 +464,3 @@ def test_project_delete_helpers_missing_targets_return_false():
     assert project.delete_channel(slice_id=999, channel_id=1) is False
 
     assert project.delete_slice(slice_id=999) is False
-

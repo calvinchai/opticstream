@@ -12,7 +12,10 @@ from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.events.lsm_events import STRIP_READY
 from opticstream.flows.lsm.strip_process_flow import process_strip
 from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
-from opticstream.utils.filename_utils import parse_lsm_run_folder_name, parse_lsm_strip_index
+from opticstream.utils.filename_utils import (
+    parse_lsm_run_folder_name,
+    parse_lsm_strip_index,
+)
 from opticstream.utils.polling_watcher import PollingStableWatcher
 
 if not logging.getLogger().handlers:
@@ -53,9 +56,7 @@ def _can_snapshot_folder(folder: Path) -> bool:
 
 def _should_process_folder(path: Path) -> bool:
     return (
-        path.is_dir()
-        and path.name.lower().startswith("run")
-        and _is_readable_dir(path)
+        path.is_dir() and path.name.lower().startswith("run") and _is_readable_dir(path)
     )
 
 
@@ -124,7 +125,9 @@ class LSMWatcherService:
                 self.scan_config.strips_per_slice,
             )
         except Exception as exc:
-            logger.warning("Skipping folder %r: cannot parse indices (%s)", folder.name, exc)
+            logger.warning(
+                "Skipping folder %r: cannot parse indices (%s)", folder.name, exc
+            )
             return 0
 
         slice_id = slice_index + self.slice_offset
@@ -205,8 +208,7 @@ def watch_lsm(
         poll_interval=poll_interval,
         stability_seconds=stability_seconds,
         running_message=(
-            f"LSM polling watcher running "
-            f"({'direct' if direct else 'event'} mode)"
+            f"LSM polling watcher running ({'direct' if direct else 'event'} mode)"
         ),
     )
     watcher.run()

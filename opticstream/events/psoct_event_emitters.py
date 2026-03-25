@@ -4,9 +4,12 @@ Prefect event emission helpers for PSOCT flows.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping
 
-from opticstream.events.event_emitter_core import ScopedEventAdapter, emit_scoped_ident_event
+from opticstream.events.event_emitter_core import (
+    ScopedEventAdapter,
+    emit_scoped_ident_event,
+)
 from opticstream.state.oct_project_state import OCTBatchId, OCTMosaicId, OCTSliceId
 
 
@@ -45,6 +48,7 @@ def emit_mosaic_psoct_event(
         extra_payload=extra_payload,
     )
 
+
 def emit_batch_psoct_event(
     event: str,
     batch_ident: OCTBatchId,
@@ -53,11 +57,13 @@ def emit_batch_psoct_event(
     extra_payload: Mapping[str, Any] | None = None,
 ) -> None:
     emit_scoped_ident_event(
-        event, batch_ident,
+        event,
+        batch_ident,
         adapter=PSOCT_BATCH_EVENT_ADAPTER,
         extra_resource=extra_resource,
         extra_payload=extra_payload,
     )
+
 
 def emit_slice_psoct_event(
     event: str,
@@ -67,7 +73,8 @@ def emit_slice_psoct_event(
     extra_payload: Mapping[str, Any] | None = None,
 ) -> None:
     emit_scoped_ident_event(
-        event, slice_ident,
+        event,
+        slice_ident,
         adapter=PSOCT_SLICE_EVENT_ADAPTER,
         extra_resource=extra_resource,
         extra_payload=extra_payload,

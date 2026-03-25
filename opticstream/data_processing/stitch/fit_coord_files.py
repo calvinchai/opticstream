@@ -37,7 +37,7 @@ def convert_yaml_format(
 ):
     """
     Convert YAML format from simple list to structured format with metadata.
-    
+
     Parameters
     ----------
     input_path : str
@@ -65,18 +65,20 @@ def convert_yaml_format(
     # Handle both list format and dict format
     if isinstance(input_data, list):
         tiles = input_data
-    elif isinstance(input_data, dict) and 'tiles' in input_data:
-        tiles = input_data['tiles']
+    elif isinstance(input_data, dict) and "tiles" in input_data:
+        tiles = input_data["tiles"]
     else:
         raise ValueError(
-            "Unexpected input format. Expected list or dict with 'tiles' key.")
+            "Unexpected input format. Expected list or dict with 'tiles' key."
+        )
 
     # Apply filepath replacements
     if filepath_replacements:
         for tile in tiles:
-            if 'filepath' in tile:
-                tile['filepath'] = replace_in_filepath(tile['filepath'],
-                                                       filepath_replacements)
+            if "filepath" in tile:
+                tile["filepath"] = replace_in_filepath(
+                    tile["filepath"], filepath_replacements
+                )
 
     # Build output structure
     output_data = {}
@@ -88,17 +90,17 @@ def convert_yaml_format(
     if mask is not None:
         metadata["mask"] = str(mask)
     if cropx is not None:
-        metadata['cropx'] = cropx
+        metadata["cropx"] = cropx
     if cropy is not None:
-        metadata['cropy'] = cropy
+        metadata["cropy"] = cropy
     if scan_resolution is not None:
-        metadata['scan_resolution'] = scan_resolution
+        metadata["scan_resolution"] = scan_resolution
 
     if metadata:
-        output_data['metadata'] = metadata
+        output_data["metadata"] = metadata
 
     # Add tiles
-    output_data['tiles'] = tiles
+    output_data["tiles"] = tiles
 
     # Write output YAML
     output_path_obj = Path(output_path)
@@ -128,7 +130,7 @@ def main(
 ):
     """
     Convert tile coordinate YAML files to stitching configuration format.
-    
+
     Parameters
     ----------
     input : str
@@ -154,10 +156,11 @@ def main(
     filepath_replacements = {}
     if replace:
         for replacement in replace:
-            if ':' not in replacement:
+            if ":" not in replacement:
                 raise ValueError(
-                    f"Replacement must be in format 'old:new', got: {replacement}")
-            old_str, new_str = replacement.split(':', 1)
+                    f"Replacement must be in format 'old:new', got: {replacement}"
+                )
+            old_str, new_str = replacement.split(":", 1)
             filepath_replacements[old_str] = new_str
 
     # Convert
@@ -175,4 +178,3 @@ def main(
 
 if __name__ == "__main__":
     app()
-

@@ -57,7 +57,9 @@ def test_parse_lsm_run_folder_name_invalid_cases(folder_name):
     ],
 )
 def test_parse_lsm_strip_index(strip_index, channel_index, strips_per_slice, expected):
-    assert parse_lsm_strip_index(strip_index, channel_index, strips_per_slice) == expected
+    assert (
+        parse_lsm_strip_index(strip_index, channel_index, strips_per_slice) == expected
+    )
 
 
 @pytest.mark.parametrize(
@@ -76,4 +78,3 @@ def test_parse_lsm_strip_index_from_filename_composition_and_basename_handling(
         folder_name, strips_per_slice
     )
     assert (slice_index, strip_index, channel_index) == expected
-

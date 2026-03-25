@@ -3,7 +3,6 @@ import os.path as op
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import dask
@@ -23,12 +22,18 @@ from opticstream.state.state_guards import (
     RunDecision,
     enter_milestone_stage,
 )
-from opticstream.flows.lsm.utils import load_scan_config_for_payload, strip_ident_from_payload
+from opticstream.flows.lsm.utils import (
+    load_scan_config_for_payload,
+    strip_ident_from_payload,
+)
 from opticstream.state.lsm_project_state import (
     LSMStripId,
     LSM_STATE_SERVICE,
 )
-from opticstream.tasks.slack_notification import send_slack_message, upload_multiple_files_to_slack
+from opticstream.tasks.slack_notification import (
+    send_slack_message,
+    upload_multiple_files_to_slack,
+)
 from opticstream.utils.slack_notification_hook import slack_notification_hook
 from opticstream.utils.zarr_validation import (
     DirManifest,
@@ -252,14 +257,14 @@ def check_compressed_result(
     mip_output_path: Optional[str] = None,
     generate_mip: bool = True,
     generate_zarr: bool = True,
-    mip_size_threshold: int = 10**6, # 1MB
-    zarr_size_threshold: int = 10**9, # 1GB
+    mip_size_threshold: int = 10**6,  # 1MB
+    zarr_size_threshold: int = 10**9,  # 1GB
 ) -> ValidationResult:
     """
     Check if the compressed strip is valid and report its size.
     """
     logger = get_run_logger()
-    # check mip 
+    # check mip
     if generate_mip:
         if invalid_path(mip_output_path):
             logger.error(f"MIP output path is not set for {strip_ident}")
@@ -341,11 +346,12 @@ def check_backup_result(
 
     return ValidationResult(ok=True, size_bytes=backup_manifest.total_bytes)
 
+
 @task(on_failure=[slack_notification_hook])
 def strip_mip_qc_notification(
     strip_ident: LSMStripId,
     mip_stitched_path: Optional[str] = None,
-    output_mip_preview_window: List[float] = []
+    output_mip_preview_window: List[float] = [],
 ) -> None:
     """
     Send a notification for the strip MIP QC.
@@ -359,11 +365,21 @@ def strip_mip_qc_notification(
     window_max = None
     if output_mip_preview_window:
         if len(output_mip_preview_window) != 2:
-            raise ValueError(f"Output MIP preview window must be a list of 2 values: {output_mip_preview_window}")
+            raise ValueError(
+                f"Output MIP preview window must be a list of 2 values: {output_mip_preview_window}"
+            )
         window_min, window_max = output_mip_preview_window
     preview_path = mip_stitched_path.replace(".tiff", ".jpg")
-    convert_image(input=mip_stitched_path, output=preview_path, window_min=window_min, window_max=window_max)
-    upload_multiple_files_to_slack(filepaths=[preview_path], initial_comment=f"MIP QC for {strip_ident}")
+    convert_image(
+        input=mip_stitched_path,
+        output=preview_path,
+        window_min=window_min,
+        window_max=window_max,
+    )
+    upload_multiple_files_to_slack(
+        filepaths=[preview_path], initial_comment=f"MIP QC for {strip_ident}"
+    )
+
 
 @task(task_run_name="rename-strip-{strip_ident}")
 def rename_strip_task(
@@ -414,6 +430,7 @@ def describe_cleanup(delete_strip: bool, rename_strip: bool) -> str:
         return "raw strip folder will be renamed into processed/"
     return "raw strip folder will be kept in place"
 
+
 def invalid_path(path: Optional[str]) -> bool:
     return path is None or path in {"/", ".", ""}
 
@@ -461,10 +478,10 @@ def process_strip(
 
     if (
         enter_flow_stage(
-        LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident),
-        force_rerun=force_rerun,
-        skip_if_running=False,
-        item_ident=strip_ident,
+            LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident),
+            force_rerun=force_rerun,
+            skip_if_running=False,
+            item_ident=strip_ident,
         )
         == RunDecision.SKIPPED
     ):
@@ -527,7 +544,6 @@ def process_strip(
             wait_for=[compress_future],
         )
 
-
     check_backup_future = None
     if backup_future:
         check_backup_future = check_backup_result.submit(
@@ -536,8 +552,6 @@ def process_strip(
             backup_path=backup_path,
             wait_for=[backup_future],
         )
-
-    
 
     backup_result = ValidationResult(ok=True, size_bytes=0)
     if check_backup_future:
@@ -597,7 +611,9 @@ def process_strip(
         failure_reasons.append(f"backup: {backup_result.reason}")
 
     cleanup_note = describe_cleanup(delete_raw_strip, rename_raw_strip)
-    status, message = build_status_message(success, failure_reasons, strip_ident.slice_id, strip_ident.strip_id)
+    status, message = build_status_message(
+        success, failure_reasons, strip_ident.slice_id, strip_ident.strip_id
+    )
 
     send_slack_message(f"{message} {cleanup_note}, {usage_info},")
 
@@ -651,4 +667,3 @@ if __name__ == "__main__":
     import prefect
 
     prefect.serve(process_strip_event_to_deployment())
-

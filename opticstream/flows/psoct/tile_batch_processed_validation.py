@@ -13,45 +13,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from opticstream.config.psoct_scan_config import (
-    PSOCTScanConfigModel,
-    VolumeModality,
-)
+from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.flows.psoct.tile_file_reference import TileFileReference
 from opticstream.flows.psoct.utils import processed_output_prefix
-
-# VolumeModality -> NIfTI postfix (MATLAB ``OutputOpts.Paths`` keys)
-_VOLUME_STEM_BY_MODALITY: dict[VolumeModality, str] = {
-    VolumeModality.DBI: "dBI3D",
-    VolumeModality.R3D: "R3D",
-    VolumeModality.O3D: "O3D",
-}
-
-# Per-tile batch writes in processedModalities order; ``mus`` is not among those stems today.
-_PER_TILE_ENFACE_SKIP = frozenset({"mus"})
-
-
-def expected_processed_nifti_suffixes(config: PSOCTScanConfigModel) -> tuple[str, ...]:
-    """
-    Ordered, de-duplicated list of basename suffixes (e.g. ``dBI3D``, ``aip``) to validate.
-
-    Mirrors ``build_pipeline_opts``: volumes from ``volume_modalities``; enface from
-    ``enface_modalities`` (excluding postfixes not emitted by the MATLAB batch wrappers).
-    """
-    keys: list[str] = []
-    for vm in config.volume_modalities:
-        keys.append(_VOLUME_STEM_BY_MODALITY[vm])
-    for em in config.enface_modalities:
-        if em.value in _PER_TILE_ENFACE_SKIP:
-            continue
-        keys.append(em.value)
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for k in keys:
-        if k not in seen:
-            seen.add(k)
-            ordered.append(k)
-    return tuple(ordered)
 
 
 def validate_output_files_exist_and_min_size(
@@ -77,8 +41,20 @@ def validate_output_files_exist_and_min_size(
 
     if issues:
         raise RuntimeError(
-            f"{context} validation failed for {len(issues)} issue(s):\n" + "\n".join(issues)
+            f"{context} validation failed for {len(issues)} issue(s):\n"
+            + "\n".join(issues)
         )
+
+
+def expected_processed_nifti_suffixes(config: PSOCTScanConfigModel) -> tuple[str, ...]:
+    """Ordered, de-duplicated suffixes to validate."""
+    return tuple(
+        dict.fromkeys(
+            m.value
+            for modalities in (config.volume_modalities, config.enface_modalities)
+            for m in modalities
+        )
+    )
 
 
 def validate_processed_batch_outputs(
@@ -87,7 +63,8 @@ def validate_processed_batch_outputs(
     *,
     mosaic_id: int,
     config: PSOCTScanConfigModel,
-    min_file_size_bytes: int = 50 * 1024 * 1024,
+    min_volume_file_size_bytes: int = 100 * 1024 * 1024,
+    min_enface_file_size_bytes: int = 100 * 1024,
 ) -> None:
     """
     Ensure each tile has the configured processed NIfTIs under ``processed_dir``.
@@ -95,18 +72,32 @@ def validate_processed_batch_outputs(
     Raises ``RuntimeError`` with a summary if any expected file is missing or too small.
     """
     processed_dir = processed_dir.resolve()
-    output_suffixes = expected_processed_nifti_suffixes(config)
 
-    outputs: list[tuple[str, Path]] = []
-    for ref in file_reference_list:
-        prefix = processed_output_prefix(mosaic_id, ref.tile_number)
+    grouped_suffixes = {
+        "volume": tuple(dict.fromkeys(m.value for m in config.volume_modalities)),
+        "enface": tuple(dict.fromkeys(m.value for m in config.enface_modalities)),
+    }
 
-        for key in output_suffixes:
-            out_path = processed_dir / f"{prefix}_{key}.nii"
-            outputs.append((f"tile_id={ref.tile_number}, key={key}", out_path))
+    for group, min_size in (
+        ("volume", min_volume_file_size_bytes),
+        ("enface", min_enface_file_size_bytes),
+    ):
+        suffixes = grouped_suffixes[group]
+        if not suffixes:
+            continue
 
-    validate_output_files_exist_and_min_size(
-        outputs,
-        min_file_size_bytes=min_file_size_bytes,
-        context="Processed tile outputs",
-    )
+        outputs = [
+            (
+                f"tile_id={ref.tile_number}, key={suffix}",
+                processed_dir
+                / f"{processed_output_prefix(mosaic_id, ref.tile_number)}_{suffix}.nii",
+            )
+            for ref in file_reference_list
+            for suffix in suffixes
+        ]
+
+        validate_output_files_exist_and_min_size(
+            outputs,
+            min_file_size_bytes=min_size,
+            context=f"Processed tile outputs ({group})",
+        )

@@ -56,7 +56,7 @@ def build_macro(
         f"regression_threshold={regression_threshold:.2f} "
         f"max/avg_displacement_threshold={max_avg_displacement_threshold:.2f} "
         f"absolute_displacement_threshold={absolute_displacement_threshold:.2f} "
-        'compute_overlap computation_parameters=[Save computation time (but use more RAM)] '
+        "compute_overlap computation_parameters=[Save computation time (but use more RAM)] "
         'image_output=[Fuse and display]");'
     )
 
@@ -93,7 +93,7 @@ def main(
 ) -> None:
     """
     Run Fiji grid stitching.
-    
+
     Parameters
     ----------
     directory : Path

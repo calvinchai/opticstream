@@ -151,6 +151,11 @@ def mosaic_enface_qc_slack_upload_flow(
     return results
 
 
+# TODO: surface overlay QC
+# TODO: focus plane overlay QC
+# TODO: tile alignment QC
+
+
 @flow
 def mosaic_enface_qc_slack_event_flow(payload: Dict[str, Any]) -> Dict[str, bool]:
     """
@@ -190,4 +195,3 @@ def to_deployment(project_name: str | None = None):
         tags=["event-driven", "mosaic-qc", "slack", "enface"],
         triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=project_name)],
     )
-
