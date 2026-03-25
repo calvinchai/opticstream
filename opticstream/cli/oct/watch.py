@@ -9,8 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from opticstream.cli.oct import oct_cli
-from opticstream.config.project_config import get_project_config_block
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
+from opticstream.config.psoct_scan_config import (
+    PSOCTScanConfigModel,
+    TileSavingType,
+    get_psoct_scan_config,
+)
 from opticstream.events import BATCH_READY
 from opticstream.events.psoct_event_emitters import emit_batch_psoct_event
 from opticstream.flows.psoct.tile_batch_process_flow import process_tile_batch
@@ -24,13 +27,27 @@ from opticstream.utils.filename_utils import extract_processed_index_from_filena
 from opticstream.utils.polling_watcher import PollingStableWatcher
 from opticstream.utils.refresh_disk import RefreshHook, resolve_refresh_hook
 
-if not logging.getLogger().handlers:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
 logger = logging.getLogger(__name__)
+
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+
+def _configure_logging(verbose: bool) -> None:
+    """Force log level on the root logger and ensure a StreamHandler is present.
+
+    basicConfig() is a no-op when any library has already attached a handler,
+    so we set the level explicitly here instead of relying on it.
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+        root.addHandler(handler)
+    root.setLevel(level)
+    # Ensure the opticstream namespace is not filtered out by a library-set level.
+    logging.getLogger("opticstream").setLevel(level)
 
 
 _COMPLEX_RE = re.compile(
@@ -171,10 +188,15 @@ class OCTWatcherService:
             )
             return []
 
-        if self.scan_config.mosaics_per_slice == 3:
-            return self._discover_three_mosaic_candidates()
+        logger.debug("Scanning folder: %s", self.folder_path)
 
-        return self._discover_two_mosaic_candidates()
+        if self.scan_config.mosaics_per_slice == 3:
+            candidates = self._discover_three_mosaic_candidates()
+        else:
+            candidates = self._discover_two_mosaic_candidates()
+
+        logger.debug("discover_candidates: found %s candidate(s)", len(candidates))
+        return candidates
 
     def _discover_two_mosaic_candidates(self) -> list[OCTBatchCandidate]:
         parsed_files = self._discover_two_mosaic_files()
@@ -224,7 +246,12 @@ class OCTWatcherService:
 
                     candidate_files = tuple(sorted(batch_files))
                     if not _all_files_readable(candidate_files):
-                        # transiently unreadable; let later polling iterations retry
+                        logger.debug(
+                            "Batch files transiently unreadable; will retry "
+                            "source_mosaic=%s logical_batch=%s",
+                            source_mosaic_id,
+                            logical_batch,
+                        )
                         continue
 
                     source_slice_id = slice_from_mosaic(
@@ -254,12 +281,14 @@ class OCTWatcherService:
 
     def _discover_two_mosaic_files(self) -> list[ParsedTileFile]:
         saving_type = self._selected_tile_saving_type()
+        logger.debug("_discover_two_mosaic_files: saving_type=%s", saving_type)
         out: list[ParsedTileFile] = []
 
         for path in self.folder_path.iterdir():
             if not path.is_file():
                 continue
             if not _is_readable_file(path):
+                logger.debug("Skipping unreadable file: %s", path.name)
                 continue
 
             parsed: ParsedTileFile | None = None
@@ -273,7 +302,10 @@ class OCTWatcherService:
 
             if parsed is not None:
                 out.append(parsed)
+            else:
+                logger.debug("File did not match saving_type=%s pattern: %s", saving_type, path.name)
 
+        logger.debug("_discover_two_mosaic_files: matched %s tile file(s)", len(out))
         return out
 
     def _discover_three_mosaic_candidates(self) -> list[OCTBatchCandidate]:
@@ -416,6 +448,7 @@ class OCTWatcherService:
 
         existing = OCT_STATE_SERVICE.peek_batch(batch_ident=batch_ident)
         if existing is not None and not self.force_resend:
+            logger.debug("[SKIP] batch state exists for %s: state=%r", batch_ident, existing)
             logger.info("[SKIP] batch state exists for %s", batch_ident)
             return 0
 
@@ -528,6 +561,7 @@ def watch(
     refresh: str | None = None,
     force_resend: bool = False,
     min_complex_file_size_bytes: int = 1,
+    verbose: bool = False,
 ) -> None:
     """
     Poll for complete OCT batches and dispatch each stable candidate either by:
@@ -543,12 +577,9 @@ def watch(
       - source mosaic id is derived from processed index and grid_size_x
       - slice_offset controls logical slice numbering via derived source mosaic ids
     """
-    project_config = get_project_config_block(project_name)
-    if project_config is None:
-        raise ValueError(
-            f"Project config block for '{project_name}' not found. "
-            "Run 'opticstream oct setup' first to create the config block."
-        )
+    _configure_logging(verbose)
+
+    project_config = get_psoct_scan_config(project_name)
 
     scan_config = PSOCTScanConfigModel.model_validate(project_config.model_dump())
     project_base_path = str(project_config.project_base_path)

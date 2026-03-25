@@ -220,7 +220,7 @@ class PSOCTScanConfigModel(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="forbid", validate_assignment=True, revalidate_instances="always"
+        validate_assignment=True, revalidate_instances="always"
     )
 
     project_name: str = Field(
@@ -366,7 +366,7 @@ def get_psoct_scan_config(
     Get the scan configuration for a project.
     """
     from opticstream.utils.naming_convention import normalize_project_name
-
+    print(f"{normalize_project_name(project_name)}-psoct-config")
     return PSOCTScanConfig.load(
-        override_config_name or f"{normalize_project_name(project_name)}-config"
+        override_config_name or f"{normalize_project_name(project_name)}-psoct-config"
     )

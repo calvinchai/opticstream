@@ -72,6 +72,8 @@ def oct_batch_processing_milestone(
 ) -> Callable[[Callable[P, R]], Callable[P, R | None]]:
     def _get_ident(*args: P.args, **kwargs: P.kwargs) -> OCTBatchId:
         if "batch_id" not in kwargs:
+            if isinstance(args[0], OCTBatchId):
+                return args[0]
             raise TypeError("expected keyword argument 'batch_id'")
         return kwargs["batch_id"]
 
@@ -103,6 +105,8 @@ def oct_mosaic_processing_milestone(
 ) -> Callable[[Callable[P, R]], Callable[P, R | None]]:
     def _get_ident(*args: P.args, **kwargs: P.kwargs) -> OCTMosaicId:
         if "mosaic_ident" not in kwargs:
+            if isinstance(args[0], OCTMosaicId):
+                return args[0]
             raise TypeError("expected keyword argument 'mosaic_ident'")
         return kwargs["mosaic_ident"]
 
@@ -134,6 +138,8 @@ def oct_slice_processing_milestone(
 ) -> Callable[[Callable[P, R]], Callable[P, R | None]]:
     def _get_ident(*args: P.args, **kwargs: P.kwargs) -> OCTSliceId:
         if "slice_ident" not in kwargs:
+            if isinstance(args[0], OCTSliceId):
+                return args[0]
             raise TypeError("expected keyword argument 'slice_ident'")
         return kwargs["slice_ident"]
 

@@ -9,7 +9,7 @@ from opticstream.state.lsm_project_state import (
     LSMStripId,
     LSM_STATE_SERVICE,
 )
-from opticstream.state.oct_project_state import OCTMosaicId, OCT_STATE_SERVICE
+from opticstream.state.oct_project_state import OCTBatchId, OCTMosaicId, OCT_STATE_SERVICE
 from opticstream.state.project_state_core import ProcessingState
 
 
@@ -31,6 +31,8 @@ def _default_state_opener(
         return lambda: LSM_STATE_SERVICE.open_strip(strip_ident=item_ident)
     if isinstance(item_ident, LSMChannelId):
         return lambda: LSM_STATE_SERVICE.open_channel(channel_ident=item_ident)
+    if isinstance(item_ident, OCTBatchId):
+        return lambda: OCT_STATE_SERVICE.open_batch(batch_ident=item_ident)
     if isinstance(item_ident, OCTMosaicId):
         return lambda: OCT_STATE_SERVICE.open_mosaic(mosaic_ident=item_ident)
     raise TypeError(

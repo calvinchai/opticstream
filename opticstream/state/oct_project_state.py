@@ -176,7 +176,7 @@ class OCTBatchState(
     def reset_enface_processed(self) -> None:
         self.enface_processed = False
         self.touch()
-
+        
     def reset_uploaded(self) -> None:
         self.uploaded = False
         self.touch()

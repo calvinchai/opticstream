@@ -5,7 +5,6 @@ from typing import Any, Mapping, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from opticstream.config.project_config import get_project_config_block
 from opticstream.config.psoct_scan_config import (
     PSOCTScanConfigModel,
     get_psoct_scan_config,
@@ -75,7 +74,7 @@ def get_project_base_path(project_name: str) -> Path:
 
 def get_item_path(
     item_indent: OCTBatchId | OCTMosaicId | OCTSliceId,
-    project_base_path: Optional[Path] = None,
+    project_base_path: Optional[Path|str] = None,
 ) -> Path:
     if project_base_path is None:
         project_base_path = get_project_base_path(item_indent.project_name)
@@ -127,14 +126,7 @@ def load_scan_config_for_payload(payload: Mapping[str, Any]) -> PSOCTScanConfigM
             "payload must include project_name or mosaic_ident with project_name"
         )
     override = payload.get("override_config")
-    if override is not None:
-        cfg = get_psoct_scan_config(project_name, override_config_name=override)
-    else:
-        cfg = get_project_config_block(project_name)
-    if cfg is None:
-        raise ValueError(
-            f"project config block '{project_name.lower().replace('_', '-')}-config' not found"
-        )
+    cfg = get_psoct_scan_config(project_name, override_config_name=override)
     return PSOCTScanConfigModel.model_validate(cfg.model_dump())
 
 

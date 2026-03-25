@@ -113,7 +113,10 @@ class PollingStableWatcher(Generic[T, K]):
         now = time.time()
         seen_keys: set[K] = set()
 
-        for candidate in self.discover_candidates():
+        candidates = list(self.discover_candidates())
+        logger.debug("_run_iteration: %s candidate(s) discovered", len(candidates))
+
+        for candidate in candidates:
             key = self.candidate_key(candidate)
             seen_keys.add(key)
 
@@ -148,6 +151,12 @@ class PollingStableWatcher(Generic[T, K]):
 
             stable_for = now - record.stable_since
             if stable_for < self.stability_seconds:
+                logger.debug(
+                    "Candidate waiting for stability: %.1fs / %ss: key=%r",
+                    stable_for,
+                    self.stability_seconds,
+                    key,
+                )
                 continue
 
             try:
@@ -164,4 +173,5 @@ class PollingStableWatcher(Generic[T, K]):
 
         disappeared_keys = set(self._stability) - seen_keys
         for key in disappeared_keys:
+            logger.debug("Candidate disappeared from disk, dropping from tracking: key=%r", key)
             self._stability.pop(key, None)
