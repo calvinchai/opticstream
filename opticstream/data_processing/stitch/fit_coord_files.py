@@ -7,7 +7,7 @@ a structured format with metadata and tiles sections (like normal_stitching.yaml
 """
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import yaml
 from cyclopts import App
@@ -26,11 +26,11 @@ def replace_in_filepath(filepath: str, replacements: dict) -> str:
 
 
 def convert_yaml_format(
-    input_path: str,
-    output_path: str,
+    input_path: Union[str, Path],
+    output_path: Union[str, Path],
     filepath_replacements: Optional[dict] = None,
-    base_dir: Optional[str] = None,
-    mask: Optional[str] = None,
+    base_dir: Optional[Union[str, Path]] = None,
+    mask: Optional[Union[str, Path]] = None,
     cropx: Optional[int] = None,
     cropy: Optional[int] = None,
     scan_resolution: Optional[List[float]] = None,
@@ -59,7 +59,7 @@ def convert_yaml_format(
         Scan resolution array for metadata
     """
     # Load input YAML
-    with open(input_path, 'r') as f:
+    with open(input_path, "r") as f:
         input_data = yaml.safe_load(f)
 
     # Handle both list format and dict format
@@ -84,9 +84,9 @@ def convert_yaml_format(
     # Add metadata section if any metadata fields are provided
     metadata = {}
     if base_dir is not None:
-        metadata['base_dir'] = base_dir
+        metadata["base_dir"] = str(base_dir)
     if mask is not None:
-        metadata['mask'] = mask
+        metadata["mask"] = str(mask)
     if cropx is not None:
         metadata['cropx'] = cropx
     if cropy is not None:
@@ -104,10 +104,10 @@ def convert_yaml_format(
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, 'w') as f:
+    with open(output_path_obj, "w") as f:
         yaml.dump(output_data, f, default_flow_style=False, sort_keys=False)
 
-    print(f"Successfully converted {input_path} to {output_path}")
+    print(f"Successfully converted {input_path} to {output_path_obj}")
     print(f"  - Processed {len(tiles)} tiles")
     if filepath_replacements:
         print(f"  - Applied {len(filepath_replacements)} filepath replacements")
@@ -117,11 +117,11 @@ def convert_yaml_format(
 
 @app.default
 def main(
-    input: str,
-    output: str,
+    input: Union[str, Path],
+    output: Union[str, Path],
     replace: Optional[List[str]] = None,
-    base_dir: Optional[str] = None,
-    mask: Optional[str] = None,
+    base_dir: Optional[Union[str, Path]] = None,
+    mask: Optional[Union[str, Path]] = None,
     cropx: Optional[int] = None,
     cropy: Optional[int] = None,
     scan_resolution: Optional[List[float]] = None,

@@ -61,14 +61,14 @@ FLOW_DEPLOYMENTS: Dict[str, FlowDeploymentSpec] = {
         description="Unified state management flow handling batch and mosaic events.",
     ),
     "upload": FlowDeploymentSpec(
-        module_path="opticstream.flows.upload_flow",
+        module_path="opticstream.flows.psoct.tile_batch_upload_flow",
         deployment_names=(
-            "upload_to_linc_batch_flow_deployment",
+            # Note: mosaic enface/volume uploads are deployed via `opticstream cli oct deploy`.
+            # This CLI entry covers only the tile-batch upload flow.
+            # Add mosaic upload deployments here only if their modules define `__main__` deployments.
             "upload_to_linc_batch_event_flow_deployment",
-            "upload_mosaic_enface_to_dandi_event_flow_deployment",
-            "upload_mosaic_volume_to_dandi_event_flow_deployment",
         ),
-        description="Upload flows for tile batches and mosaics to LINC / DANDI.",
+        description="Upload flow for tile batches to DANDI.",
     ),
     "slice-registration": FlowDeploymentSpec(
         module_path="opticstream.flows.slice_registration_flow",

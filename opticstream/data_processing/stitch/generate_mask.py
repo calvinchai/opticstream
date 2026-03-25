@@ -8,7 +8,7 @@ foreground (1).
 """
 
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import imageio
 import nibabel as nib
@@ -20,7 +20,7 @@ from scipy import ndimage
 app = App(name="generate_mask")
 
 
-def load_image(input_path: str) -> Tuple[
+def load_image(input_path: Union[str, Path]) -> Tuple[
     np.ndarray, Optional[nib.Nifti1Image], Optional[np.ndarray]]:
     """
     Load image from file, supporting both nifti and regular image formats.
@@ -43,7 +43,7 @@ def load_image(input_path: str) -> Tuple[
     suffix = input_path_obj.suffix.lower()
     if suffix in ['.nii', '.gz', '.nii.gz']:
         # Load nifti file
-        nifti_img = nib.load(input_path)
+        nifti_img = nib.load(str(input_path_obj))
         data = np.asarray(nifti_img.dataobj)
         affine = nifti_img.affine
         return data, nifti_img, affine
@@ -51,10 +51,10 @@ def load_image(input_path: str) -> Tuple[
         # Load regular image file
         try:
             # Try using imageio first (supports many formats)
-            data = imageio.imread(input_path)
+            data = imageio.imread(str(input_path_obj))
         except Exception:
             # Fall back to PIL
-            img = Image.open(input_path)
+            img = Image.open(str(input_path_obj))
             data = np.asarray(img)
 
         # Convert to grayscale if needed
@@ -73,7 +73,7 @@ def load_image(input_path: str) -> Tuple[
 
 def save_mask(
     mask: np.ndarray,
-    output_path: str,
+    output_path: Union[str, Path],
     nifti_img: Optional[nib.Nifti1Image] = None,
     affine: Optional[np.ndarray] = None
 ):
@@ -107,14 +107,14 @@ def save_mask(
         else:
             # Create default affine
             mask_img = nib.Nifti1Image(mask_uint8, np.eye(4))
-        nib.save(mask_img, output_path)
+        nib.save(mask_img, str(output_path_obj))
     elif suffix in ['.tif', '.tiff']:
         # Save as TIFF
-        imageio.imwrite(output_path, mask_uint8)
+        imageio.imwrite(str(output_path_obj), mask_uint8)
     else:
         # Save as regular image (PNG, JPEG, etc.)
         mask_image = Image.fromarray(mask_uint8, mode='L')
-        mask_image.save(output_path)
+        mask_image.save(str(output_path_obj))
 
 
 def ensure_single_component(
@@ -183,8 +183,8 @@ def ensure_single_component(
 
 @app.default
 def main(
-    input: str,
-    output: str,
+    input: Union[str, Path],
+    output: Union[str, Path],
     threshold: float,
     gaussian: bool = True,
     gaussian_sigma: float = 1.0,
@@ -212,8 +212,10 @@ def main(
         (default: False)
     """
     # Load input image
-    print(f"Loading input from {input}...")
-    data, nifti_img, affine = load_image(input)
+    input_path = Path(input)
+    output_path = Path(output)
+    print(f"Loading input from {input_path}...")
+    data, nifti_img, affine = load_image(input_path)
     print(
         f"  Shape: {data.shape}, dtype: {data.dtype}, range: [{data.min():.2f}, {data.max():.2f}]")
 
@@ -237,8 +239,8 @@ def main(
             f"  After single component: Foreground pixels: {np.sum(mask)}, Background pixels: {np.sum(~mask.astype(bool))}")
 
     # Save mask
-    print(f"Saving mask to {output}...")
-    save_mask(mask, output, nifti_img, affine)
+    print(f"Saving mask to {output_path}...")
+    save_mask(mask, output_path, nifti_img, affine)
     print("Done!")
 
 

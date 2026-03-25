@@ -142,12 +142,13 @@ def path_list_from_payload(payload: Mapping[str, Any], key: str = "file_list") -
 
 
 def get_slice_paths(
-    project_base_path: str, slice_id: int
-) -> Tuple[Path, Path, Path]:
+    project_base_path: str | Path, slice_id: int
+) -> Tuple[Path, Path, Path, Path]:
     """
     Get standard paths for a slice directory structure.
 
     Structure:
+    - {project_base_path}/slice-{slice_id:02d}/
     - {project_base_path}/slice-{slice_id:02d}/processed/
     - {project_base_path}/slice-{slice_id:02d}/stitched/
     - {project_base_path}/slice-{slice_id:02d}/complex/
@@ -161,14 +162,14 @@ def get_slice_paths(
 
     Returns
     -------
-    Tuple[Path, Path, Path]
-        Tuple of (processed_path, stitched_path, complex_path)
+    Tuple[Path, Path, Path, Path]
+        Tuple of (slice_path, processed_path, stitched_path, complex_path)
     """
     slice_path = Path(project_base_path) / f"slice-{slice_id:02d}"
     processed_path = slice_path / "processed/"
     stitched_path = slice_path / "stitched/"
     complex_path = slice_path / "complex/"
-    return processed_path, stitched_path, complex_path
+    return slice_path, processed_path, stitched_path, complex_path
 
 
 def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
@@ -195,16 +196,46 @@ def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
     return Path(dandiset_path) / f"sample-slice{slice_id:02d}"
 
 
-def get_modality_stitching_filename(
-    project_base_path: str | Path, slice_id: int, mosaic_id: int, modality: str
+def mosaic_prefix(mosaic_id: int) -> str:
+    """Format the standard mosaic prefix: ``mosaic_001``, ``mosaic_002``, etc."""
+    return f"mosaic_{mosaic_id:03d}"
+
+
+def processed_output_prefix(mosaic_id: int, tile_index: int) -> str:
+    """
+    Basename stem for per-tile processed NIfTIs from indexed batch wrappers.
+
+    Matches MATLAB ``psoct.file.internal.buildProcessedOutputPrefix`` and Fiji-style
+    ``{mosaic_prefix}_image_{tile:04d}`` (no extension).
+    """
+    return f"{mosaic_prefix(mosaic_id)}_image_{tile_index:04d}"
+
+
+def get_mosaic_tile_info_path(
+    stitched_path: str | Path, mosaic_id: int, modality: str
 ) -> Path:
-    """Path to stitched modality YAML under the slice directory."""
-    return (
-        Path(project_base_path)
-        / f"slice-{slice_id:02d}"
-        / "stitched"
-        / f"mosaic_{mosaic_id:03d}_{modality}.yaml"
-    )
+    """``{stitched_path}/mosaic_{mosaic_id:03d}_{modality}.yaml``"""
+    return Path(stitched_path) / f"{mosaic_prefix(mosaic_id)}_{modality}.yaml"
+
+
+def get_mosaic_nifti_path(
+    stitched_path: str | Path, mosaic_id: int, modality: str
+) -> Path:
+    """``{stitched_path}/mosaic_{mosaic_id:03d}_{modality}.nii.gz``"""
+    return Path(stitched_path) / f"{mosaic_prefix(mosaic_id)}_{modality}.nii.gz"
+
+
+
+def get_mosaic_tile_coords_export_path(
+    stitched_path: str | Path, mosaic_id: int
+) -> Path:
+    """``{stitched_path}/mosaic_{mosaic_id:03d}_tile_coords_export.yaml``"""
+    return Path(stitched_path) / f"{mosaic_prefix(mosaic_id)}_tile_coords_export.yaml"
+
+
+def get_mosaic_fiji_file_template(mosaic_id: int) -> str:
+    """Fiji file template: ``mosaic_{mosaic_id:03d}_image_{iiii}_aip.nii``."""
+    return f"{mosaic_prefix(mosaic_id)}_image_{{iiii}}_aip.nii"
 
 
 def first_mosaic_for_slice(slice_id: int, mosaics_per_slice: int) -> int:

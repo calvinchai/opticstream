@@ -9,12 +9,15 @@ from opticstream.flows.lsm.paths import (
     strip_zarr_output_path,
 )
 from opticstream.flows.lsm.strip_process_flow import (
-    DirManifest,
     build_status_message,
     compare_dir_manifests,
     format_bytes,
-    get_dir_manifest,
     invalid_path,
+)
+from opticstream.utils.zarr_validation import (
+    DirManifest,
+    get_dir_manifest,
+    validate_zarr,
     validate_zarr_directory,
 )
 from opticstream.flows.lsm.utils import (
@@ -217,3 +220,29 @@ def test_validate_zarr_directory_below_threshold(tmp_path):
         below_threshold_reason="too_small",
     )
     assert not r.ok and r.reason == "too_small"
+
+
+def test_validate_zarr_wraps_directory_checks(tmp_path):
+    class L:
+        def error(self, *a, **k):
+            pass
+
+        def info(self, *a, **k):
+            pass
+
+    (tmp_path / "f.txt").write_text("x")
+    r = validate_zarr(
+        str(tmp_path),
+        0,
+        context="wrap",
+        logger=L(),
+    )
+    assert r.ok and r.size_bytes >= 1
+
+    r2 = validate_zarr(
+        str(tmp_path / "missing.zarr"),
+        100,
+        context="wrap",
+        logger=L(),
+    )
+    assert not r2.ok and r2.reason.startswith("wrap:")

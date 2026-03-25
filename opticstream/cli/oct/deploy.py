@@ -4,7 +4,6 @@ from pathlib import Path
 from opticstream.cli.oct import oct_cli
 from opticstream.events import (
     BATCH_ARCHIVED,
-    BATCH_COMPLEXED,
     BATCH_READY,
     MOSAIC_READY,
     MOSAIC_ENFACE_STITCHED,
@@ -91,28 +90,13 @@ def deploy(
         push=False,
     )
 
-    complex_to_processed_batch_event_flow.from_source(
-        source=Path(__file__).parent.parent.parent / "flows",
-        entrypoint=(
-            "process_tile_batch_complex2processed_flow.py:"
-            "complex_to_processed_batch_event_flow"
-        ),
-    ).deploy(
-        name=deployment_name,
-        work_pool_name=work_pool_name,
-        tags=["event-driven", "tile-batch", "complex-to-processed", *COMMON_TAGS],
-        triggers=[get_event_trigger(BATCH_COMPLEXED, project_name=project_name)],
-        build=False,
-        push=False,
-    )
-
     # ============================================================================
     # Upload Flow Deployments
     # ============================================================================
 
     upload_to_linc_batch_event_flow.from_source(
         source=Path(__file__).parent.parent.parent / "flows",
-        entrypoint="upload_flow.py:upload_to_linc_batch_event_flow",
+        entrypoint="psoct/tile_batch_upload_flow.py:upload_to_linc_batch_event_flow",
     ).deploy(
         name=deployment_name,
         work_pool_name=work_pool_name,
@@ -124,7 +108,7 @@ def deploy(
 
     upload_mosaic_enface_to_dandi_event_flow.from_source(
         source=Path(__file__).parent.parent.parent / "flows",
-        entrypoint="upload_flow.py:upload_mosaic_enface_to_dandi_event_flow",
+        entrypoint="psoct/mosaic_upload_flow.py:upload_mosaic_enface_to_dandi_event_flow",
     ).deploy(
         name=deployment_name,
         work_pool_name=work_pool_name,
@@ -136,7 +120,7 @@ def deploy(
 
     upload_mosaic_volume_to_dandi_event_flow.from_source(
         source=Path(__file__).parent.parent.parent / "flows",
-        entrypoint="upload_flow.py:upload_mosaic_volume_to_dandi_event_flow",
+        entrypoint="psoct/mosaic_volume_upload_flow.py:upload_mosaic_volume_to_dandi_event_flow",
     ).deploy(
         name=deployment_name,
         work_pool_name=work_pool_name,
@@ -246,6 +230,18 @@ def deploy(
         name=deployment_name,
         work_pool_name=work_pool_name,
         tags=["event-driven", "slack-notifications", "enface-stitched", *COMMON_TAGS],
+        triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=project_name)],
+        build=False,
+        push=False,
+    )
+
+    mosaic_enface_qc_slack_event_flow.from_source(
+        source=Path(__file__).parent.parent.parent / "flows",
+        entrypoint="psoct/mosaic_enface_qc_flow.py:mosaic_enface_qc_slack_event_flow",
+    ).deploy(
+        name=deployment_name,
+        work_pool_name=work_pool_name,
+        tags=["event-driven", "slack-notifications", "mosaic-qc", "enface", *COMMON_TAGS],
         triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=project_name)],
         build=False,
         push=False,

@@ -5,8 +5,6 @@ Centralizes MATLAB subprocess execution with consistent error handling.
 Includes MATLAB engine initialization and command-line fallback utilities.
 """
 
-import os
-import subprocess
 from numbers import Number
 from pathlib import Path
 from typing import Any, Optional
@@ -17,7 +15,7 @@ from prefect_shell import ShellOperation
 import psoct_toolbox
 
 
-def matlab_literal(value: Any) -> str:
+def _matlab_literal(value: Any) -> str:
     """
     Convert a Python value into a MATLAB literal string.
 
@@ -37,7 +35,7 @@ def matlab_literal(value: Any) -> str:
     if isinstance(value, (list, tuple)):
         if not value:
             return "[]"
-        return "[" + ", ".join(matlab_literal(v) for v in value) + "]"
+        return "[" + ", ".join(_matlab_literal(v) for v in value) + "]"
     raise TypeError(f"Unsupported value type for MATLAB literal: {type(value)}")
 
 
@@ -49,24 +47,10 @@ def dict_to_matlab_literal(value: dict[str, Any]) -> str:
         return "struct()"
     fields: list[str] = []
     for key, field_value in value.items():
-        key_lit = matlab_literal(str(key))
-        value_lit = matlab_literal(field_value)
+        key_lit = _matlab_literal(str(key))
+        value_lit = _matlab_literal(field_value)
         fields.append(f"{key_lit}, {value_lit}")
     return f"struct({', '.join(fields)})"
-
-
-def get_default_matlab_root() -> str:
-    """
-    Return the default MATLAB toolbox root from the installed psoct_toolbox.
-    """
-    try:
-        return psoct_toolbox.get_matlab_root()
-    except Exception as exc:  # pragma: no cover - defensive
-        raise RuntimeError(
-            "Failed to determine MATLAB toolbox root from psoct_toolbox. "
-            "Ensure the psoct_toolbox package is installed and "
-            "get_matlab_root() is available."
-        ) from exc
 
 
 def resolve_matlab_root(override: Optional[str] = None) -> str:
@@ -81,157 +65,145 @@ def resolve_matlab_root(override: Optional[str] = None) -> str:
     """
     if override:
         return str(Path(override).expanduser())
-    return get_default_matlab_root()
-
-
-def get_matlab_engine():
-    """
-    Get MATLAB engine instance.
-
-    Returns
-    -------
-    matlab.engine.MatlabEngine
-        MATLAB engine instance
-
-    Raises
-    ------
-    ImportError
-        If matlab.engine is not available
-    RuntimeError
-        If MATLAB engine cannot be started
-    """
-    logger = get_run_logger()
     try:
-        import matlab.engine
+        return psoct_toolbox.get_matlab_root()
+    except Exception as exc:  # pragma: no cover - defensive
+        raise RuntimeError(
+            "Failed to determine MATLAB toolbox root from psoct_toolbox. "
+            "Ensure the psoct_toolbox package is installed and "
+            "get_matlab_root() is available."
+        ) from exc
+
+
+def _is_matlab_engine_available() -> bool:
+    """
+    Return True if the MATLAB Engine for Python package is importable.
+    """
+    try:
+        import matlab.engine  # noqa: F401
+
+        return True
     except ImportError:
-        raise ImportError(
-            "MATLAB Engine for Python is not installed. "
-            "Install it using: pip install matlabengine"
-        )
-
-    try:
-        # Start MATLAB engine
-        eng = matlab.engine.start_matlab()
-        logger.info("MATLAB engine started successfully")
-        return eng
-    except Exception as e:
-        raise RuntimeError(f"Failed to start MATLAB engine: {e}")
+        return False
 
 
-def call_matlab_via_cli(
+def run_matlab_function_or_cli(
     function_name: str,
-    *args,
+    *args: Any,
     matlab_script_path: Optional[str] = None,
-) -> None:
+    nargout: int = 0,
+) -> Optional[Any]:
     """
-    Call MATLAB function via command line as fallback.
+    Run a MATLAB function via the MATLAB Engine for Python, or fall back to CLI.
+
+    When the MATLAB Engine package is not installed, calls ``matlab -batch``
+    with the same function name and arguments. Toolbox paths are resolved via
+    ``addpath(genpath(root))`` in both paths.
 
     Parameters
     ----------
-    function_name : str
-        Name of MATLAB function to call
+    function_name
+        MATLAB function name.
     *args
-        Arguments to pass to MATLAB function
-    matlab_script_path : str, optional
-        Path to MATLAB script directory
+        Positional arguments passed to the MATLAB function.
+    matlab_script_path
+        Optional toolbox root override; passed to :func:`resolve_matlab_root`.
+    nargout
+        Number of MATLAB outputs to return from the engine. When ``nargout > 0``,
+        the CLI fallback cannot return values and raises :class:`RuntimeError`.
 
-    Raises
-    ------
-    RuntimeError
-        If MATLAB is not found in PATH
-    subprocess.CalledProcessError
-        If MATLAB command fails
+    Returns
+    -------
+    Any or None
+        Engine return value(s) when ``nargout > 0``; otherwise ``None``.
     """
     logger = get_run_logger()
-    # Build MATLAB command
-    # Format: matlab -batch "function_name(arg1, arg2, ...)"
-
-    # Convert arguments to MATLAB format
-    matlab_args = []
-    for arg in args:
-        if isinstance(arg, (int, float)):
-            matlab_args.append(str(arg))
-        elif isinstance(arg, str):
-            # Escape quotes and wrap in quotes
-            escaped = arg.replace("'", "''")
-            matlab_args.append(f"'{escaped}'")
-        else:
-            matlab_args.append(str(arg))
-
-    # Resolve MATLAB script path (explicit override or psoct_toolbox default)
     resolved_path = resolve_matlab_root(matlab_script_path)
-    path_cmd = f"addpath(genpath('{resolved_path}')); "
-    # Also add registration subdirectory when present
-    registration_path = Path(resolved_path) / "registration"
-    if registration_path.exists():
-        path_cmd += f"addpath('{registration_path}'); "
 
-    # Build MATLAB command
-    args_str = ", ".join(matlab_args)
-    matlab_cmd = f"{path_cmd}{function_name}({args_str})"
+    if _is_matlab_engine_available():
+        import matlab.engine
 
-    # Execute MATLAB
-    cmd = ["matlab", "-batch", matlab_cmd]
+        eng = matlab.engine.start_matlab()
+        eng.eval(f"addpath(genpath('{resolved_path}'));", nargout=0)
+        logger.info(f"MATLAB engine started; toolbox path added: {resolved_path}")
+        try:
+            fn = getattr(eng, function_name)
+            result = fn(*args, nargout=nargout)
+            logger.info(f"{function_name} completed successfully via MATLAB engine")
+            return result
+        finally:
+            eng.quit()
 
-    logger.info(f"Executing MATLAB command: {' '.join(cmd)}")
-    logger.debug(f"MATLAB command string: {matlab_cmd}")
+    if nargout != 0:
+        raise RuntimeError(
+            f"MATLAB Engine is required for {function_name} with nargout={nargout}; "
+            "CLI fallback does not return MATLAB outputs."
+        )
+
+    logger.warning("MATLAB Engine not available, using CLI")
+    args_str = ", ".join(_matlab_literal(a) for a in args)
+    matlab_cmd = f"addpath(genpath('{resolved_path}')); {function_name}({args_str})"
+    escaped_cmd = matlab_cmd.replace('"', '\\"')
+    logger.info(f"Executing MATLAB CLI: {function_name}({args_str})")
+    logger.debug(f"Full MATLAB command string: {matlab_cmd}")
     with ShellOperation(
-        commands=[cmd],
-    ) as matlab_operation:
-        matlab_process = matlab_operation.trigger()
-        matlab_process.wait_for_completion()
-        output = matlab_process.fetch_result()
-        logger.info(f"MATLAB execution output: {output}")
+        commands=[f'matlab -batch "{escaped_cmd}"'],
+    ) as op:
+        proc = op.trigger()
+        proc.wait_for_completion()
+        if proc.return_code != 0:
+            raise RuntimeError(
+                f"MATLAB CLI command failed for {function_name}: {proc.fetch_result()}"
+            )
+        logger.info(f"MATLAB output: {proc.fetch_result()}")
+    return None
 
 
-def run_matlab_batch_command(
+def run_matlab_batch_command_or_cli(
     command: str,
     matlab_script_path: Optional[str] = None,
     working_dir: Optional[str] = None,
-) -> subprocess.CompletedProcess:
+) -> None:
     """
-    Execute a MATLAB batch command.
+    Run a MATLAB batch command via the Engine when available, else ``matlab -batch``.
 
-    Builds MATLAB command string with addpath, executes subprocess.run,
-    and handles errors consistently.
+    Uses ``addpath(genpath(root));`` as preamble in both the engine and CLI paths.
 
     Parameters
     ----------
-    command : str
-        MATLAB command to execute (e.g., "spectral2complex_batch(...)")
-    matlab_script_path : str, optional
-        Path to MATLAB script directory for addpath
-
-    Returns
-    -------
-    subprocess.CompletedProcess
-        Completed process result
-
-    Raises
-    ------
-    ValueError
-        If MATLAB command returns non-zero exit code
+    command
+        MATLAB command string to execute (e.g. ``"spectral2complex_batch(...)"``).
+    matlab_script_path
+        Optional toolbox root override; passed to :func:`resolve_matlab_root`.
+    working_dir
+        Optional working directory for the CLI subprocess.
     """
     logger = get_run_logger()
     resolved_path = resolve_matlab_root(matlab_script_path)
     matlab_cmd = f"addpath(genpath('{resolved_path}'));{command}"
 
-    # Build full command - escape double quotes in matlab_cmd for shell
-    # MATLAB commands use single quotes, so we wrap the whole thing in double quotes
+    if _is_matlab_engine_available():
+        import matlab.engine
+
+        eng = matlab.engine.start_matlab()
+        logger.info(f"MATLAB engine started; toolbox path added: {resolved_path}")
+        try:
+            eng.eval(matlab_cmd, nargout=0)
+            logger.info("MATLAB batch command completed via MATLAB engine")
+        finally:
+            eng.quit()
+        return
+
+    logger.warning("MATLAB Engine not available, using CLI batch")
     escaped_cmd = matlab_cmd.replace('"', '\\"')
-    full_command = f'matlab -batch "{escaped_cmd}"'
-
     logger.info(f"Executing MATLAB command: {command}")
-    logger.debug(f"Full MATLAB command: {full_command}")
-
+    logger.debug(f"Full MATLAB command: matlab -batch \"{escaped_cmd}\"")
     with ShellOperation(
-        commands=[full_command],
-        working_dir=working_dir if working_dir else os.getcwd(),
-    ) as matlab_operation:
-        matlab_process = matlab_operation.trigger()
-        matlab_process.wait_for_completion()
-        output = matlab_process.fetch_result()
-        if matlab_process.return_code != 0:
-            logger.error(f"MATLAB command failed: {output}")
-            raise RuntimeError(f"MATLAB command failed: {output}")
-        logger.info(f"MATLAB execution output: {output}")
+        commands=[f'matlab -batch "{escaped_cmd}"'],
+        working_dir=working_dir,
+    ) as op:
+        proc = op.trigger()
+        proc.wait_for_completion()
+        if proc.return_code != 0:
+            raise RuntimeError(f"MATLAB command failed: {proc.fetch_result()}")
+        logger.info(f"MATLAB execution output: {proc.fetch_result()}")

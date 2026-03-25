@@ -5,19 +5,24 @@ from typing import Any, Dict
 
 from prefect import flow, get_run_logger, task
 
-from opticstream.config.pipeline_opts_builder import build_pipeline_opts
+from opticstream.artifacts.publish_hooks import (
+    publish_oct_mosaic_hook,
+    publish_oct_project_hook,
+)
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.events import BATCH_PROCESSED
+from opticstream.flows.psoct.tile_batch_matlab import build_complex_to_processed_command
+from opticstream.flows.psoct.tile_file_reference import build_tile_file_reference_list
 from opticstream.flows.psoct.utils import (
     batch_ident_from_payload,
     load_scan_config_for_payload,
+    mosaic_context_from_ids,
     path_list_from_payload,
 )
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
 from opticstream.state.state_guards import force_rerun_from_payload
-from opticstream.utils.matlab_execution import run_matlab_batch_command
-from opticstream.flows.psoct.utils import get_slice_paths
+from opticstream.utils.matlab_execution import run_matlab_batch_command_or_cli
 
 
 @task(task_run_name="complex-to-processed-{batch_id}")
@@ -28,20 +33,33 @@ def complex_to_processed_batch(
     config: PSOCTScanConfigModel,
 ) -> None:
     logger = get_run_logger()
-    processed_path, _, _ = get_slice_paths(str(config.project_base_path), batch_id.slice_id)
-    processed_path.mkdir(parents=True, exist_ok=True)
-    file_list_str = ",".join(f"'{f}'" for f in file_list)
-    pipeline_opts = build_pipeline_opts(config)
-    cmd = (
-        f"complex2processed_batch({{{file_list_str}}}, '{processed_path}/', "
-        f"'{config.processing.surface_spec}', {config.processing.enface_depth}, "
-        f"pipelineOpts={pipeline_opts.to_matlab_literal()})"
+    mosaic_context = mosaic_context_from_ids(
+        slice_id=batch_id.slice_id,
+        mosaic_id=batch_id.mosaic_id,
+        mosaics_per_slice=config.mosaics_per_slice,
+    )
+    file_reference_list = build_tile_file_reference_list(
+        file_list,
+        config=config,
+        mosaic_context=mosaic_context,
+    )
+    _, cmd = build_complex_to_processed_command(
+        batch_id,
+        file_reference_list,
+        config=config,
+        mosaic_context=mosaic_context,
     )
     logger.info("Running MATLAB command: %s", cmd)
-    run_matlab_batch_command(cmd)
+    run_matlab_batch_command_or_cli(
+        cmd,
+        matlab_script_path=str(config.matlab_root) if config.matlab_root else None,
+    )
 
 
-@flow(flow_run_name="process-complex-tile-batch-{batch_id}")
+@flow(
+    flow_run_name="process-complex-tile-batch-{batch_id}",
+    on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
+)
 @oct_batch_processing_milestone(field_name="enface_processed", success_event=BATCH_PROCESSED)
 def process_complex_tile_batch(
     batch_id: OCTBatchId,

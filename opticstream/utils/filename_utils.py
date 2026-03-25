@@ -121,6 +121,20 @@ def extract_tile_number_from_filename(file_path: str) -> int:
     return int(match.group(1))
 
 
+def extract_processed_index_from_filename(file_path: str) -> int:
+    """
+    Extract the numeric index after ``processed_`` in the basename.
+
+    Used for ``mosaics_per_slice == 3`` spectral paths such as
+    ``.../spectral/processed_0123*.nii``.
+    """
+    filename = op.basename(file_path)
+    match = re.search(r"processed_(\d+)", filename)
+    if not match:
+        raise ValueError(f"Could not parse processed index from filename: {file_path}")
+    return int(match.group(1))
+
+
 def complex_to_complex_filename(complex_file: str, complex_path: Path) -> str:
     """
     Normalize complex filename and construct full path.

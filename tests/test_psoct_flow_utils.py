@@ -1,6 +1,14 @@
 """Tests for PSOCT flow helper utilities."""
 
-from opticstream.flows.psoct.utils import oct_batch_ident, slice_id_for_mosaic_id
+from opticstream.flows.psoct.utils import (
+    oct_batch_ident,
+    processed_output_prefix,
+    slice_id_for_mosaic_id,
+)
+
+
+def test_processed_output_prefix_matches_fiji_stem() -> None:
+    assert processed_output_prefix(1, 3) == "mosaic_001_image_0003"
 
 
 def test_oct_batch_ident_matches_slice_derivation() -> None:

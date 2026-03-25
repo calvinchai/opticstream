@@ -53,8 +53,12 @@ def build_dandi_upload_command(
     # Match the CLI flags used elsewhere in the codebase.
     command += (
         f"{file_paths_str} -J {shlex.quote(max_jobs)} "
-        f"--allow-any-path --existing overwrite --validation skip"
+        f"--allow-any-path"
     )
+    if dandi_instance == "dandi":
+        command += f" --existing overwrite --validation skip"
+    else:
+        command += f" --existing OVERWRITE --validation SKIP"
 
     # DANDI CLI errors can sometimes be clearer when run from file directory.
     working_dir = os.path.dirname(file_list[0]) if file_list[0] else os.getcwd()

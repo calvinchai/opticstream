@@ -3,7 +3,6 @@ import os.path as op
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -31,79 +30,12 @@ from opticstream.state.lsm_project_state import (
 )
 from opticstream.tasks.slack_notification import send_slack_message, upload_multiple_files_to_slack
 from opticstream.utils.slack_notification_hook import slack_notification_hook
-
-
-@dataclass
-class DirManifest:
-    file_count: int
-    total_bytes: int
-    sizes: Dict[str, int]
-
-
-@dataclass
-class ValidationResult:
-    ok: bool
-    size_bytes: int
-    reason: Optional[str] = None
-
-
-def get_dir_manifest(path: str) -> DirManifest:
-    """
-    Compute total size, file count, and relative-path -> size mapping
-    in a single walk.
-    """
-    total_bytes = 0
-    file_count = 0
-    sizes: Dict[str, int] = {}
-    root = Path(path)
-
-    for p in root.rglob("*"):
-        if p.is_file():
-            st = p.stat()
-            rel = str(p.relative_to(root))
-            sizes[rel] = st.st_size
-            total_bytes += st.st_size
-            file_count += 1
-
-    return DirManifest(
-        file_count=file_count,
-        total_bytes=total_bytes,
-        sizes=sizes,
-    )
-
-
-def validate_zarr_directory(
-    logger,
-    path: str,
-    zarr_size_threshold: int,
-    *,
-    context: str,
-    missing_reason: str,
-    empty_reason: str,
-    below_threshold_reason: str,
-) -> ValidationResult:
-    """
-    Validate a zarr tree: exists, optional min file count when threshold<=0, else min total bytes.
-    """
-    if not os.path.exists(path):
-        logger.error(f"Zarr path does not exist for {context}: {path}")
-        return ValidationResult(ok=False, size_bytes=0, reason=missing_reason)
-    manifest = get_dir_manifest(path)
-    if zarr_size_threshold <= 0:
-        if manifest.file_count < 1:
-            logger.error(f"Zarr directory empty for {context}: {path}")
-            return ValidationResult(ok=False, size_bytes=0, reason=empty_reason)
-        logger.info(f"Zarr valid for {context} ({manifest.total_bytes} bytes)")
-        return ValidationResult(ok=True, size_bytes=manifest.total_bytes)
-    if manifest.total_bytes < zarr_size_threshold:
-        logger.error(f"Zarr below size threshold for {context}: {path}")
-        return ValidationResult(
-            ok=False,
-            size_bytes=manifest.total_bytes,
-            reason=below_threshold_reason,
-        )
-    logger.info(f"Zarr valid for {context} ({manifest.total_bytes} bytes)")
-    return ValidationResult(ok=True, size_bytes=manifest.total_bytes)
+from opticstream.utils.zarr_validation import (
+    DirManifest,
+    ValidationResult,
+    get_dir_manifest,
+    validate_zarr_directory,
+)
 
 
 def compare_dir_manifests(

@@ -14,7 +14,7 @@ from opticstream.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.events.lsm_events import CHANNEL_VOLUME_STITCHED
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.flows.lsm.paths import channel_zarr_volume_path
-from opticstream.flows.lsm.strip_process_flow import ValidationResult, validate_zarr_directory
+from opticstream.utils.zarr_validation import ValidationResult, validate_zarr_directory
 from opticstream.state.state_guards import (
     RunDecision,
     force_rerun_from_payload,

@@ -22,7 +22,7 @@ class LSMScanConfigModel(BaseModel):
     output_mip_format: Optional[str] = Field(default=(
         "{project_name}_sample-slice{slice_id:02d}_chunk-{strip_id:04d}_acq-{acq}_proc-mip.tiff"
     ), min_length=1)
-    output_mip_preview_window: List[float] = Field(default_factory=list, description="Preview window for the MIP output. If not set, the full range of the MIP will be used.")
+    output_mip_preview_window: List[float] = Field((0,1000), description="Preview window for the MIP output. If not set, the full range of the MIP will be used.")
     generate_archive: bool = Field(default=True, description="Whether to copy the raw spooled strips to an archive")
     archive_path: Path | None = Field(default=None, description="Path to the archive directory for backup of compressed strips")
 

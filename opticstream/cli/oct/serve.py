@@ -6,7 +6,6 @@ from prefect import serve
 from opticstream.cli.oct import oct_cli
 from opticstream.events import (
     BATCH_ARCHIVED,
-    BATCH_COMPLEXED,
     BATCH_READY,
     MOSAIC_READY,
     MOSAIC_ENFACE_STITCHED,
@@ -16,7 +15,6 @@ from opticstream.events import (
 )
 from opticstream.flows.psoct.mosaic_process_flow import process_mosaic_event_flow
 from opticstream.flows.psoct.tile_batch_complex_flow import (
-    process_complex_tile_batch_event as complex_to_processed_batch_event_flow,
     process_complex_tile_batch as complex_to_processed_batch_flow,
 )
 from opticstream.flows.psoct.tile_batch_process_flow import (
@@ -25,12 +23,15 @@ from opticstream.flows.psoct.tile_batch_process_flow import (
 )
 from opticstream.flows.psoct.slice_process_flow import register_slice_event_flow
 from opticstream.flows.state_management_flow import unified_state_management_event_flow
-from opticstream.flows.upload_flow import (
-    upload_mosaic_enface_to_dandi_event_flow,
+from opticstream.flows.psoct.tile_batch_upload_flow import upload_to_linc_batch_event_flow
+from opticstream.flows.psoct.mosaic_upload_flow import upload_mosaic_enface_to_dandi_event_flow
+from opticstream.flows.psoct.mosaic_volume_upload_flow import (
     upload_mosaic_volume_to_dandi_event_flow,
-    upload_to_linc_batch_event_flow,
 )
 from opticstream.flows.psoct.mosaic_volume_stitch_flow import stitch_volume_event_flow
+from opticstream.flows.psoct.mosaic_enface_qc_flow import (
+    mosaic_enface_qc_slack_event_flow,
+)
 
 serve_cli = oct_cli.command(App(name="serve"))
 
@@ -77,17 +78,10 @@ def build_deployments(
             ],
             concurrency_limit=1,
         ),
+        # Manual / ad-hoc reruns only; BATCH_READY → process_tile_batch now runs complex→processed in one phase.
         complex_to_processed_batch_flow.to_deployment(
             name=deployment_name,
             tags=["tile-batch", "complex-to-processed", *COMMON_TAGS],
-            concurrency_limit=1,
-        ),
-        complex_to_processed_batch_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "tile-batch", "complex-to-processed", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(BATCH_COMPLEXED, project_name=normalized_project_name),
-            ],
             concurrency_limit=1,
         ),
         # ============================================================================
@@ -175,6 +169,13 @@ def build_deployments(
         slack_enface_notification_flow.to_deployment(
             name=deployment_name,
             tags=["event-driven", "slack-notifications", "enface-stitched", *COMMON_TAGS],
+            triggers=[
+                get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
+            ],
+        ),
+        mosaic_enface_qc_slack_event_flow.to_deployment(
+            name=deployment_name,
+            tags=["event-driven", "slack-notifications", "mosaic-qc", "enface", *COMMON_TAGS],
             triggers=[
                 get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name),
             ],

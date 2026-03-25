@@ -16,6 +16,7 @@ from opticstream.state.state_guards import (
     RunDecision,
     force_rerun_from_payload,
     enter_milestone_stage,
+    should_skip_run,
 )
 from opticstream.flows.lsm.utils import (
     channel_ident_from_payload,
@@ -50,15 +51,13 @@ def upload_channel_volume(
     Upload channel volume, mark_completed, emit CHANNEL_VOLUME_UPLOADED.
     """
     logger = get_run_logger()
-    ch_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
-    if (
+    if should_skip_run(
         enter_milestone_stage(
-            item_state_view=ch_view,
+            item_state_view=LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident),
             item_ident=channel_ident,
             field_name="volume_uploaded",
             force_rerun=force_rerun,
         )
-        == RunDecision.SKIPPED
     ):
         return
 

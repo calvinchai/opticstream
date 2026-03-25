@@ -16,14 +16,11 @@ from typing import Any, Dict, Optional
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
+from opticstream.artifacts.publish_hooks import publish_oct_project_hook
 from opticstream.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
 from opticstream.events.psoct_event_emitters import emit_slice_psoct_event
 from opticstream.state.oct_project_state import OCTSliceId, OCT_STATE_SERVICE
-from opticstream.utils.matlab_execution import (
-    call_matlab_via_cli,
-    get_matlab_engine,
-    resolve_matlab_root,
-)
+from opticstream.utils.matlab_execution import run_matlab_function_or_cli
 from opticstream.flows.psoct.utils import get_slice_paths
 
 
@@ -115,56 +112,25 @@ def thruplane_from_files_task(
     moving_biref_abs = str(Path(moving_biref_path).absolute())
     output_dir_abs = str(output_path.absolute())
 
+    logger.info(
+        f"Calling MATLAB thruplane_from_files with:\n"
+        f"  fixed_ori: {fixed_ori_abs}\n"
+        f"  moving_ori: {moving_ori_abs}\n"
+        f"  fixed_biref: {fixed_biref_abs}\n"
+        f"  moving_biref: {moving_biref_abs}\n"
+        f"  output_dir: {output_dir_abs}\n"
+        f"  gamma: {gamma}"
+    )
+
     try:
-        # Get MATLAB engine
-        eng = get_matlab_engine()
-
-        # Resolve MATLAB script path (explicit override or psoct_toolbox default)
-        resolved_path = resolve_matlab_root(matlab_script_path)
-        eng.addpath(resolved_path, nargout=0)
-        # Also add registration subdirectory when present
-        registration_path = Path(resolved_path) / "registration"
-        if registration_path.exists():
-            eng.addpath(str(registration_path), nargout=0)
-            logger.info(f"Added MATLAB registration path: {registration_path}")
-
-        # Call MATLAB function
-        logger.info(
-            f"Calling MATLAB thruplane_from_files with:\n"
-            f"  fixed_ori: {fixed_ori_abs}\n"
-            f"  moving_ori: {moving_ori_abs}\n"
-            f"  fixed_biref: {fixed_biref_abs}\n"
-            f"  moving_biref: {moving_biref_abs}\n"
-            f"  output_dir: {output_dir_abs}\n"
-            f"  gamma: {gamma}"
-        )
-
-        eng.thruplane_from_files(
-            fixed_ori_abs,
-            moving_ori_abs,
-            fixed_biref_abs,
-            moving_biref_abs,
-            output_dir_abs,
-            float(gamma),
-            nargout=0,
-        )
-
-        logger.info("thruplane_from_files completed successfully")
-
-        # Close MATLAB engine
-        eng.quit()
-
-    except ImportError:
-        # Fallback: Try calling MATLAB via command line
-        logger.warning("MATLAB Engine not available, attempting command-line call")
-        call_matlab_via_cli(
+        run_matlab_function_or_cli(
             "thruplane_from_files",
             fixed_ori_abs,
             moving_ori_abs,
             fixed_biref_abs,
             moving_biref_abs,
             output_dir_abs,
-            gamma,
+            float(gamma),
             matlab_script_path=matlab_script_path,
         )
     except Exception as e:
@@ -190,7 +156,10 @@ def thruplane_from_files_task(
     return outputs
 
 
-@flow(flow_run_name="{project_name}-slice-{slice_id}-register")
+@flow(
+    flow_run_name="{project_name}-slice-{slice_id}-register",
+    on_completion=[publish_oct_project_hook],
+)
 def register_slice_flow(
     project_name: str,
     project_base_path: str,
@@ -236,7 +205,7 @@ def register_slice_flow(
         f"(mosaics {normal_mosaic_id} and {tilted_mosaic_id})"
     )
 
-    _, stitched_path, _ = get_slice_paths(project_base_path, slice_id)
+    _, _, stitched_path, _ = get_slice_paths(project_base_path, slice_id)
     # Construct input file paths (stitched mosaics)
     fixed_ori_path = stitched_path / f"mosaic_{normal_mosaic_id:03d}_ori.nii.gz"
     moving_ori_path = stitched_path / f"mosaic_{tilted_mosaic_id:03d}_ori.nii.gz"

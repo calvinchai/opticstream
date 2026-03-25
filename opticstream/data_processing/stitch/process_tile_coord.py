@@ -2,6 +2,7 @@ import argparse
 import ast
 import os
 import re
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import nibabel as nib
@@ -440,10 +441,13 @@ class Grid:
 
 # --- Loader (left standalone per request) ---
 def load_tile_info(
-    ideal_coord_file: str,
-    stitched_coord_file: str,
-    image_base_path: str = "."
+    ideal_coord_file: str | Path,
+    stitched_coord_file: str | Path,
+    image_base_path: str | Path = "."
     ) -> List[Tile]:
+    ideal_coord_file = str(Path(ideal_coord_file))
+    stitched_coord_file = str(Path(stitched_coord_file))
+    image_base_path = str(Path(image_base_path))
     tiles_data: Dict[str, Dict] = {}
     print(f"Loading ideal coordinates from: {ideal_coord_file}")
     try:
@@ -496,10 +500,10 @@ def load_tile_info(
 
 
 def process_tile_coordinate(
-    ideal_coord_file: str,
-    stitched_coord_file: str,
-    image_dir: str = ".",
-    export: Optional[str] = None,
+    ideal_coord_file: str | Path,
+    stitched_coord_file: str | Path,
+    image_dir: str | Path = ".",
+    export: Optional[str | Path] = None,
     export_raw: bool = False,
     threshold: float = 55.0,
     verbose: bool = True
@@ -531,6 +535,11 @@ def process_tile_coordinate(
     """
     if verbose:
         print("--- Starting Tile Processor (run_pipeline) ---")
+    ideal_coord_file = str(Path(ideal_coord_file))
+    stitched_coord_file = str(Path(stitched_coord_file))
+    image_dir = str(Path(image_dir))
+    export = str(Path(export)) if export is not None else None
+
     tiles = load_tile_info(ideal_coord_file, stitched_coord_file, image_dir)
     grid = Grid.from_tiles(tiles)
     if verbose:

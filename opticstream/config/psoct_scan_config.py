@@ -16,7 +16,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from niizarr import ZarrConfig
 import psoct_toolbox
 from opticstream.config.utils import with_positions
-from opticstream.utils.naming_convention import normalize_project_name
 
 
 class TileSavingType(str, Enum):
@@ -251,11 +250,11 @@ class PSOCTScanConfigModel(BaseModel):
 
     dandiset_path: Path | None = Field(
         default=None,
-        description="Root path of the target DANDI dataset for upload",
+        description="Root path of the target DANDI dataset for upload, if not set, output will not be uploaded to DANDI",
     )
     archive_path: Path | None = Field(
         default=None,
-        description="Archive root path where raw tiles are stored before processing",
+        description="Archive root path where raw tiles will be archived to, if not set, raw tiles will not be archived",
     )
     archive_tile_name_format: str = Field(
         default=(
@@ -350,4 +349,5 @@ def get_psoct_scan_config(project_name: str, override_config_name: Optional[str]
     """
     Get the scan configuration for a project.
     """
+    from opticstream.utils.naming_convention import normalize_project_name
     return PSOCTScanConfig.load(override_config_name or f"{normalize_project_name(project_name)}-config")
