@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
@@ -10,7 +10,7 @@ from opticstream.artifacts.publish_hooks import (
     publish_oct_project_hook,
 )
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
-from opticstream.events import BATCH_PROCESSED
+from opticstream.events import BATCH_PROCESSED, BATCH_READY, get_event_trigger
 from opticstream.flows.psoct.tile_batch_archive_flow import archive_tile_batch
 from opticstream.flows.psoct.tile_batch_matlab import (
     build_complex_to_processed_command,
@@ -201,4 +201,26 @@ def process_tile_batch_event_flow(payload: Dict[str, Any]) -> dict[str, Any]:
     )
 
 
-process_tile_batch_flow = process_tile_batch
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `process_tile_batch` (ad-hoc reruns)
+    - event-driven `process_tile_batch_event_flow` (triggered by BATCH_READY)
+    """
+    manual = process_tile_batch.to_deployment(
+        name=deployment_name,
+        tags=["tile-batch", "process-tile-batch", *list(extra_tags)],
+        concurrency_limit=1,
+    )
+    event = process_tile_batch_event_flow.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "tile-batch", "process-tile-batch", *list(extra_tags)],
+        triggers=[get_event_trigger(BATCH_READY, project_name=project_name)],
+        concurrency_limit=1,
+    )
+    return [manual, event]

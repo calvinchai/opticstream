@@ -9,14 +9,15 @@ CHANNEL_MIP_STITCHED so channel_volume_flow can run 3D stitching afterward.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.flows.lsm.paths import strip_mip_output_path
-from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED
+from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED, CHANNEL_READY
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
+from opticstream.events.utils import get_event_trigger
 from opticstream.state.state_guards import (
     enter_flow_stage,
     force_rerun_from_payload,
@@ -214,3 +215,29 @@ def process_channel_event(payload: Dict[str, Any]) -> None:
         scan_config=cfg,
         force_rerun=force_rerun_from_payload(payload),
     )
+
+
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+    concurrency_limit: int = 1,
+):
+    """
+    Create both deployments:
+    - manual `process_channel`
+    - event-driven `process_channel_event` (triggered by CHANNEL_READY)
+    """
+    manual = process_channel.to_deployment(
+        name=deployment_name,
+        tags=["lsm", "channel", "process", *list(extra_tags)],
+        concurrency_limit=concurrency_limit,
+    )
+    event = process_channel_event.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "lsm", "channel", "process", *list(extra_tags)],
+        concurrency_limit=concurrency_limit,
+        triggers=[get_event_trigger(CHANNEL_READY, project_name=project_name)],
+    )
+    return [manual, event]

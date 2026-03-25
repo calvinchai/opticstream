@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
@@ -10,7 +10,7 @@ from opticstream.artifacts.publish_hooks import (
     publish_oct_project_hook,
 )
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
-from opticstream.events import BATCH_PROCESSED
+from opticstream.events import BATCH_COMPLEXED, BATCH_PROCESSED, get_event_trigger
 from opticstream.flows.psoct.tile_batch_matlab import build_complex_to_processed_command
 from opticstream.flows.psoct.tile_file_reference import build_tile_file_reference_list
 from opticstream.flows.psoct.utils import (
@@ -90,3 +90,28 @@ def process_complex_tile_batch_event(payload: Dict[str, Any]) -> dict[str, Any]:
         file_list=path_list_from_payload(payload),
         force_rerun=force_rerun_from_payload(payload),
     )
+
+
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `process_complex_tile_batch` (ad-hoc reruns)
+    - event-driven `process_complex_tile_batch_event` (triggered by BATCH_COMPLEXED)
+    """
+    manual = process_complex_tile_batch.to_deployment(
+        name=deployment_name,
+        tags=["tile-batch", "complex-to-processed", *list(extra_tags)],
+        concurrency_limit=1,
+    )
+    event = process_complex_tile_batch_event.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "tile-batch", "complex-to-processed", *list(extra_tags)],
+        triggers=[get_event_trigger(BATCH_COMPLEXED, project_name=project_name)],
+        concurrency_limit=1,
+    )
+    return [manual, event]

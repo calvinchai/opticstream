@@ -21,26 +21,14 @@ from opticstream.flows.lsm.channel_volume_flow import (
 from opticstream.flows.lsm.strip_process_flow import (
     process_strip_event,
     process_strip,
-    process_strip_event_to_deployment,
 )
 from opticstream.flows.lsm.strip_update_flow import (
     lsm_strip_update_event_flow,
     on_strip_events,
-    strip_update_to_deployment,
 )
-from opticstream.flows.lsm.strip_upload_flow import (
-    to_deployment as _strip_upload_to_deployment,
-)
-
-(
-    upload_strip_to_dandi_flow_deployment,
-    upload_strip_to_dandi_event_flow_deployment,
-) = _strip_upload_to_deployment()
-lsm_strip_update_event_flow_deployment = strip_update_to_deployment()
 
 __all__ = [
     "lsm_strip_update_event_flow",
-    "lsm_strip_update_event_flow_deployment",
     "on_strip_events",
     "process_channel",
     "process_channel_event",
@@ -49,9 +37,5 @@ __all__ = [
     "upload_channel_volume",
     "upload_channel_volume_event",
     "process_strip_event",
-    "process_strip_event_to_deployment",
     "process_strip",
-    "strip_update_to_deployment",
-    "upload_strip_to_dandi_event_flow_deployment",
-    "upload_strip_to_dandi_flow_deployment",
 ]

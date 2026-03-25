@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow
 from prefect.logging import get_run_logger
@@ -10,7 +10,7 @@ from opticstream.artifacts.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
-from opticstream.events import BATCH_UPLOADED
+from opticstream.events import BATCH_ARCHIVED, BATCH_UPLOADED, get_event_trigger
 from opticstream.flows.psoct.utils import (
     batch_ident_from_payload,
     path_list_from_payload,
@@ -56,3 +56,26 @@ def upload_to_linc_batch_event_flow(payload: Dict[str, Any]) -> None:
         file_list=path_list_from_payload(payload),
         force_rerun=force_rerun_from_payload(payload),
     )
+
+
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `upload_to_dandi_tile_batch` (ad-hoc reruns)
+    - event-driven `upload_to_linc_batch_event_flow` (triggered by BATCH_ARCHIVED)
+    """
+    manual = upload_to_dandi_tile_batch.to_deployment(
+        name=deployment_name,
+        tags=["tile-batch", "upload-to-linc", *list(extra_tags)],
+    )
+    event = upload_to_linc_batch_event_flow.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "tile-batch", "upload-to-linc", *list(extra_tags)],
+        triggers=[get_event_trigger(BATCH_ARCHIVED, project_name=project_name)],
+    )
+    return [manual, event]

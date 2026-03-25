@@ -12,7 +12,7 @@ pattern as LSM strip flows).
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
@@ -536,11 +536,26 @@ def process_mosaic_event_flow(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
-def to_deployment(project_name: Optional[str] = None):
-    return process_mosaic_event_flow.to_deployment(
-        name="process_mosaic_event_flow",
-        tags=["event-driven", "mosaic-processing", "stitching"],
-        triggers=[
-            get_event_trigger(MOSAIC_READY, project_name=project_name),
-        ],
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `process_mosaic` (ad-hoc reruns)
+    - event-driven `process_mosaic_event_flow` (triggered by MOSAIC_READY)
+    """
+    manual = process_mosaic.to_deployment(
+        name=deployment_name,
+        tags=["mosaic-processing", "stitching", *list(extra_tags)],
+        concurrency_limit=1,
     )
+    event = process_mosaic_event_flow.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "mosaic-processing", "stitching", *list(extra_tags)],
+        triggers=[get_event_trigger(MOSAIC_READY, project_name=project_name)],
+        concurrency_limit=1,
+    )
+    return [manual, event]

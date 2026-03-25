@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, task
 
 from opticstream.events import BATCH_PROCESSED, MOSAIC_READY
+from opticstream.events.utils import get_event_trigger
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
-from opticstream.artifacts.oct import publish_mosaic_artifact_task
 from opticstream.flows.psoct.utils import (
+    grid_size_x_for_mosaic,
     load_scan_config_for_payload,
     mosaic_ident_from_payload,
 )
@@ -27,10 +28,27 @@ def check_mosaic_ready(mosaic_ident: OCTMosaicId, total_batches: int) -> bool:
 def on_batch_events(event: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     mosaic_ident = mosaic_ident_from_payload(payload)
     cfg = load_scan_config_for_payload(payload)
-    total_batches = (
-        cfg.acquisition.grid_size_x_tilted
-        if mosaic_ident.mosaic_id % 2 == 0
-        else cfg.acquisition.grid_size_x_normal
-    )
+    total_batches = grid_size_x_for_mosaic(cfg, mosaic_ident)
     if event == BATCH_PROCESSED:
         check_mosaic_ready(mosaic_ident, total_batches)
+
+
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Event-only deployment for `on_batch_events`.
+
+    Triggered by BATCH_PROCESSED to emit MOSAIC_READY once all batches for the mosaic
+    are complete.
+    """
+    return [
+        on_batch_events.to_deployment(
+            name=deployment_name,
+            tags=["event-driven", "tile-batch", "mosaic-ready", *list(extra_tags)],
+            triggers=[get_event_trigger(BATCH_PROCESSED, project_name=project_name)],
+        )
+    ]

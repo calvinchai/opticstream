@@ -8,7 +8,7 @@ to JPEG previews and uploads them to Slack in a single message.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, task
 from prefect.logging import get_run_logger
@@ -168,20 +168,9 @@ def mosaic_enface_qc_slack_event_flow(payload: Dict[str, Any]) -> Dict[str, bool
     logger = get_run_logger()
     mosaic_ident = mosaic_ident_from_payload(payload)
 
-    raw_outputs = payload.get("enface_outputs") or {}
-    if not isinstance(raw_outputs, dict):
-        logger.warning(f"Unexpected enface_outputs type: {type(raw_outputs)}")
-        raw_outputs = {}
-
-    enface_outputs: Dict[str, Path] = {}
-    for modality, v in raw_outputs.items():
-        p = _coerce_path(v)
-        if p is not None:
-            enface_outputs[str(modality)] = p
-
-    if not enface_outputs:
+    enface_outputs = payload.get("enface_outputs", None)
+    if enface_outputs is None:
         logger.warning(f"No enface_outputs found in event payload for {mosaic_ident}")
-        return {}
 
     return mosaic_enface_qc_slack_upload_flow(
         mosaic_ident=mosaic_ident,
@@ -189,9 +178,24 @@ def mosaic_enface_qc_slack_event_flow(payload: Dict[str, Any]) -> Dict[str, bool
     )
 
 
-def to_deployment(project_name: str | None = None):
-    return mosaic_enface_qc_slack_event_flow.to_deployment(
-        name="mosaic_enface_qc_slack_event_flow",
-        tags=["event-driven", "mosaic-qc", "slack", "enface"],
+def to_deployment(
+    *,
+    project_name: str | None = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `mosaic_enface_qc_slack_upload_flow` (ad-hoc reruns)
+    - event-driven `mosaic_enface_qc_slack_event_flow` (triggered by MOSAIC_ENFACE_STITCHED)
+    """
+    manual = mosaic_enface_qc_slack_upload_flow.to_deployment(
+        name=deployment_name,
+        tags=["mosaic-qc", "slack", "enface", *list(extra_tags)],
+    )
+    event = mosaic_enface_qc_slack_event_flow.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "mosaic-qc", "slack", "enface", *list(extra_tags)],
         triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=project_name)],
     )
+    return [manual, event]

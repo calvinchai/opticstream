@@ -3,7 +3,7 @@
 from opticstream.flows.psoct.utils import (
     oct_batch_ident,
     processed_output_prefix,
-    slice_id_for_mosaic_id,
+    slice_from_mosaic,
 )
 
 
@@ -16,4 +16,4 @@ def test_oct_batch_ident_matches_slice_derivation() -> None:
     assert ident.project_name == "proj-a"
     assert ident.mosaic_id == 5
     assert ident.batch_id == 2
-    assert ident.slice_id == slice_id_for_mosaic_id(5)
+    assert ident.slice_id == slice_from_mosaic(5, mosaics_per_slice=2)

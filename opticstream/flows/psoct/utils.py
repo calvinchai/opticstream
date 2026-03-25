@@ -17,26 +17,23 @@ from opticstream.state.oct_project_state import (
 )
 
 
-def slice_id_for_mosaic_id(mosaic_id: int) -> int:
-    """Match ``OCT_STATE_SERVICE`` derivation (mosaic_id // 2)."""
-    return mosaic_id // 2
-
-
 def mosaic_ident_from_project_and_mosaic_id(
     project_name: str, mosaic_id: int
 ) -> OCTMosaicId:
+    cfg = get_psoct_scan_config(project_name)
     return OCTMosaicId(
         project_name=project_name,
-        slice_id=slice_id_for_mosaic_id(mosaic_id),
+        slice_id=slice_from_mosaic(mosaic_id, cfg.mosaics_per_slice),
         mosaic_id=mosaic_id,
     )
 
 
 def oct_batch_ident(project_name: str, mosaic_id: int, batch_id: int) -> OCTBatchId:
     """Build canonical ``OCTBatchId`` for a mosaic batch (``slice_id`` derived from ``mosaic_id``)."""
+    cfg = get_psoct_scan_config(project_name)
     return OCTBatchId(
         project_name=project_name,
-        slice_id=slice_id_for_mosaic_id(mosaic_id),
+        slice_id=slice_from_mosaic(mosaic_id, cfg.mosaics_per_slice),
         mosaic_id=mosaic_id,
         batch_id=batch_id,
     )

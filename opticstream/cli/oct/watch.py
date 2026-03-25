@@ -16,11 +16,11 @@ from opticstream.events.psoct_event_emitters import emit_batch_psoct_event
 from opticstream.flows.psoct.tile_batch_process_flow import process_tile_batch
 from opticstream.flows.psoct.utils import oct_batch_ident
 from opticstream.flows.psoct.utils import (
-    logical_first_mosaic_from_source_slice,
     logical_mosaic_from_source_mosaic,
     slice_from_mosaic,
 )
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE
+from opticstream.utils.filename_utils import extract_processed_index_from_filename
 from opticstream.utils.polling_watcher import PollingStableWatcher
 from opticstream.utils.refresh_disk import RefreshHook, resolve_refresh_hook
 
@@ -43,10 +43,6 @@ _SPECTRAL_NII_RE = re.compile(
 )
 _SPECTRAL_RAW_RE = re.compile(
     r"^mosaic_(?P<mosaic>\d+)_image_(?P<image>\d+)_spectral_(?P<k>\d+)\.raw$",
-    re.IGNORECASE,
-)
-_SLICE_RE = re.compile(
-    r"^slice_(?P<slice>\d+).+\.nii$",
     re.IGNORECASE,
 )
 
@@ -111,9 +107,9 @@ class ParsedTileFile:
 
 
 @dataclass(frozen=True)
-class ParsedSliceFile:
+class ParsedProcessedFile:
     path: Path
-    source_slice_id: int
+    source_mosaic_id: int
 
 
 @dataclass(frozen=True)
@@ -176,7 +172,7 @@ class OCTWatcherService:
             return []
 
         if self.scan_config.mosaics_per_slice == 3:
-            return self._discover_slice_candidates()
+            return self._discover_three_mosaic_candidates()
 
         return self._discover_two_mosaic_candidates()
 
@@ -280,40 +276,34 @@ class OCTWatcherService:
 
         return out
 
-    def _discover_slice_candidates(self) -> list[OCTBatchCandidate]:
-        files_by_source_slice: dict[int, list[Path]] = defaultdict(list)
-
-        for path in self.folder_path.iterdir():
-            if not path.is_file():
-                continue
-            if not _is_readable_file(path):
-                continue
-
-            parsed = self._parse_slice_file(path)
+    def _discover_three_mosaic_candidates(self) -> list[OCTBatchCandidate]:
+        files_by_source_mosaic: dict[int, list[Path]] = defaultdict(list)
+        for path in self._iter_three_mosaic_files():
+            parsed = self._parse_three_mosaic_file(path)
             if parsed is None:
                 continue
-
-            files_by_source_slice[parsed.source_slice_id].append(parsed.path)
+            files_by_source_mosaic[parsed.source_mosaic_id].append(parsed.path)
 
         out: list[OCTBatchCandidate] = []
-        for source_slice_id, files in sorted(files_by_source_slice.items()):
+        for source_mosaic_id, files in sorted(files_by_source_mosaic.items()):
             candidate_files = tuple(sorted(files))
             if not _all_files_readable(candidate_files):
                 continue
 
-            logical_slice_id, logical_mosaic_id = (
-                logical_first_mosaic_from_source_slice(
-                    source_slice_id,
-                    mosaics_per_slice=self.scan_config.mosaics_per_slice,
-                    slice_offset=self.slice_offset,
-                )
+            source_slice_id = slice_from_mosaic(
+                source_mosaic_id,
+                self.scan_config.mosaics_per_slice,
             )
-
+            logical_slice_id, logical_mosaic_id = logical_mosaic_from_source_mosaic(
+                source_mosaic_id,
+                mosaics_per_slice=self.scan_config.mosaics_per_slice,
+                slice_offset=self.slice_offset,
+            )
             out.append(
                 OCTBatchCandidate(
                     source_slice_id=source_slice_id,
                     logical_slice_id=logical_slice_id,
-                    source_mosaic_id=None,
+                    source_mosaic_id=source_mosaic_id,
                     logical_mosaic_id=logical_mosaic_id,
                     logical_batch=1,
                     files=candidate_files,
@@ -321,6 +311,37 @@ class OCTWatcherService:
             )
 
         return out
+
+    def _iter_three_mosaic_files(self) -> list[Path]:
+        search_dirs = [self.folder_path, self.folder_path / "spectral"]
+        out: list[Path] = []
+        for directory in search_dirs:
+            if not _is_readable_dir(directory):
+                continue
+            for path in directory.iterdir():
+                if not path.is_file():
+                    continue
+                if not _is_readable_file(path):
+                    continue
+                out.append(path)
+        return out
+
+    def _parse_three_mosaic_file(self, path: Path) -> ParsedProcessedFile | None:
+        if path.suffix.lower() != ".nii":
+            return None
+        try:
+            i = extract_processed_index_from_filename(path.name)
+        except ValueError:
+            return None
+
+        j = self.scan_config.acquisition.grid_size_x_normal
+        if j < 1:
+            raise ValueError(f"grid_size_x_normal must be >= 1, got {j}")
+
+        _tile_number = (i - 1) // j + 1
+        mosaic_number = (i - 1) % j + 1
+        source_mosaic_id = mosaic_number
+        return ParsedProcessedFile(path=path, source_mosaic_id=source_mosaic_id)
 
     def _parse_complex_file(self, path: Path) -> ParsedTileFile | None:
         match = _COMPLEX_RE.match(path.name)
@@ -357,15 +378,6 @@ class OCTWatcherService:
             path=path,
             source_mosaic_id=int(match.group("mosaic")),
             image_index=int(match.group("image")),
-        )
-
-    def _parse_slice_file(self, path: Path) -> ParsedSliceFile | None:
-        match = _SLICE_RE.match(path.name)
-        if match is None:
-            return None
-        return ParsedSliceFile(
-            path=path,
-            source_slice_id=int(match.group("slice")),
         )
 
     def _image_index_from_file(self, path: Path) -> int:
@@ -527,9 +539,9 @@ def watch(
       - mosaic_ranges applies to source mosaic ids parsed from filenames
 
     For mosaics_per_slice == 3:
-      - discovery is slice-based from slice_<n>* files
-      - slice_offset controls logical slice numbering
-      - logical mosaic id becomes the first mosaic of that logical slice
+      - discovery is from processed-index files (e.g. spectral/processed_<i>.nii)
+      - source mosaic id is derived from processed index and grid_size_x
+      - slice_offset controls logical slice numbering via derived source mosaic ids
     """
     project_config = get_project_config_block(project_name)
     if project_config is None:

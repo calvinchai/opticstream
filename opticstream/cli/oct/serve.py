@@ -4,37 +4,40 @@ from cyclopts import App
 from prefect import serve
 
 from opticstream.cli.oct import oct_cli
-from opticstream.events import (
-    BATCH_ARCHIVED,
-    BATCH_READY,
-    MOSAIC_READY,
-    MOSAIC_ENFACE_STITCHED,
-    MOSAIC_VOLUME_STITCHED,
-    SLICE_READY,
-    get_event_trigger,
+from opticstream.utils.runtime_paths import chdir_to_opticstream_install_root
+
+from opticstream.flows.psoct.mosaic_enface_qc_flow import (
+    to_deployment as mosaic_enface_qc_deployments,
 )
-from opticstream.flows.psoct.mosaic_process_flow import process_mosaic_event_flow
-from opticstream.flows.psoct.tile_batch_complex_flow import (
-    process_complex_tile_batch as complex_to_processed_batch_flow,
+from opticstream.flows.psoct.mosaic_process_flow import (
+    to_deployment as mosaic_process_deployments,
 )
-from opticstream.flows.psoct.tile_batch_process_flow import (
-    process_tile_batch_event_flow,
-    process_tile_batch_flow,
-)
-from opticstream.flows.psoct.slice_process_flow import register_slice_event_flow
-from opticstream.flows.state_management_flow import unified_state_management_event_flow
-from opticstream.flows.psoct.tile_batch_upload_flow import (
-    upload_to_linc_batch_event_flow,
+from opticstream.flows.psoct.mosaic_update_flow import (
+    to_deployment as mosaic_update_deployments,
 )
 from opticstream.flows.psoct.mosaic_upload_flow import (
-    upload_mosaic_enface_to_dandi_event_flow,
+    to_deployment as mosaic_upload_deployments,
+)
+from opticstream.flows.psoct.mosaic_volume_stitch_flow import (
+    to_deployment as mosaic_volume_stitch_deployments,
 )
 from opticstream.flows.psoct.mosaic_volume_upload_flow import (
-    upload_mosaic_volume_to_dandi_event_flow,
+    to_deployment as mosaic_volume_upload_deployments,
 )
-from opticstream.flows.psoct.mosaic_volume_stitch_flow import stitch_volume_event_flow
-from opticstream.flows.psoct.mosaic_enface_qc_flow import (
-    mosaic_enface_qc_slack_event_flow,
+from opticstream.flows.psoct.slice_process_flow import (
+    to_deployment as slice_process_deployments,
+)
+from opticstream.flows.psoct.tile_batch_complex_flow import (
+    to_deployment as tile_batch_complex_deployments,
+)
+from opticstream.flows.psoct.tile_batch_process_flow import (
+    to_deployment as tile_batch_process_deployments,
+)
+from opticstream.flows.psoct.tile_batch_update_flow import (
+    to_deployment as tile_batch_update_deployments,
+)
+from opticstream.flows.psoct.tile_batch_upload_flow import (
+    to_deployment as tile_batch_upload_deployments,
 )
 
 serve_cli = oct_cli.command(App(name="serve"))
@@ -65,150 +68,104 @@ def build_deployments(
     """
     normalized_project_name = _normalize_project_name(project_name)
 
-    return [
-        # ============================================================================
-        # Tile Batch Flow Deployments
-        # ============================================================================
-        process_tile_batch_flow.to_deployment(
-            name=deployment_name,
-            tags=["tile-batch", "process-tile-batch", *COMMON_TAGS],
-            concurrency_limit=1,
-        ),
-        process_tile_batch_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "tile-batch", "process-tile-batch", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(BATCH_READY, project_name=normalized_project_name),
-            ],
-            concurrency_limit=1,
-        ),
-        # Manual / ad-hoc reruns only; BATCH_READY → process_tile_batch now runs complex→processed in one phase.
-        complex_to_processed_batch_flow.to_deployment(
-            name=deployment_name,
-            tags=["tile-batch", "complex-to-processed", *COMMON_TAGS],
-            concurrency_limit=1,
-        ),
-        # ============================================================================
-        # Upload Flow Deployments
-        # ============================================================================
-        upload_to_linc_batch_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "tile-batch", "upload-to-linc", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(BATCH_ARCHIVED, project_name=normalized_project_name),
-            ],
-        ),
-        upload_mosaic_enface_to_dandi_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "upload", "dandi", "enface", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(
-                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
-                ),
-            ],
-        ),
-        upload_mosaic_volume_to_dandi_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "upload", "dandi", "volume", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(
-                    MOSAIC_VOLUME_STITCHED,
-                    project_name=normalized_project_name,
-                ),
-            ],
-        ),
-        # ============================================================================
-        # Mosaic Processing Flow Deployments
-        # ============================================================================
-        process_mosaic_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "mosaic-processing", "stitching", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(MOSAIC_READY, project_name=normalized_project_name),
-            ],
-            concurrency_limit=1,
-        ),
-        stitch_volume_event_flow.to_deployment(
-            name=deployment_name,
-            tags=[
-                "event-driven",
-                "mosaic-processing",
-                "volume-stitching",
-                *COMMON_TAGS,
-            ],
-            triggers=[
-                get_event_trigger(
-                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
-                ),
-            ],
-            concurrency_limit=1,
-        ),
-        # ============================================================================
-        # Slice Registration Event Deployment
-        # ============================================================================
-        register_slice_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "slice-registration", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(SLICE_READY, project_name=normalized_project_name),
-            ],
-        ),
-        # ============================================================================
-        # State Management Flow Deployments
-        # ============================================================================
-        unified_state_management_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "state-management", "unified", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(
-                    MOSAIC_ENFACE_STITCHED,
-                    parameters={
-                        "event": {
-                            "__prefect_kind": "json",
-                            "value": {
-                                "__prefect_kind": "jinja",
-                                "template": "{{ event.event }}",
-                            },
-                        },
-                    },
-                    project_name=normalized_project_name,
-                ),
-            ],
-            concurrency_limit=1,
-        ),
-        # ============================================================================
-        # Slack Notification Flow Deployments
-        # ============================================================================
-        slack_enface_notification_flow.to_deployment(
-            name=deployment_name,
-            tags=[
-                "event-driven",
-                "slack-notifications",
-                "enface-stitched",
-                *COMMON_TAGS,
-            ],
-            triggers=[
-                get_event_trigger(
-                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
-                ),
-            ],
-        ),
-        mosaic_enface_qc_slack_event_flow.to_deployment(
-            name=deployment_name,
-            tags=[
-                "event-driven",
-                "slack-notifications",
-                "mosaic-qc",
-                "enface",
-                *COMMON_TAGS,
-            ],
-            triggers=[
-                get_event_trigger(
-                    MOSAIC_ENFACE_STITCHED, project_name=normalized_project_name
-                ),
-            ],
-        ),
-    ]
+    deployments: list = []
+
+    # ============================================================================
+    # Tile Batch Flow Deployments
+    # ============================================================================
+    deployments.extend(
+        tile_batch_process_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+    deployments.extend(
+        tile_batch_update_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+    deployments.extend(
+        tile_batch_complex_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+
+    deployments.extend(
+        tile_batch_upload_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+
+    # ============================================================================
+    # Mosaic Flow Deployments
+    # ============================================================================
+    deployments.extend(
+        mosaic_process_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+    deployments.extend(
+        mosaic_volume_stitch_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+    deployments.extend(
+        mosaic_update_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+    deployments.extend(
+        mosaic_upload_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+    deployments.extend(
+        mosaic_volume_upload_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+
+    # ============================================================================
+    # Slice Flow Deployments
+    # ============================================================================
+    deployments.extend(
+        slice_process_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+
+    # ============================================================================
+    # Cross-cutting QC/Notification Deployments
+    # (mosaic-level consumers kept separate from core hierarchy)
+    # ============================================================================
+    deployments.extend(
+        mosaic_enface_qc_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
+
+    return deployments
 
 
 def build_register_deployments(
@@ -223,19 +180,13 @@ def build_register_deployments(
     """
     normalized_project_name = _normalize_project_name(project_name)
 
-    return [
-        register_slice_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["event-driven", "slice-registration", *COMMON_TAGS],
-            triggers=[
-                get_event_trigger(SLICE_READY, project_name=normalized_project_name),
-            ],
-        ),
-        register_slice_event_flow.to_deployment(
-            name=deployment_name,
-            tags=["slice-registration", *COMMON_TAGS],
-        ),
-    ]
+    return list(
+        slice_process_deployments(
+            project_name=normalized_project_name,
+            deployment_name=deployment_name,
+            extra_tags=COMMON_TAGS,
+        )
+    )
 
 
 @serve_cli.command
@@ -243,6 +194,7 @@ def register(
     project_name: str = "all",
     deployment_name: str = "local",
 ):
+    chdir_to_opticstream_install_root()
     serve(
         *build_register_deployments(
             project_name=project_name,
@@ -257,6 +209,7 @@ def all(
     deployment_name: str = "local",
     exclude: Optional[list[str]] = None,
 ):
+    chdir_to_opticstream_install_root()
     services = build_deployments(
         project_name=project_name,
         deployment_name=deployment_name,

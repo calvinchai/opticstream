@@ -24,7 +24,11 @@ from opticstream.artifacts.publish_hooks import (
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.scripts import find_tile_plane
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
-from opticstream.events import MOSAIC_VOLUME_STITCHED
+from opticstream.events import (
+    MOSAIC_ENFACE_STITCHED,
+    MOSAIC_VOLUME_STITCHED,
+    get_event_trigger,
+)
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.flows.psoct.mosaic_coordinate_flow import generate_tile_info_file
 from opticstream.state.state_guards import (
@@ -44,7 +48,7 @@ from opticstream.flows.psoct.utils import (
     normalize_float_sequence,
 )
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTMosaicId
-from opticstream.utils import slack_notification_hook
+from opticstream.utils.slack_notification_hook import slack_notification_hook
 from opticstream.utils.zarr_validation import validate_zarr
 
 
@@ -437,3 +441,33 @@ def stitch_volume_event_flow(payload: Dict[str, Any]) -> Dict[str, Path]:
         force_refresh_focus=bool(payload.get("force_refresh_focus", False)),
         force_rerun=force_rerun_from_payload(payload),
     )
+
+
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `stitch_volume_flow` (ad-hoc reruns)
+    - event-driven `stitch_volume_event_flow` (triggered by MOSAIC_ENFACE_STITCHED)
+    """
+    manual = stitch_volume_flow.to_deployment(
+        name=deployment_name,
+        tags=["mosaic-processing", "volume-stitching", *list(extra_tags)],
+        concurrency_limit=1,
+    )
+    event = stitch_volume_event_flow.to_deployment(
+        name=deployment_name,
+        tags=[
+            "event-driven",
+            "mosaic-processing",
+            "volume-stitching",
+            *list(extra_tags),
+        ],
+        triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=project_name)],
+        concurrency_limit=1,
+    )
+    return [manual, event]

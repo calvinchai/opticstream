@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Sequence
 
 from prefect import flow, get_run_logger
 
@@ -78,19 +78,19 @@ def upload_strip_to_dandi_event_flow(payload: Dict[str, Any]) -> None:
     )
 
 
-def to_deployment():
-    upload_strip_to_dandi_flow_deployment = upload_strip_to_dandi_flow.to_deployment(
-        name="upload_strip_to_dandi_flow"
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    manual = upload_strip_to_dandi_flow.to_deployment(
+        name=deployment_name,
+        tags=["lsm", "strip", "upload", *list(extra_tags)],
     )
-    upload_strip_to_dandi_event_flow_deployment = (
-        upload_strip_to_dandi_event_flow.to_deployment(
-            name="upload_strip_to_dandi_event_flow",
-            triggers=[
-                get_event_trigger(STRIP_COMPRESSED),
-            ],
-        )
+    event = upload_strip_to_dandi_event_flow.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "lsm", "strip", "upload", *list(extra_tags)],
+        triggers=[get_event_trigger(STRIP_COMPRESSED, project_name=project_name)],
     )
-    return (
-        upload_strip_to_dandi_flow_deployment,
-        upload_strip_to_dandi_event_flow_deployment,
-    )
+    return [manual, event]

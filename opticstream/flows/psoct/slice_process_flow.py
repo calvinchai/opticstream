@@ -11,7 +11,7 @@ registration and 3D axis generation in a single call.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, task
 from prefect.logging import get_run_logger
@@ -315,12 +315,24 @@ def register_slice_event_flow(
     )
 
 
-# Deployment configuration for event-driven triggering
-if __name__ == "__main__":
-    register_slice_event_flow_deployment = register_slice_event_flow.to_deployment(
-        name="register_slice_event_flow",
-        tags=["event-driven", "slice-registration"],
-        triggers=[
-            get_event_trigger(SLICE_READY),
-        ],
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `register_slice_flow` (ad-hoc reruns)
+    - event-driven `register_slice_event_flow` (triggered by SLICE_READY)
+    """
+    manual = register_slice_flow.to_deployment(
+        name=deployment_name,
+        tags=["slice-registration", *list(extra_tags)],
     )
+    event = register_slice_event_flow.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "slice-registration", *list(extra_tags)],
+        triggers=[get_event_trigger(SLICE_READY, project_name=project_name)],
+    )
+    return [manual, event]

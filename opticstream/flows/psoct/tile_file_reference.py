@@ -45,6 +45,6 @@ def build_tile_file_reference_list(
             j = grid_size_x
             if j < 1:
                 raise ValueError(f"grid_size_x must be >= 1, got {j}")
-            tile_number = (i - 1) // j + 1
+            tile_number = (i - 1) % j + 1
         refs.append(TileFileReference(file_path=p, tile_number=tile_number))
     return refs

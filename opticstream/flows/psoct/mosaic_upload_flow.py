@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger
 
@@ -8,6 +8,7 @@ from opticstream.artifacts.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
+from opticstream.events import MOSAIC_ENFACE_STITCHED, get_event_trigger
 from opticstream.events.psoct_events import MOSAIC_ENFACE_UPLOADED
 from opticstream.flows.psoct.utils import (
     mosaic_ident_from_payload,
@@ -17,7 +18,7 @@ from opticstream.state.milestone_wrappers_psoct import oct_mosaic_processing_mil
 from opticstream.state.oct_project_state import OCTMosaicId
 from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.tasks.dandi_upload import upload_to_dandi_batch
-from opticstream.utils import slack_notification_hook
+from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
 @flow(
@@ -53,3 +54,26 @@ def upload_mosaic_enface_to_dandi_event_flow(payload: Dict[str, Any]) -> Dict[st
         enface_outputs=payload.get("symlink_targets", {}),
         force_rerun=force_rerun_from_payload(payload),
     )
+
+
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Create both deployments:
+    - manual `upload_mosaic_enface_to_dandi_flow` (ad-hoc reruns)
+    - event-driven `upload_mosaic_enface_to_dandi_event_flow` (triggered by MOSAIC_ENFACE_STITCHED)
+    """
+    manual = upload_mosaic_enface_to_dandi_flow.to_deployment(
+        name=deployment_name,
+        tags=["upload", "dandi", "enface", *list(extra_tags)],
+    )
+    event = upload_mosaic_enface_to_dandi_event_flow.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "upload", "dandi", "enface", *list(extra_tags)],
+        triggers=[get_event_trigger(MOSAIC_ENFACE_STITCHED, project_name=project_name)],
+    )
+    return [manual, event]

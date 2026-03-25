@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 from opticstream.events.lsm_events import CHANNEL_READY, STRIP_COMPRESSED
@@ -74,11 +74,24 @@ def lsm_strip_update_event_flow(payload: Dict[str, Any]) -> None:
     on_strip_events(STRIP_COMPRESSED, payload)
 
 
-def strip_update_to_deployment():
-    """Deployment with STRIP_COMPRESSED trigger (register alongside strip upload)."""
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+):
+    """
+    Event-only deployment for strip/channel state refresh.
+
+    Triggered by STRIP_COMPRESSED; updates artifacts and emits CHANNEL_READY when all
+    strips are compressed.
+    """
     from opticstream.events import get_event_trigger
 
-    return lsm_strip_update_event_flow.to_deployment(
-        name="lsm_strip_update_event_flow",
-        triggers=[get_event_trigger(STRIP_COMPRESSED)],
-    )
+    return [
+        lsm_strip_update_event_flow.to_deployment(
+            name=deployment_name,
+            tags=["event-driven", "lsm", "strip-update", *list(extra_tags)],
+            triggers=[get_event_trigger(STRIP_COMPRESSED, project_name=project_name)],
+        )
+    ]

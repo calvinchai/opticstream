@@ -4,13 +4,17 @@ Upload stitched channel volume (e.g. DANDI). Triggered on CHANNEL_VOLUME_STITCHE
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
-from opticstream.events.lsm_events import CHANNEL_VOLUME_UPLOADED
+from opticstream.events.lsm_events import (
+    CHANNEL_VOLUME_STITCHED,
+    CHANNEL_VOLUME_UPLOADED,
+)
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
+from opticstream.events.utils import get_event_trigger
 from opticstream.flows.lsm.paths import channel_zarr_volume_path
 from opticstream.state.state_guards import (
     force_rerun_from_payload,
@@ -87,3 +91,31 @@ def upload_channel_volume_event(payload: Dict[str, Any]) -> None:
         scan_config=cfg,
         force_rerun=force_rerun_from_payload(payload),
     )
+
+
+def to_deployment(
+    *,
+    project_name: Optional[str] = None,
+    deployment_name: str = "local",
+    extra_tags: Sequence[str] = (),
+    concurrency_limit: int = 1,
+):
+    """
+    Create both deployments:
+    - manual `upload_channel_volume`
+    - event-driven `upload_channel_volume_event` (triggered by CHANNEL_VOLUME_STITCHED)
+    """
+    manual = upload_channel_volume.to_deployment(
+        name=deployment_name,
+        tags=["lsm", "channel", "upload", *list(extra_tags)],
+        concurrency_limit=concurrency_limit,
+    )
+    event = upload_channel_volume_event.to_deployment(
+        name=deployment_name,
+        tags=["event-driven", "lsm", "channel", "upload", *list(extra_tags)],
+        concurrency_limit=concurrency_limit,
+        triggers=[
+            get_event_trigger(CHANNEL_VOLUME_STITCHED, project_name=project_name)
+        ],
+    )
+    return [manual, event]
