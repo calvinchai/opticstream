@@ -1,9 +1,9 @@
-"""Unit tests for LSM flow helpers: strip_process paths/utils, paths module, utils."""
+"""Unit tests for LSM flow helpers: strip process and utils helpers."""
 
 import pytest
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
-from opticstream.flows.lsm.paths import (
+from opticstream.flows.lsm.utils import (
     channel_zarr_volume_path,
     strip_mip_output_path,
     strip_zarr_output_path,

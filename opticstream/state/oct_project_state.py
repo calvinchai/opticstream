@@ -418,6 +418,32 @@ class OCTProjectState(
         mosaic_state = self.get_or_create_mosaic(slice_id, mosaic_id)
         return mosaic_state.get_or_create_batch(batch_id)
 
+    def delete_slice(self, slice_id: int) -> bool:
+        if slice_id not in self.slices:
+            return False
+        del self.slices[slice_id]
+        self.touch()
+        return True
+
+    def delete_mosaic(self, slice_id: int, mosaic_id: int) -> bool:
+        slice_state = self.slices.get(slice_id)
+        if slice_state is None or mosaic_id not in slice_state.mosaics:
+            return False
+        del slice_state.mosaics[mosaic_id]
+        self.touch()
+        return True
+
+    def delete_batch(self, slice_id: int, mosaic_id: int, batch_id: int) -> bool:
+        slice_state = self.slices.get(slice_id)
+        if slice_state is None:
+            return False
+        mosaic_state = slice_state.mosaics.get(mosaic_id)
+        if mosaic_state is None or batch_id not in mosaic_state.batches:
+            return False
+        del mosaic_state.batches[batch_id]
+        self.touch()
+        return True
+
 
 def _get_slice_view(
     state: OCTProjectState,

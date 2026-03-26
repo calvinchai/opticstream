@@ -50,7 +50,7 @@ def build_pipeline_opts(
         disp_comp_file=str(proc.disp_comp_file),
         aline_size=aline_size,
         bline_size=acq.tile_size_y,
-        is_raw_format=(acq.tile_saving_type == TileSavingType.SPECTRAL),
+        is_raw_format=(acq.tile_saving_type == TileSavingType.SPECTRAL_12bit),
     )
 
     compute = EnfaceComputeFlags(

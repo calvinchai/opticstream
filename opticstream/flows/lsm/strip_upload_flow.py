@@ -5,12 +5,11 @@ from prefect import flow, get_run_logger
 from opticstream.config.lsm_scan_config import LSMScanConfig, get_lsm_scan_config
 from opticstream.events import get_event_trigger
 from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_UPLOADED
-from opticstream.flows.lsm.paths import strip_zarr_output_path
 from opticstream.state.milestone_wrappers_lsm import strip_processing_milestone
 from opticstream.state.state_guards import (
     force_rerun_from_payload,
 )
-from opticstream.flows.lsm.utils import strip_ident_from_payload
+from opticstream.flows.lsm.utils import strip_ident_from_payload, strip_zarr_output_path
 from opticstream.state.lsm_project_state import LSMStripId
 from opticstream.tasks.dandi_upload import upload_to_dandi
 from opticstream.utils.slack_notification_hook import slack_notification_hook

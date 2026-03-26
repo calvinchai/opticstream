@@ -11,12 +11,11 @@ from niizarr.multizarr import ZarrConfig
 from prefect import flow, get_run_logger, task
 from prefect.futures import PrefectFuture
 
-from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticstream.config.lsm_scan_config import LSMScanConfigModel, StripCleanupAction
 from opticstream.data_processing.convert_image import convert_image
 from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_READY
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.events.utils import get_event_trigger
-from opticstream.flows.lsm.paths import strip_mip_output_path, strip_zarr_output_path
 from opticstream.state.state_guards import (
     enter_flow_stage,
     force_rerun_from_payload,
@@ -24,6 +23,8 @@ from opticstream.state.state_guards import (
     enter_milestone_stage,
 )
 from opticstream.flows.lsm.utils import (
+    strip_mip_output_path,
+    strip_zarr_output_path,
     load_scan_config_for_payload,
     strip_ident_from_payload,
 )
@@ -421,13 +422,13 @@ def delete_strip_task(
     shutil.rmtree(strip_path)
 
 
-def describe_cleanup(delete_strip: bool, rename_strip: bool) -> str:
+def describe_cleanup(cleanup_action: StripCleanupAction) -> str:
     """
     Describe what will happen to the raw strip folder based on configuration.
     """
-    if delete_strip:
+    if cleanup_action == StripCleanupAction.DELETE:
         return "raw strip folder will be deleted"
-    if rename_strip:
+    if cleanup_action == StripCleanupAction.RENAME:
         return "raw strip folder will be renamed into processed/"
     return "raw strip folder will be kept in place"
 
@@ -437,15 +438,14 @@ def invalid_path(path: Optional[str]) -> bool:
 
 
 def run_cleanup_tasks(
-    delete_strip: bool,
-    rename_strip: bool,
+    cleanup_action: StripCleanupAction,
     strip_ident: LSMStripId,
     strip_path: str,
 ) -> Optional[PrefectFuture]:
     """
-    Run cleanup tasks synchronously according to delete/rename flags.
+    Run cleanup task synchronously according to cleanup action.
     """
-    if delete_strip:
+    if cleanup_action == StripCleanupAction.DELETE:
         delete_future = delete_strip_task.submit(
             strip_ident=strip_ident,
             strip_path=strip_path,
@@ -453,7 +453,7 @@ def run_cleanup_tasks(
         )
         return delete_future
 
-    if rename_strip:
+    if cleanup_action == StripCleanupAction.RENAME:
         rename_future = rename_strip_task.submit(
             strip_ident=strip_ident,
             strip_path=strip_path,
@@ -498,21 +498,21 @@ def process_strip(
     logger.info(f"Processing {strip_ident} (acq={acq})")
 
     archive_path = scan_config.archive_path
-    delete_raw_strip = scan_config.delete_strip
-    rename_raw_strip = scan_config.rename_strip
+    strip_cleanup_action = scan_config.strip_cleanup_action
 
     zarr_output_path = strip_zarr_output_path(strip_ident, scan_config)
+    has_zarr_output = scan_config.output_path is not None
 
     mip_output_path = None
     if scan_config.generate_mip:
         mip_output_path = strip_mip_output_path(strip_ident, scan_config)
 
     backup_path = None
-    if scan_config.generate_archive and archive_path is not None:
+    if archive_path is not None:
         backup_path = op.join(archive_path, os.path.basename(strip_path))
 
     compress_future = None
-    if scan_config.generate_zarr or scan_config.generate_mip:
+    if scan_config.output_path is not None:
         compress_future = compress_strip.submit(
             strip_ident=strip_ident,
             strip_path=strip_path,
@@ -541,7 +541,7 @@ def process_strip(
             output_path=zarr_output_path,
             mip_output_path=mip_output_path,
             generate_mip=scan_config.generate_mip,
-            generate_zarr=scan_config.generate_zarr,
+            generate_zarr=has_zarr_output,
             wait_for=[compress_future],
         )
 
@@ -611,7 +611,7 @@ def process_strip(
     if not backup_result.ok and backup_result.reason:
         failure_reasons.append(f"backup: {backup_result.reason}")
 
-    cleanup_note = describe_cleanup(delete_raw_strip, rename_raw_strip)
+    cleanup_note = describe_cleanup(strip_cleanup_action)
     status, message = build_status_message(
         success, failure_reasons, strip_ident.slice_id, strip_ident.strip_id
     )
@@ -622,8 +622,7 @@ def process_strip(
         raise RuntimeError(message)
 
     cleanup_future = run_cleanup_tasks(
-        delete_strip=delete_raw_strip,
-        rename_strip=rename_raw_strip,
+        cleanup_action=strip_cleanup_action,
         strip_ident=strip_ident,
         strip_path=strip_path,
     )

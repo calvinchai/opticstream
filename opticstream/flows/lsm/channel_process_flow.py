@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Sequence
 from prefect import flow, get_run_logger, task
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
-from opticstream.flows.lsm.paths import strip_mip_output_path
 from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED, CHANNEL_READY
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.events.utils import get_event_trigger
@@ -24,6 +23,7 @@ from opticstream.state.state_guards import (
     RunDecision,
 )
 from opticstream.flows.lsm.utils import (
+    strip_mip_output_path,
     channel_ident_from_payload,
     load_scan_config_for_payload,
 )

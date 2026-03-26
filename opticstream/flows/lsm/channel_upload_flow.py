@@ -15,13 +15,13 @@ from opticstream.events.lsm_events import (
 )
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.events.utils import get_event_trigger
-from opticstream.flows.lsm.paths import channel_zarr_volume_path
 from opticstream.state.state_guards import (
     force_rerun_from_payload,
     enter_milestone_stage,
     should_skip_run,
 )
 from opticstream.flows.lsm.utils import (
+    channel_zarr_volume_path,
     channel_ident_from_payload,
     load_scan_config_for_payload,
 )

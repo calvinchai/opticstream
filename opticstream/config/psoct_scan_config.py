@@ -17,7 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from niizarr import ZarrConfig
 import psoct_toolbox
 from opticstream.config.utils import with_positions
-
+from opticstream.utils.naming_convention import normalize_project_name
+    
 
 class TileSavingType(str, Enum):
     """Enumeration of tile saving types."""
@@ -358,6 +359,8 @@ class PSOCTScanConfig(PSOCTScanConfigModel, Block):
     Block instances should be saved with name: "{project_name}-config"
     """
 
+def get_psoct_scan_config_block_name(project_name: str) -> str:
+    return f"{normalize_project_name(project_name)}-psoct-config"
 
 def get_psoct_scan_config(
     project_name: str, override_config_name: Optional[str] = None
@@ -365,8 +368,6 @@ def get_psoct_scan_config(
     """
     Get the scan configuration for a project.
     """
-    from opticstream.utils.naming_convention import normalize_project_name
-    print(f"{normalize_project_name(project_name)}-psoct-config")
     return PSOCTScanConfig.load(
         override_config_name or f"{normalize_project_name(project_name)}-psoct-config"
     )

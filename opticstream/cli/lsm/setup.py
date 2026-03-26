@@ -1,7 +1,25 @@
+import logging
+
+from pathlib import Path
+
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
+from opticstream.cli.setup_common import default_zarr_config
+from opticstream.config.lsm_scan_config import get_lsm_scan_config_block_name
 from opticstream.state.lsm_project_state import ensure_lock
 
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+logger = logging.getLogger(__name__)
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*PydanticSerializationUnexpectedValue.*",
+)
 
 @lsm_cli.command
 def update_block() -> None:
@@ -25,25 +43,28 @@ def create_lock(
 def setup(
     project_name: str,
     *,
-    config_block_name: str | None = None,
-    project_base_path: str,
-    info_file: str,
-    output_path: str,
+    project_base_path: Path | None = None,
+    info_file: Path | None = None,
+    output_path: Path | None = None,
 ) -> None:
-    from pathlib import Path
+    update_block()
+    ensure_lock(project_name)
 
-    block_name = config_block_name or f"{project_name}-lsm-config"
-    LSMScanConfig.register_type_and_schema()
-    config = {
-        "project_base_path": project_base_path,
-        "info_file": info_file,
-        "output_path": output_path,
-    }
+    block_name = get_lsm_scan_config_block_name(project_name)
 
-    for key in [k for k, v in list(config.items()) if v is None]:
-        del config[key]
-
-    scan_config = LSMScanConfig(**config)  # type: ignore[arg-type]
+    if project_base_path is None:
+        logger.warning("project_base_path is not set, please set it using prefect UI")
+    if info_file is None:
+        logger.warning("info_file is not set, please set it using prefect UI")
+    if output_path is None:
+        logger.warning("output_path is not set, please set it using prefect UI")
+    scan_config = LSMScanConfig(
+        project_name=project_name if project_name else Path('.'),
+        project_base_path=project_base_path if project_base_path else Path('.'),
+        info_file=info_file if info_file else Path('./info.mat'),
+        output_path=output_path if output_path else Path('.'),
+        zarr_config=default_zarr_config(),
+    )
     scan_config.save(block_name, overwrite=True)
 
     created: list[Path] = []
