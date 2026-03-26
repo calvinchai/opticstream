@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional, Sequence
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from opticstream.data_processing.convert_image import convert_image
+from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events import MOSAIC_ENFACE_STITCHED
 from opticstream.events.utils import get_event_trigger
 from opticstream.flows.psoct.utils import mosaic_ident_from_payload

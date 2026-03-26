@@ -38,7 +38,7 @@ from opticstream.state.state_guards import (
     should_skip_run,
 )
 from opticstream.state.oct_project_state import OCTMosaicId, OCT_STATE_SERVICE
-from opticstream.data_processing.stitch import (
+from opticstream.data_processing.qc import (
     generate_mask,
 )
 from opticstream.flows.psoct.mosaic_coordinate_flow import (

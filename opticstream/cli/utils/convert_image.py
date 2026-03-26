@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
-from opticstream.data_processing.convert_image import convert_image
+from opticstream.data_processing.qc.convert_image import convert_image
 
 from .cli import utils_cli
 

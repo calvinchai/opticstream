@@ -17,8 +17,8 @@ from prefect import flow, task
 from prefect.logging import get_run_logger
 
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
-from opticstream.data_processing.stitch import fiji_stitch, fit_coord_files
-from opticstream.data_processing.stitch.process_tile_coord import (
+from opticstream.data_processing.stitch import fiji, fit_coord_files
+from opticstream.data_processing.stitch.coords import (
     process_tile_coordinate,
 )
 from opticstream.flows.psoct.utils import (
@@ -97,7 +97,7 @@ def fiji_stitch_task(
         f"Running Fiji stitch for {file_template} with grid {grid_size_x}x{grid_size_y}"
     )
 
-    fiji_stitch.main(
+    fiji.main(
         directory=directory,
         file_template=file_template,
         grid_size_x=grid_size_x,

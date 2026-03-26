@@ -12,7 +12,7 @@ from prefect import flow, get_run_logger, task
 from prefect.futures import PrefectFuture
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel, StripCleanupAction
-from opticstream.data_processing.convert_image import convert_image
+from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_READY
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.events.utils import get_event_trigger

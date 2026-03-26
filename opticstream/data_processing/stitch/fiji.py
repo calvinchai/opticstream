@@ -13,7 +13,7 @@ from cyclopts import App
 
 DEFAULT_FIJI_PATH = Path("/autofs/cluster/octdata2/users/Hui/Fiji.app/ImageJ-linux64")
 
-app = App(name="fiji_stitch")
+app = App(name="fiji")
 
 
 def build_macro(

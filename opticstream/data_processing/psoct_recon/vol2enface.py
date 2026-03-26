@@ -1,13 +1,4 @@
 import argparse
-
-# Import complex2volume
-# Note: This assumes the script is run from the oct-pipe root directory
-# or that the package is properly installed
-# try:
-#     from volume_3d.complex2vol import complex2volume
-# except ModuleNotFoundError:
-# Fallback: add parent directory to path
-import sys
 from pathlib import Path
 from typing import Optional, Union
 
@@ -19,10 +10,7 @@ from numpy.typing import ArrayLike
 from scipy import stats
 from scipy.ndimage import convolve1d, gaussian_filter, gaussian_filter1d, median_filter
 
-parent_dir = Path(__file__).parent.parent
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
-from volume_3d.complex2vol import complex2volume
+from .complex2vol import complex2volume
 
 
 def find_surface_gradient(inten: np.ndarray) -> np.ndarray:
