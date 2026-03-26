@@ -1,14 +1,14 @@
 ---
-title: Prefect Variable–backed project state
+title: PostgreSQL-backed project state
 ---
 
-## Prefect Variable–backed project state
+## PostgreSQL-backed project state
 
-This module provides a layered state-management pattern for pipeline state persisted in a Prefect Variable. It is used by pipelines such as the LSM state service to track project-level progress and metadata without requiring a separate database.
+This module provides a layered state-management pattern for pipeline state persisted in PostgreSQL via Prefect SQLAlchemy connector blocks. It is used by both LSM and PS-OCT state services to track project-level progress and metadata.
 
 ## Design overview
 
-This module uses a layered state-management pattern for pipeline state persisted in a Prefect Variable.
+This module uses a layered state-management pattern for pipeline state persisted in PostgreSQL.
 
 The goals are:
 - keep the domain model easy to reason about
@@ -21,13 +21,13 @@ The design separates generic infrastructure from pipeline-specific state.
 
 ### Why this pattern exists
 
-A Prefect Variable is a simple persistence mechanism, but it does not provide transactional updates by itself. If multiple workers load, mutate, and save the same Variable concurrently, updates can be lost.
+A shared database row is simple to reason about, but concurrent writers can still lose updates if they do load/mutate/save without coordination.
 
-To make Variable-backed state safe, every mutation must follow this pattern:
+To make PostgreSQL-backed state safe, every mutation must follow this pattern:
 1. acquire a project-scoped lock
-2. load the current state from the Prefect Variable
+2. load the current state from the database repository
 3. mutate the in-memory model
-4. save the updated state back to the Prefect Variable
+4. save the updated state back to PostgreSQL
 5. release the lock
 
 This module wraps that pattern in a reusable store and exposes a cleaner domain API on top.
@@ -72,18 +72,18 @@ For the LSM pipeline, that includes:
 
 This layer is responsible for state semantics.
 
-### Prefect Variable persistence model
+### PostgreSQL persistence model
 
-Project state is persisted as JSON in a Prefect Variable, keyed by project name.
+Project state is persisted as JSONB in a PostgreSQL table keyed by `(project_type, project_name)`.
 
 A typical lifecycle is:
-- the repository loads the Variable into a mutable Pydantic model
+- the repository loads the JSON state into a mutable Pydantic model
 - mutations happen in memory
-- the model is serialized back to JSON and stored into the same Variable
+- the model is serialized and written back to the same project row
 
-This gives a simple durable backing store without requiring a separate database.
+In this codebase, the repository implementation is `PostgresProjectStateRepository`, which uses a Prefect `SqlAlchemyConnector` block to execute SQL against PostgreSQL.
 
-Because the Prefect Variable is shared, mutation must always happen under a project-scoped lock.
+Because project state is shared across workers, mutation must always happen under a project-scoped lock.
 
 ### Locking model
 
@@ -286,7 +286,7 @@ These do not create missing objects and return frozen view models, but they are 
 **Generic layer responsibilities**
 - lock acquisition
 - state loading and saving
-- Prefect Variable integration
+- PostgreSQL repository integration
 - generic editing and reading primitives
 
 **Domain layer responsibilities**
@@ -332,8 +332,8 @@ because another worker may update the state between the peek and the write.
 
 ### Summary
 
-This pattern treats Prefect Variable state as a small shared state store and adds the missing safety and structure around it:
-- Prefect Variable provides persistence
+This pattern treats PostgreSQL-backed state as a small shared state store and adds the missing safety and structure around it:
+- PostgreSQL (JSONB row per project) provides persistence
 - Prefect concurrency provides exclusive mutation
 - generic store code provides reusable lock/load/save primitives
 - pipeline models provide domain structure and behavior

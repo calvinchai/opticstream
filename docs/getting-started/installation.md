@@ -16,7 +16,7 @@ OpticStream. It reads dependencies from `pyproject.toml` (and `uv.lock` if
 present) and creates a virtual environment for you.
 
 ```bash
-git clone https://github.com/ORG/opticstream.git
+git clone https://github.com/calvinchai/opticstream.git
 cd opticstream
 
 # create and sync environment from pyproject.toml / uv.lock
@@ -45,7 +45,7 @@ If you prefer to use `pip` directly, you can install from source into a virtual
 environment:
 
 ```bash
-git clone https://github.com/ORG/opticstream.git
+git clone https://github.com/calvinchai/opticstream.git
 cd opticstream
 python -m venv .venv
 source .venv/bin/activate
@@ -61,7 +61,7 @@ immediately.
 For a more isolated, globally-available installation, you can use `pipx`:
 
 ```bash
-git clone https://github.com/ORG/opticstream.git
+git clone https://github.com/calvinchai/opticstream.git
 cd opticstream
 pipx install .
 ```

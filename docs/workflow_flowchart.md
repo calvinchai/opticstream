@@ -13,7 +13,7 @@ The pipeline processes OCT data in a hierarchical structure:
 
 ```mermaid
 flowchart TD
-    Start([Start: Batch Detected]) --> BatchReady[Emit: BATCH_READY]
+    Start([Start: Batch Detected]) --> BatchReady[Emit: linc.opticstream.psoct.batch.ready]
     
     BatchReady --> ProcessBatch[process_tile_batch_flow]
     
@@ -23,13 +23,13 @@ flowchart TD
     ConvertTask --> |SPECTRAL| Spectral2Complex[Spectral to Complex]
     ConvertTask --> |COMPLEX| Complex2Complex[Link Complex Files]
     
-    Spectral2Complex --> BatchComplexed[Emit: BATCH_COMPLEXED]
+    Spectral2Complex --> BatchComplexed[Emit: linc.opticstream.psoct.batch.complexed]
     Complex2Complex --> BatchComplexed
     
     BatchComplexed --> Complex2Processed[complex_to_processed_batch_flow]
-    Complex2Processed --> BatchProcessed[Emit: BATCH_PROCESSED]
+    Complex2Processed --> BatchProcessed[Emit: linc.opticstream.psoct.batch.processed]
     
-    ArchiveTask --> BatchArchived[Emit: BATCH_ARCHIVED]
+    ArchiveTask --> BatchArchived[Emit: linc.opticstream.psoct.batch.archived]
     
     BatchProcessed --> StateMgmt1[State Management Flow]
     BatchArchived --> StateMgmt1
@@ -40,7 +40,7 @@ flowchart TD
     CheckBatches --> |No| UpdateArtifact[Update Mosaic Artifact]
     CheckBatches --> |Yes| CheckStitched{Already<br/>Stitched?}
     
-    CheckStitched --> |No| MosaicReady[Emit: MOSAIC_READY]
+    CheckStitched --> |No| MosaicReady[Emit: linc.opticstream.psoct.mosaic.ready]
     CheckStitched --> |Yes| SkipEvent[Skip Event Emission]
     
     UpdateArtifact --> End1([End])
@@ -59,7 +59,7 @@ flowchart TD
     StitchAIPMIP --> GenerateMask[Generate Mask from MIP]
     GenerateMask --> StitchEnface[Stitch Enface Modalities<br/>ret, ori, biref, surf]
     
-    StitchEnface --> MosaicStitched[Emit: MOSAIC_STITCHED]
+    StitchEnface --> MosaicStitched[Emit: linc.opticstream.psoct.mosaic.enface_uploaded]
     
     MosaicStitched --> StateMgmt2[State Management Flow]
     MosaicStitched --> SlackNotify[Slack Notification Flow]
@@ -67,22 +67,22 @@ flowchart TD
     StateMgmt2 --> CheckSlice{Both Mosaics<br/>Stitched?}
     
     CheckSlice --> |No| UpdateSliceArtifact[Update Slice Artifact]
-    CheckSlice --> |Yes| SliceReady[Emit: SLICE_READY]
+    CheckSlice --> |Yes| SliceReady[Emit: linc.opticstream.psoct.slice.ready]
     
     UpdateSliceArtifact --> End2([End])
     
     SliceReady --> RegisterSlice[register_slice_flow]
-    RegisterSlice --> SliceRegistered[Emit: SLICE_REGISTERED]
+    RegisterSlice --> SliceRegistered[Emit: linc.opticstream.psoct.slice.registered]
     
     ProcessMosaic --> Stitch3D{Stitch 3D<br/>Volumes?}
     
     Stitch3D --> |Yes| StitchVolumes[Stitch Volume Modalities<br/>dBI, R3D, O3D]
     Stitch3D --> |No| Skip3D[Skip 3D Stitching]
     
-    StitchVolumes --> VolumeStitched[Emit: MOSAIC_VOLUME_STITCHED]
+    StitchVolumes --> VolumeStitched[Emit: linc.opticstream.psoct.mosaic.volume_stitched]
     Skip3D --> End3([End])
     
-    UploadBatch --> BatchUploaded[Emit: BATCH_UPLOADED]
+    UploadBatch --> BatchUploaded[Emit: linc.opticstream.psoct.batch.uploaded]
     
     %% Styling
     classDef eventNode fill:#e1f5ff,stroke:#01579b,stroke-width:2px
@@ -100,61 +100,61 @@ flowchart TD
 
 ### Batch-Level Events
 
-1. **BATCH_READY** (`linc.oct.batch.ready`)
+1. **Batch ready** (`linc.opticstream.psoct.batch.ready`)
    - **Trigger**: External (batch detection)
    - **Condition**: Batch of tiles detected
    - **Triggers**: `process_tile_batch_flow`
 
-2. **BATCH_COMPLEXED** (`linc.oct.batch.complexed`)
+2. **Batch complexed** (`linc.opticstream.psoct.batch.complexed`)
    - **Trigger**: After spectral-to-complex or complex linking
    - **Condition**: Complex data ready
    - **Triggers**: `complex_to_processed_batch_flow`
 
-3. **BATCH_PROCESSED** (`linc.oct.batch.processed`)
+3. **Batch processed** (`linc.opticstream.psoct.batch.processed`)
    - **Trigger**: After complex-to-processed conversion
    - **Condition**: Batch processing complete
    - **Triggers**: State management flow
 
-4. **BATCH_ARCHIVED** (`linc.oct.batch.archived`)
+4. **Batch archived** (`linc.opticstream.psoct.batch.archived`)
    - **Trigger**: After tile archiving
    - **Condition**: Tiles archived and compressed
    - **Triggers**: Upload flow, State management flow
 
-5. **BATCH_UPLOADED** (`linc.oct.batch.uploaded`)
+5. **Batch uploaded** (`linc.opticstream.psoct.batch.uploaded`)
    - **Trigger**: After batch upload to LINC
    - **Condition**: Upload complete
    - **Triggers**: Upload completion handlers
 
 ### Mosaic-Level Events
 
-1. **MOSAIC_READY** (`linc.oct.mosaic.ready`)
+1. **Mosaic ready** (`linc.opticstream.psoct.mosaic.ready`)
    - **Trigger**: State management flow
    - **Condition**: All batches in mosaic processed AND not already stitched
    - **Triggers**: `process_mosaic_flow`
 
-2. **MOSAIC_STITCHED** (`linc.oct.mosaic.stitched`)
+2. **Mosaic enface uploaded** (`linc.opticstream.psoct.mosaic.enface_uploaded`)
    - **Trigger**: After enface modalities stitched
    - **Condition**: All enface modalities complete
    - **Triggers**: State management flow, Slack notification flow
 
-3. **MOSAIC_VOLUME_STITCHED** (`linc.oct.mosaic.volume_stitched`)
+3. **Mosaic volume stitched** (`linc.opticstream.psoct.mosaic.volume_stitched`)
    - **Trigger**: After volume modalities stitched
    - **Condition**: All volume modalities complete
    - **Triggers**: Volume upload flow
 
-4. **MOSAIC_VOLUME_UPLOADED** (`linc.oct.mosaic.volume_uploaded`)
+4. **Mosaic volume uploaded** (`linc.opticstream.psoct.mosaic.volume_uploaded`)
    - **Trigger**: After volume upload to LINC
    - **Condition**: Volume upload complete
    - **Triggers**: Upload completion handlers
 
 ### Slice-Level Events
 
-1. **SLICE_READY** (`linc.oct.slice.ready`)
+1. **Slice ready** (`linc.opticstream.psoct.slice.ready`)
    - **Trigger**: State management flow
    - **Condition**: Both mosaics (normal + tilted) stitched
    - **Triggers**: `register_slice_flow`
 
-2. **SLICE_REGISTERED** (`linc.oct.slice.registered`)
+2. **Slice registered** (`linc.opticstream.psoct.slice.registered`)
    - **Trigger**: After slice registration
    - **Condition**: Registration complete
    - **Triggers**: Slice state management, upload flow
@@ -165,7 +165,7 @@ flowchart TD
 
 - **All Batches Processed**: `processed_batches == total_batches`
   - Checked by: `check_mosaic_completion_task`
-  - Action: Emit `MOSAIC_READY` if true
+  - Action: Emit `linc.opticstream.psoct.mosaic.ready` if true
 
 - **Already Stitched**: Flag file exists or AIP file exists
   - Checked by: `check_mosaic_stitched_task`
@@ -185,7 +185,7 @@ flowchart TD
 - **Both Mosaics Stitched**: 
   - Normal mosaic stitched: `check_mosaic_stitched_task(normal_mosaic_id) == True`
   - Tilted mosaic stitched: `check_mosaic_stitched_task(tilted_mosaic_id) == True`
-  - Action: Emit `SLICE_READY` if both true
+  - Action: Emit `linc.opticstream.psoct.slice.ready` if both true
 
 ## State Management Flow Logic
 
@@ -196,7 +196,7 @@ The unified state management flow (`unified_state_management_event_flow`) routes
   - Updates mosaic artifact
   - Emits `MOSAIC_READY` if all batches complete
 
-- **MOSAIC_STITCHED** → `manage_slice_state_event_flow`
+- **MOSAIC_ENFACE_STITCHED** → `manage_slice_state_event_flow`
   - Checks both mosaics in slice
   - Updates slice artifact
   - Emits `SLICE_READY` if both mosaics stitched

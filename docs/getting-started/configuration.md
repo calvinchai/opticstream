@@ -12,30 +12,33 @@ scan- and project-level settings.
 The `LSMScanConfigModel` and `LSMScanConfig` block (in `opticstream.config.lsm_scan_config`)
 control how LSM strips are processed, including:
 
-- input project base path and info file
-- zarr output paths and naming formats
-- archive / backup paths
-- resource usage (workers, CPU affinity)
+- input paths (`project_base_path`, `info_file`, optional `archive_path`)
+- output settings (`output_path`, `output_format`, `generate_mip`, `output_mip_format`)
+- strip indexing (`strips_per_slice`)
+- compute settings (`num_workers`, optional `cpu_affinity`)
+- zarr conversion details (`zarr_config`)
+- downstream stitching and validation (`stitch_volume`, `channel_volume_zarr_size_threshold`)
 
-Strip cleanup behavior is controlled by:
+Strip cleanup behavior is controlled by `strip_cleanup_action`:
 
-- `delete_strip` (bool): if `True`, the raw strip folder will be deleted after
-  compression and backup checks succeed.
-- `rename_strip` (bool): if `True` and `delete_strip` is `False`, the raw strip
-  folder will be moved into a `processed` subdirectory instead of being left in
-  place.
+- `keep`: leave the raw strip folder unchanged
+- `rename`: move the raw strip folder into a `processed` subdirectory
+- `delete`: remove the raw strip folder after successful processing/backup checks
 
-If both flags are `False`, the raw strip folder is left unchanged. If both are
-`True`, **`delete_strip` takes precedence** and the strip folder is deleted
-rather than renamed. The `process_strip_flow` emits Slack notifications (via the
-configured Prefect `SlackWebhook` block) on both success and failure, including
-the strip folder path, raw and compressed output sizes, and total disk usage for
-the filesystem containing the strip.
+The strip flow emits Slack notifications (via configured Prefect blocks) for
+success and failure, including strip paths and storage usage details.
 
 ## PS-OCT scan configuration
 
 The `PSOCTScanConfig` block (in `opticstream.config.psoct_scan_config`) defines
 grid layout, overlap, formats, and stitching parameters for PS-OCT processing.
+
+It is composed from:
+
+- `PSOCTAcquisitionParams` (tile/grid geometry and acquisition metadata)
+- `PSOCTProcessingParams` (MATLAB/processing behavior and algorithm options)
+- top-level output and modality settings (`enface_modalities`, `volume_modalities`,
+  naming formats, masking thresholds, `zarr_config`)
 
 See the concepts section for more detail on these configuration models.
 
@@ -73,30 +76,4 @@ directories instead of the remote git repositories, while other users who do not
 
 The exact `path = "..."` values are machine-specific. Each developer should adjust them in
 their own clone as needed.
-
----
-title: Configuration
----
-
-# Configuration
-
-OpticStream uses typed configuration models and Prefect Blocks to manage
-scan- and project-level settings.
-
-## LSM scan configuration
-
-The `LSMScanConfigModel` and `LSMScanConfig` block (in `opticstream.config.lsm_scan_config`)
-control how LSM strips are processed, including:
-
-- input project base path and info file
-- zarr output paths and naming formats
-- archive / backup paths
-- resource usage (workers, CPU affinity)
-
-## PS-OCT scan configuration
-
-The `PSOCTScanConfig` block (in `opticstream.config.psoct_scan_config`) defines
-grid layout, overlap, formats, and stitching parameters for PS-OCT processing.
-
-See the concepts section for more detail on these configuration models.
 

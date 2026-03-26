@@ -7,7 +7,7 @@ BATCH LEVEL PROCESSING
 [Batch Detected]
     |
     v
-[Emit: BATCH_READY]
+[Emit: linc.opticstream.psoct.batch.ready]
     |
     v
 [process_tile_batch_flow]
@@ -15,12 +15,12 @@ BATCH LEVEL PROCESSING
     +---> [Archive Tiles] (parallel)
     |         |
     |         v
-    |    [Emit: BATCH_ARCHIVED]
+    |    [Emit: linc.opticstream.psoct.batch.archived]
     |         |
     |         +---> [upload_to_linc_batch_flow]
     |         |         |
     |         |         v
-    |         |    [Emit: BATCH_UPLOADED]
+    |         |    [Emit: linc.opticstream.psoct.batch.uploaded]
     |         |
     |         +---> [State Management Flow]
     |
@@ -29,18 +29,18 @@ BATCH LEVEL PROCESSING
             +---> [SPECTRAL] -> [Spectral to Complex]
             |                      |
             |                      v
-            |                 [Emit: BATCH_COMPLEXED]
+            |                 [Emit: linc.opticstream.psoct.batch.complexed]
             |
             +---> [COMPLEX] -> [Link Complex Files]
                                  |
                                  v
-                            [Emit: BATCH_COMPLEXED]
+                            [Emit: linc.opticstream.psoct.batch.complexed]
                                  |
                                  v
                             [complex_to_processed_batch_flow]
                                  |
                                  v
-                            [Emit: BATCH_PROCESSED]
+                            [Emit: linc.opticstream.psoct.batch.processed]
                                  |
                                  v
                             [State Management Flow]
@@ -48,7 +48,7 @@ BATCH LEVEL PROCESSING
 STATE MANAGEMENT (Batch Level)
 -------------------------------
 
-[State Management Flow] (triggered by BATCH_PROCESSED or BATCH_ARCHIVED)
+[State Management Flow] (triggered by linc.opticstream.psoct.batch.processed or linc.opticstream.psoct.batch.archived)
     |
     v
 [Check Batch State]
@@ -71,12 +71,12 @@ STATE MANAGEMENT (Batch Level)
             +---> [NO]
                     |
                     v
-                [Emit: MOSAIC_READY]
+                [Emit: linc.opticstream.psoct.mosaic.ready]
 
 MOSAIC LEVEL PROCESSING
 ------------------------
 
-[Emit: MOSAIC_READY]
+[Emit: linc.opticstream.psoct.mosaic.ready]
     |
     v
 [process_mosaic_flow]
@@ -114,7 +114,7 @@ MOSAIC LEVEL PROCESSING
         - ret, ori, biref, surf
             |
             v
-        [Emit: MOSAIC_STITCHED]
+        [Emit: linc.opticstream.psoct.mosaic.enface_uploaded]
             |
             +---> [State Management Flow]
             |
@@ -123,7 +123,7 @@ MOSAIC LEVEL PROCESSING
 STATE MANAGEMENT (Slice Level)
 -------------------------------
 
-[State Management Flow] (triggered by MOSAIC_STITCHED)
+[State Management Flow] (triggered by linc.opticstream.psoct.mosaic.enface_uploaded)
     |
     v
 [Check Slice State]
@@ -139,12 +139,12 @@ STATE MANAGEMENT (Slice Level)
     +---> [YES]
             |
             v
-        [Emit: SLICE_READY]
+        [Emit: linc.opticstream.psoct.slice.ready]
 
 SLICE LEVEL PROCESSING
 -----------------------
 
-[Emit: SLICE_READY]
+[Emit: linc.opticstream.psoct.slice.ready]
     |
     v
 [register_slice_flow]
@@ -155,7 +155,7 @@ SLICE LEVEL PROCESSING
 - Generate 3D axis vectors
     |
     v
-[Emit: SLICE_REGISTERED]
+[Emit: linc.opticstream.psoct.slice.registered]
 
 VOLUME PROCESSING (Optional)
 -----------------------------
@@ -174,7 +174,7 @@ VOLUME PROCESSING (Optional)
         - dBI, R3D, O3D
             |
             v
-        [Emit: MOSAIC_VOLUME_STITCHED]
+        [Emit: linc.opticstream.psoct.mosaic.volume_stitched]
 
 CONDITIONS SUMMARY
 ==================
@@ -196,19 +196,19 @@ EVENT CATALOG
 =============
 
 Batch Events:
-- BATCH_READY: Batch detected
-- BATCH_COMPLEXED: Complex data ready
-- BATCH_PROCESSED: Batch processing complete
-- BATCH_ARCHIVED: Tiles archived
-- BATCH_UPLOADED: Batch uploaded to LINC
+- linc.opticstream.psoct.batch.ready: Batch detected
+- linc.opticstream.psoct.batch.complexed: Complex data ready
+- linc.opticstream.psoct.batch.processed: Batch processing complete
+- linc.opticstream.psoct.batch.archived: Tiles archived
+- linc.opticstream.psoct.batch.uploaded: Batch uploaded to LINC
 
 Mosaic Events:
-- MOSAIC_READY: All batches processed
-- MOSAIC_STITCHED: Enface modalities stitched
-- MOSAIC_VOLUME_STITCHED: Volume modalities stitched
-- MOSAIC_VOLUME_UPLOADED: Volumes uploaded
+- linc.opticstream.psoct.mosaic.ready: All batches processed
+- linc.opticstream.psoct.mosaic.enface_uploaded: Enface outputs uploaded
+- linc.opticstream.psoct.mosaic.volume_stitched: Volume modalities stitched
+- linc.opticstream.psoct.mosaic.volume_uploaded: Volumes uploaded
 
 Slice Events:
-- SLICE_READY: Both mosaics stitched
-- SLICE_REGISTERED: Slice registration complete
+- linc.opticstream.psoct.slice.ready: Both mosaics stitched
+- linc.opticstream.psoct.slice.registered: Slice registration complete
 
