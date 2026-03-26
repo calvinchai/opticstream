@@ -99,7 +99,7 @@ def complex_to_processed_tile_batch(
     logger.info("Running MATLAB command: %s", cmd)
     run_matlab_batch_command_or_cli(
         cmd,
-        matlab_script_path=str(config.matlab_root) if config.matlab_root else None,
+        matlab_script_path=str(config.matlab_root),
     )
     validate_processed_batch_outputs(
         processed_path,

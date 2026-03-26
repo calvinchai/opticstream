@@ -47,7 +47,7 @@ def build_pipeline_opts(
     )
 
     spectral = SpectralOpts(
-        disp_comp_file=proc.disp_comp_file,
+        disp_comp_file=str(proc.disp_comp_file),
         aline_size=aline_size,
         bline_size=acq.tile_size_y,
         is_raw_format=(acq.tile_saving_type == TileSavingType.SPECTRAL),

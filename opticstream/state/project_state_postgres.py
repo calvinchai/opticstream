@@ -8,12 +8,15 @@ This repository persists a full project state model as JSON in a generic
 from __future__ import annotations
 
 import re
-from typing import Generic
+from typing import TYPE_CHECKING, Generic
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from opticstream.state.project_state_core import TState
+
+if TYPE_CHECKING:
+    from prefect_sqlalchemy import SqlAlchemyConnector  # type: ignore[import-not-found]
 
 
 class PostgresProjectStateRepository(Generic[TState]):
@@ -30,12 +33,18 @@ class PostgresProjectStateRepository(Generic[TState]):
         self._model_cls = model_cls
         self._project_type = project_type
         self._table_name = self._validate_table_name(table_name)
+        self._connector: SqlAlchemyConnector | None = None
 
-    def load(self, project_name: str) -> TState:
+    def _get_connector(self) -> SqlAlchemyConnector:
         # Import locally so module import remains lightweight in environments
         # where this repository is configured but not used.
-        from prefect_sqlalchemy import SqlAlchemyConnector  # type: ignore[import-not-found]
+        if self._connector is None:
+            from prefect_sqlalchemy import SqlAlchemyConnector  # type: ignore[import-not-found]
 
+            self._connector = SqlAlchemyConnector.load(self._block_name)
+        return self._connector
+
+    def load(self, project_name: str) -> TState:
         query = text(
             f"""
             SELECT state
@@ -45,16 +54,14 @@ class PostgresProjectStateRepository(Generic[TState]):
             """
         )
 
-        database_block = SqlAlchemyConnector.load(self._block_name)
-        with database_block:
-            with database_block.get_connection(begin=False) as connection:
-                row = connection.execute(
-                    query,
-                    {
-                        "project_type": self._project_type,
-                        "project_name": project_name,
-                    },
-                ).fetchone()
+        with self._get_connector().get_connection(begin=False) as connection:
+            row = connection.execute(
+                query,
+                {
+                    "project_type": self._project_type,
+                    "project_name": project_name,
+                },
+            ).fetchone()
 
         if row is None:
             # type: ignore[call-arg] - callers must ensure model_cls can default construct
@@ -63,8 +70,6 @@ class PostgresProjectStateRepository(Generic[TState]):
         return self._model_cls.model_validate(row[0])
 
     def save(self, project_name: str, state: TState) -> None:
-        from prefect_sqlalchemy import SqlAlchemyConnector  # type: ignore[import-not-found]
-
         payload = state.model_dump(mode="json")
         query = text(
             f"""
@@ -77,17 +82,15 @@ class PostgresProjectStateRepository(Generic[TState]):
             bindparam("state", type_=JSONB),
         )
 
-        database_block = SqlAlchemyConnector.load(self._block_name)
-        with database_block:
-            with database_block.get_connection(begin=True) as connection:
-                connection.execute(
-                    query,
-                    {
-                        "project_type": self._project_type,
-                        "project_name": project_name,
-                        "state": payload,
-                    },
-                )
+        with self._get_connector().get_connection(begin=True) as connection:
+            connection.execute(
+                query,
+                {
+                    "project_type": self._project_type,
+                    "project_name": project_name,
+                    "state": payload,
+                },
+            )
 
     @staticmethod
     def _validate_table_name(table_name: str) -> str:

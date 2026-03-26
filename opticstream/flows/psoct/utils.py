@@ -116,14 +116,17 @@ def slice_ident_from_payload(payload: Mapping[str, Any]) -> OCTSliceId:
 def load_scan_config_for_payload(payload: Mapping[str, Any]) -> PSOCTScanConfigModel:
     project_name = payload.get("project_name")
     if project_name is None:
-        raw_ident = payload.get("mosaic_ident")
-        if isinstance(raw_ident, OCTMosaicId):
-            project_name = raw_ident.project_name
-        elif isinstance(raw_ident, Mapping):
-            project_name = raw_ident.get("project_name")
+        for ident_key in ("batch_ident", "mosaic_ident", "slice_ident"):
+            raw_ident = payload.get(ident_key)
+            if isinstance(raw_ident, (OCTBatchId, OCTMosaicId, OCTSliceId)):
+                project_name = raw_ident.project_name
+            elif isinstance(raw_ident, Mapping):
+                project_name = raw_ident.get("project_name")
+            if project_name is not None:
+                break
     if project_name is None:
         raise KeyError(
-            "payload must include project_name or mosaic_ident with project_name"
+            "payload must include project_name or one of batch_ident/mosaic_ident/slice_ident with project_name"
         )
     override = payload.get("override_config")
     cfg = get_psoct_scan_config(project_name, override_config_name=override)

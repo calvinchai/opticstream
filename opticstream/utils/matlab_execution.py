@@ -197,7 +197,7 @@ def run_matlab_batch_command_or_cli(
     logger.warning("MATLAB Engine not available, using CLI batch")
     escaped_cmd = matlab_cmd.replace('"', '\\"')
     logger.info(f"Executing MATLAB command: {command}")
-    logger.debug(f'Full MATLAB command: matlab -batch "{escaped_cmd}"')
+    logger.info(f'Full MATLAB command: matlab -batch "{escaped_cmd}"')
     with ShellOperation(
         commands=[f'matlab -batch "{escaped_cmd}"'],
         working_dir=working_dir,
