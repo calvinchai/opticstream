@@ -398,7 +398,7 @@ This consistent naming convention enables clear identification of event hierarch
 Event payloads carry contextual information needed by downstream flows:
 
 * **Project Context**: `project_name`, `project_base_path`
-* **Entity Identifiers**: `mosaic_id`, `slice_number`, `batch_id`
+* **Entity Identifiers**: `mosaic_id`, `slice_id`, `batch_id`
 * **Processing Metadata**: `total_batches`, `grid_size_x`, `grid_size_y`
 * **File Paths**: Paths to processed files, coordinate files, templates
 * **Output Information**: Paths to generated outputs, artifact keys
@@ -574,7 +574,7 @@ For the LSM pipeline, that includes:
   - `mark_started`
   - `mark_completed`
   - `set_uploaded`
-  - `set_backed_up`
+  - `set_archived`
 
 This layer is responsible for state semantics.
 
@@ -747,7 +747,7 @@ Do not use `peek_*` for check-then-act workflows.
 A service API with methods like:
 - `mark_strip_completed(...)`
 - `set_strip_uploaded(...)`
-- `set_strip_backed_up(...)`
+- `set_strip_archived(...)`
 
 quickly becomes repetitive.
 
