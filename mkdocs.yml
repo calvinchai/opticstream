@@ -31,13 +31,23 @@ nav:
       - Project overview: concepts/project_overview.md
       - Scan configurations: concepts/scan_configurations.md
       - Flows and state models: concepts/flows_and_state_models.md
+      - Acquisition watchers: concepts/acquisition_watchers.md
       - Data processing pipeline: concepts/data_processing_pipeline.md
   - Developer:
       - Architecture: developer/architecture.md
       - Code layout: developer/code_layout.md
       - CLI overview: developer/cli_overview.md
+      - LSM and OCT watcher design: developer/watcher_design_lsm_oct.md
       - Testing and CI: developer/testing_and_ci.md
       - Contributing: developer/contributing.md
+      - OCT design overview: developer/oct_design_overview.md
+      - OCT data flow and folder layout: developer/oct_data_flow.md
+      - OCT events and state management: developer/oct_events_and_state.md
+      - Prefect Variable–backed project state: developer/prefect_state_design.md
+      - OCT processing hosts and deployment: developer/oct_deployment_and_hosts.md
+      - OCT MATLAB batch processing, upload, and stitching: developer/oct_matlab_and_stitching.md
+      - OCT algorithms, error handling, and QC: developer/oct_algorithms_and_qc.md
+      - OCT future extensions: developer/oct_future_extensions.md
   - Reference:
       - CLI commands: reference/cli_commands.md
       - Python API: reference/python_api.md
