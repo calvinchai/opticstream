@@ -40,7 +40,7 @@ ops = "opticstream.cli:main"
 
 [tool.uv.sources]
 #linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert", editable = true }
-nifti-zarr = { path = "/space/megaera/1/users/kchai/nifti-zarr", editable = true }
+#nifti-zarr = { path = "/space/megaera/1/users/kchai/nifti-zarr", editable = true }
 #psoct-toolbox = { path = "/space/megaera/1/users/kchai/code/psoct-toolbox", editable = true }
 
 [build-system]
