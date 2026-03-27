@@ -19,10 +19,11 @@ from opticstream.state.lsm_project_state import (
 lsm_state_cli = lsm_cli.command(App(name="state"))
 
 
-@lsm_cli.command
+@lsm_state_cli.command
 def reset(
     project_name: str,
     *,
+    all: bool = False,
     slice: int | None = None,
     channel: int | None = None,
     strip: int | None = None,
@@ -31,18 +32,25 @@ def reset(
     Delete a slice, channel, or strip from LSM project state.
 
     Examples:
-    - opticstream lsm reset myproject --slice 1
-    - opticstream lsm reset myproject --slice 1 --channel 2
-    - opticstream lsm reset myproject --slice 1 --channel 2 --strip 3
+    - opticstream lsm state reset myproject --all
+    - opticstream lsm state reset myproject --slice 1
+    - opticstream lsm state reset myproject --slice 1 --channel 2
+    - opticstream lsm state reset myproject --slice 1 --channel 2 --strip 3
     """
-    if slice is None:
+    if all:
+        if slice is not None or channel is not None or strip is not None:
+            raise ValueError("`--all` cannot be used with `--slice`, `--channel`, or `--strip`.")
+    if slice is None and not all:
         raise ValueError("`--slice` is required.")
     if strip is not None and channel is None:
         raise ValueError("`--channel` is required when `--strip` is provided.")
 
     with LSM_STATE_SERVICE.open_project_by_parts(project_name=project_name) as project:
         if channel is None:
-            deleted = project.delete_slice(slice)
+            if all:
+                deleted = all(project.delete_slice(slice) for slice in project.slices)
+            else:
+                deleted = project.delete_slice(slice)
             target = f"slice={slice}"
             hierarchy = "slice"
         elif strip is None:
