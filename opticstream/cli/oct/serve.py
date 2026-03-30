@@ -59,6 +59,7 @@ def build_deployments(
     *,
     project_name: str,
     deployment_name: str = "local",
+    concurrency_limit: int = 1,
 ) -> List:
     """
     Build all standard deployments.
@@ -78,6 +79,7 @@ def build_deployments(
             project_name=normalized_project_name,
             deployment_name=deployment_name,
             extra_tags=COMMON_TAGS,
+            concurrency_limit=concurrency_limit,
         )
     )
     deployments.extend(
@@ -207,12 +209,14 @@ def register(
 def all(
     project_name: str,
     deployment_name: str = "local",
+    concurrency_limit: int = 1,
     exclude: Optional[list[str]] = None,
 ):
     chdir_to_opticstream_install_root()
     services = build_deployments(
         project_name=project_name,
         deployment_name=deployment_name,
+        concurrency_limit=concurrency_limit,
     )
 
     if exclude:

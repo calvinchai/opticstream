@@ -59,7 +59,7 @@ def setup(
     if output_path is None:
         logger.warning("output_path is not set, please set it using prefect UI")
     scan_config = LSMScanConfig(
-        project_name=project_name if project_name else Path('.'),
+        project_name=project_name,
         project_base_path=project_base_path if project_base_path else Path('.'),
         info_file=info_file if info_file else Path('./info.mat'),
         output_path=output_path if output_path else Path('.'),

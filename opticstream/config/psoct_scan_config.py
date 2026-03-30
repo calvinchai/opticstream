@@ -27,6 +27,7 @@ class TileSavingType(str, Enum):
     SPECTRAL = "spectral"
     SPECTRAL_12bit = "spectral_12bit"
     COMPLEX_WITH_SPECTRAL = "complex_with_spectral"
+    PROCESSED_WITH_SPECTRAL = "processed_with_spectral"
 
 
 class EnfaceModality(str, Enum):

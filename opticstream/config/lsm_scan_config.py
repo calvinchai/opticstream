@@ -120,14 +120,14 @@ class LSMScanConfigModel(BaseModel):
     @field_validator("archive_path")
     @classmethod
     def validate_archive_path(cls, value: Path | None) -> Path | None:
-        if value is not None and len(str(value)) <= 1:
+        if value is not None and len(str(value)) < 1:
             raise ValueError("archive_path must be longer than 1 character")
         return value
 
     @field_validator("output_path")
     @classmethod
     def validate_output_path(cls, value: Path | None) -> Path | None:
-        if value is not None and len(str(value)) <= 1:
+        if value is not None and len(str(value)) < 1:
             raise ValueError("output_path must be longer than 1 character")
         return value
 

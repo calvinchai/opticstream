@@ -207,7 +207,7 @@ def compress_strip(
     logger.info(f"Compressed {strip_ident} to {output_path}")
 
 
-@task(task_run_name="backup-{strip_ident}")
+@task(task_run_name="backup-{strip_ident}", tags=["lsm-data-archive"])
 def archive_strip(
     strip_ident: LSMStripId,
     strip_path: str,

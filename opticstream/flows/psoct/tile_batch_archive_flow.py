@@ -12,7 +12,7 @@ from opticstream.events.psoct_events import BATCH_ARCHIVED
 from opticstream.flows.psoct.tile_file_reference import TileFileReference
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
-from opticstream.tasks.archive_tile import archive_file
+from opticstream.tasks.archive_file import archive_file
 from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
@@ -63,7 +63,7 @@ def archive_tile_batch(
     emit_batch_psoct_event(
         BATCH_ARCHIVED,
         batch_id,
-        extra_payload={"archived_file_paths": archived_file_paths},
+        extra_payload={"file_list": archived_file_paths},
     )
 
 

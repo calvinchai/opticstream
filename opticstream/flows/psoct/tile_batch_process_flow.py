@@ -206,6 +206,7 @@ def to_deployment(
     project_name: Optional[str] = None,
     deployment_name: str = "local",
     extra_tags: Sequence[str] = (),
+    concurrency_limit: int = 1,
 ):
     """
     Create both deployments:
@@ -215,12 +216,12 @@ def to_deployment(
     manual = process_tile_batch.to_deployment(
         name=deployment_name,
         tags=["tile-batch", "process-tile-batch", *list(extra_tags)],
-        concurrency_limit=1,
+        concurrency_limit=concurrency_limit,
     )
     event = process_tile_batch_event_flow.to_deployment(
         name=deployment_name,
         tags=["event-driven", "tile-batch", "process-tile-batch", *list(extra_tags)],
         triggers=[get_event_trigger(BATCH_READY, project_name=project_name)],
-        concurrency_limit=1,
+        concurrency_limit=concurrency_limit,
     )
     return [manual, event]
