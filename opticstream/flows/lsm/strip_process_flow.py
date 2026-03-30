@@ -377,9 +377,11 @@ def strip_mip_qc_notification(
         output=preview_path,
         window_min=window_min,
         window_max=window_max,
+        split=2,
     )
+    files = [preview_path] + [preview_path.with_suffix(f".part{i + 1}.jpg") for i in range(2)]
     upload_multiple_files_to_slack(
-        filepaths=[preview_path], initial_comment=f"MIP QC for {strip_ident}"
+        filepaths=files, initial_comment=f"MIP QC for {strip_ident}"
     )
 
 

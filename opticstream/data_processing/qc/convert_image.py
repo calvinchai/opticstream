@@ -230,6 +230,32 @@ def load_data(
     return _load_raster_image(input_path_obj).data
 
 
+def _save_rgb_split(
+    rgb: np.ndarray,
+    output_path: Path,
+    *,
+    split: int,
+    output_format: _OutputFormat,
+    quality: int,
+) -> None:
+    h, w = rgb.shape[:2]
+    axis = 0 if h >= w else 1
+    total = rgb.shape[axis]
+    chunk_size = int(np.ceil(total / split))
+
+    stem = output_path.stem
+    suffix = output_path.suffix
+
+    for i in range(split):
+        start = i * chunk_size
+        end = min(start + chunk_size, total)
+        if start >= total:
+            break
+        part = rgb[start:end, :] if axis == 0 else rgb[:, start:end]
+        part_path = output_path.with_name(f"{stem}.part{i + 1}{suffix}")
+        _save_rgb_uint8(part, part_path, output_format=output_format, quality=quality)
+
+
 def convert_image(
     *,
     input: str | Path | None = None,
@@ -242,6 +268,7 @@ def convert_image(
     slice_index: int | None = None,
     quality: int = 85,
     output_format: _OutputFormat = "jpg",
+    split: int = 1,
 ) -> np.ndarray:
     """
     Convert input data into compressed RGB suitable for network sharing.
@@ -292,7 +319,18 @@ def convert_image(
             rgb = _ensure_rgb_uint8(gray_uint8)
 
     if output_path is not None:
-        _save_rgb_uint8(rgb, output_path, output_format=output_format, quality=quality)
+        if split > 1:
+            _save_rgb_split(
+                rgb,
+                output_path,
+                split=split,
+                output_format=output_format,
+                quality=quality,
+            )
+        else:
+            _save_rgb_uint8(
+                rgb, output_path, output_format=output_format, quality=quality
+            )
 
     return rgb
 
