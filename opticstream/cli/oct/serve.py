@@ -12,9 +12,6 @@ from opticstream.flows.psoct.mosaic_enface_qc_flow import (
 from opticstream.flows.psoct.mosaic_process_flow import (
     to_deployment as mosaic_process_deployments,
 )
-from opticstream.flows.psoct.mosaic_update_flow import (
-    to_deployment as mosaic_update_deployments,
-)
 from opticstream.flows.psoct.mosaic_upload_flow import (
     to_deployment as mosaic_upload_deployments,
 )
@@ -32,9 +29,6 @@ from opticstream.flows.psoct.tile_batch_complex_flow import (
 )
 from opticstream.flows.psoct.tile_batch_process_flow import (
     to_deployment as tile_batch_process_deployments,
-)
-from opticstream.flows.psoct.tile_batch_update_flow import (
-    to_deployment as tile_batch_update_deployments,
 )
 from opticstream.flows.psoct.tile_batch_upload_flow import (
     to_deployment as tile_batch_upload_deployments,
@@ -83,13 +77,6 @@ def build_deployments(
         )
     )
     deployments.extend(
-        tile_batch_update_deployments(
-            project_name=normalized_project_name,
-            deployment_name=deployment_name,
-            extra_tags=COMMON_TAGS,
-        )
-    )
-    deployments.extend(
         tile_batch_complex_deployments(
             project_name=normalized_project_name,
             deployment_name=deployment_name,
@@ -117,13 +104,6 @@ def build_deployments(
     )
     deployments.extend(
         mosaic_volume_stitch_deployments(
-            project_name=normalized_project_name,
-            deployment_name=deployment_name,
-            extra_tags=COMMON_TAGS,
-        )
-    )
-    deployments.extend(
-        mosaic_update_deployments(
             project_name=normalized_project_name,
             deployment_name=deployment_name,
             extra_tags=COMMON_TAGS,

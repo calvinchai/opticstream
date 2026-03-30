@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
+from opticstream.hooks.check_slice_ready_hook import check_slice_ready_hook
 from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
@@ -345,7 +346,7 @@ def stitch_enface_modalities(
 
 @flow(
     flow_run_name="process-{mosaic_ident}",
-    on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
+    on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook, check_slice_ready_hook],
     on_failure=[slack_notification_hook],
 )
 def process_mosaic(

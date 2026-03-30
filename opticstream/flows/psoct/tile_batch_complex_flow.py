@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
+from opticstream.hooks.check_mosaic_ready_hook import check_mosaic_ready_hook
 from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
@@ -56,7 +57,7 @@ def complex_to_processed_batch(
 
 @flow(
     flow_run_name="process-complex-tile-batch-{batch_id}",
-    on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook],
+    on_completion=[publish_oct_mosaic_hook, publish_oct_project_hook, check_mosaic_ready_hook],
 )
 @oct_batch_processing_milestone(
     field_name="enface_processed", success_event=BATCH_PROCESSED

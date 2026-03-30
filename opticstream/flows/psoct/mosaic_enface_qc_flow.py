@@ -23,16 +23,6 @@ from opticstream.tasks.slack_notification import (
 from opticstream.hooks.slack_notification_hook import slack_notification_hook
 
 
-def _coerce_path(v: Any) -> Optional[Path]:
-    if v is None:
-        return None
-    if isinstance(v, Path):
-        return v
-    if isinstance(v, str):
-        return Path(v)
-    return Path(str(v))
-
-
 @task(task_run_name="convert-enface-nifti-to-jpeg-{mosaic_ident}-{modality}")
 def convert_enface_nifti_to_jpeg_task(
     *,
