@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional, Sequence
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from opticstream.artifacts.publish_hooks import publish_oct_project_hook
+from opticstream.hooks.publish_hooks import publish_oct_project_hook
 from opticstream.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
 from opticstream.events.psoct_event_emitters import emit_slice_psoct_event
 from opticstream.state.oct_project_state import OCTSliceId, OCT_STATE_SERVICE

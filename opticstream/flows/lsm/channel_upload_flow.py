@@ -29,6 +29,11 @@ from opticstream.state.lsm_project_state import (
     LSMChannelId,
     LSM_STATE_SERVICE,
 )
+from opticstream.hooks import (
+    publish_lsm_project_hook,
+    publish_lsm_slice_hook,
+    slack_notification_hook,
+)
 
 
 @task
@@ -43,7 +48,11 @@ def _upload_channel_volume_to_dandi(
     )
 
 
-@flow(flow_run_name="upload-channel-volume-{channel_ident}")
+@flow(
+    flow_run_name="upload-channel-volume-{channel_ident}",
+    on_completion=[publish_lsm_project_hook, publish_lsm_slice_hook],
+    on_failure=[slack_notification_hook],
+)
 def upload_channel_volume(
     channel_ident: LSMChannelId,
     scan_config: LSMScanConfigModel,

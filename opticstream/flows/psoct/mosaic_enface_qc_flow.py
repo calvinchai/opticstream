@@ -20,7 +20,7 @@ from opticstream.tasks.slack_notification import (
     send_slack_message,
     upload_multiple_files_to_slack,
 )
-from opticstream.utils.slack_notification_hook import slack_notification_hook
+from opticstream.hooks.slack_notification_hook import slack_notification_hook
 
 
 def _coerce_path(v: Any) -> Optional[Path]:

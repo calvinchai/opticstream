@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
-from opticstream.artifacts.publish_hooks import (
+from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )

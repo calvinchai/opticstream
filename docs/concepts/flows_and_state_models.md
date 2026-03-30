@@ -15,7 +15,6 @@ Primary flow entrypoints include:
 
 - `process_strip` / `process_strip_event` (`strip_process_flow.py`)
 - `upload_strip_to_dandi_flow` / `upload_strip_to_dandi_event_flow` (`strip_upload_flow.py`)
-- `on_strip_events` / `lsm_strip_update_event_flow` (`strip_update_flow.py`)
 - `process_channel` / `process_channel_event` (`channel_process_flow.py`)
 - `process_channel_volume` / `process_channel_volume_event` (`channel_volume_flow.py`)
 - `upload_channel_volume` / `upload_channel_volume_event` (`channel_upload_flow.py`)

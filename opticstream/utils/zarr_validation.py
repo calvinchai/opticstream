@@ -49,6 +49,33 @@ def get_dir_manifest(path: str) -> DirManifest:
     )
 
 
+def compare_dir_manifests(
+    source_manifest: DirManifest,
+    dest_manifest: DirManifest,
+    logger=None,
+) -> bool:
+    """Return True if both manifests have identical file sizes."""
+    if source_manifest.sizes == dest_manifest.sizes:
+        return True
+
+    if logger:
+        missing = source_manifest.sizes.keys() - dest_manifest.sizes.keys()
+        extra = dest_manifest.sizes.keys() - source_manifest.sizes.keys()
+        mismatched = {
+            k
+            for k in (source_manifest.sizes.keys() & dest_manifest.sizes.keys())
+            if source_manifest.sizes[k] != dest_manifest.sizes[k]
+        }
+        if missing:
+            logger.error(f"Missing files in destination: {sorted(list(missing))[:10]}")
+        if extra:
+            logger.error(f"Extra files in destination: {sorted(list(extra))[:10]}")
+        if mismatched:
+            logger.error(f"Size mismatches: {sorted(list(mismatched))[:10]}")
+
+    return False
+
+
 def validate_zarr_directory(
     logger,
     path: str,

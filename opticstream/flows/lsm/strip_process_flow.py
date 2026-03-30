@@ -11,6 +11,11 @@ from niizarr.multizarr import ZarrConfig
 from prefect import flow, get_run_logger, task
 from prefect.futures import PrefectFuture
 
+from opticstream.hooks.publish_hooks import (
+    publish_lsm_project_hook,
+    publish_lsm_slice_hook,
+)
+from opticstream.hooks.check_channel_ready_hook import check_channel_ready_hook
 from opticstream.config.lsm_scan_config import LSMScanConfigModel, StripCleanupAction
 from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_READY
@@ -21,6 +26,7 @@ from opticstream.state.state_guards import (
     force_rerun_from_payload,
     RunDecision,
     enter_milestone_stage,
+    should_skip_run,
 )
 from opticstream.flows.lsm.utils import (
     strip_mip_output_path,
@@ -36,51 +42,15 @@ from opticstream.tasks.slack_notification import (
     send_slack_message,
     upload_multiple_files_to_slack,
 )
-from opticstream.utils.slack_notification_hook import slack_notification_hook
+from opticstream.hooks.slack_notification_hook import slack_notification_hook
+from opticstream.utils.filesystem import format_bytes, get_disk_usage_info
 from opticstream.utils.zarr_validation import (
     DirManifest,
     ValidationResult,
+    compare_dir_manifests,
     get_dir_manifest,
     validate_zarr_directory,
 )
-
-
-def compare_dir_manifests(
-    source_manifest: DirManifest,
-    dest_manifest: DirManifest,
-    logger=None,
-) -> bool:
-    if source_manifest.sizes == dest_manifest.sizes:
-        return True
-
-    if logger:
-        missing = source_manifest.sizes.keys() - dest_manifest.sizes.keys()
-        extra = dest_manifest.sizes.keys() - source_manifest.sizes.keys()
-        mismatched = {
-            k
-            for k in (source_manifest.sizes.keys() & dest_manifest.sizes.keys())
-            if source_manifest.sizes[k] != dest_manifest.sizes[k]
-        }
-        if missing:
-            logger.error(f"Missing files in destination: {sorted(list(missing))[:10]}")
-        if extra:
-            logger.error(f"Extra files in destination: {sorted(list(extra))[:10]}")
-        if mismatched:
-            logger.error(f"Size mismatches: {sorted(list(mismatched))[:10]}")
-
-    return False
-
-
-def format_bytes(num_bytes: int) -> str:
-    """
-    Format a byte count into a human-readable string.
-    """
-    n = float(num_bytes)
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if n < 1024.0:
-            return f"{n:3.1f} {unit}"
-        n /= 1024.0
-    return f"{n:.1f} PB"
 
 
 def build_status_message(
@@ -98,29 +68,6 @@ def build_status_message(
         base += ": " + ", ".join(failure_reasons)
     return "error", base
 
-
-def get_disk_usage_info(path: Optional[str]) -> Dict[str, Any]:
-    """
-    Return disk-usage information for the filesystem containing ``path``.
-
-    If path is None or does not exist, return zeroed fields.
-    """
-    if path is None or not os.path.exists(path):
-        total = used = free = 0
-    else:
-        total, used, free = shutil.disk_usage(path)
-
-    used_percent = (used / total * 100.0) if total else 0.0
-
-    return {
-        "total_bytes": total,
-        "used_bytes": used,
-        "free_bytes": free,
-        "total_human": format_bytes(total),
-        "used_human": format_bytes(used),
-        "free_human": format_bytes(free),
-        "used_percent": f"{used_percent:.2f}%",
-    }
 
 
 def build_strip_usage_details(
@@ -207,7 +154,7 @@ def compress_strip(
     logger.info(f"Compressed {strip_ident} to {output_path}")
 
 
-@task(task_run_name="backup-{strip_ident}", tags=["lsm-data-archive"])
+@task(task_run_name="archive-{strip_ident}", tags=["lsm-data-archive"])
 def archive_strip(
     strip_ident: LSMStripId,
     strip_path: str,
@@ -379,7 +326,9 @@ def strip_mip_qc_notification(
         window_max=window_max,
         split=2,
     )
-    files = [preview_path] + [preview_path.with_suffix(f".part{i + 1}.jpg") for i in range(2)]
+    files = [preview_path] + [
+        preview_path.with_suffix(f".part{i + 1}.jpg") for i in range(2)
+    ]
     upload_multiple_files_to_slack(
         filepaths=files, initial_comment=f"MIP QC for {strip_ident}"
     )
@@ -466,7 +415,11 @@ def run_cleanup_tasks(
     return None
 
 
-@flow(flow_run_name="process-strip-{strip_ident}")
+@flow(
+    flow_run_name="process-strip-{strip_ident}",
+    on_completion=[publish_lsm_slice_hook, publish_lsm_project_hook, check_channel_ready_hook],
+    on_failure=[slack_notification_hook],
+)
 def process_strip(
     strip_ident: LSMStripId,
     strip_path: str,
@@ -479,14 +432,13 @@ def process_strip(
     logger = get_run_logger()
     logger.info(f"Processing strip path: {strip_path} {strip_ident}")
 
-    if (
+    if should_skip_run(
         enter_flow_stage(
             LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident),
             force_rerun=force_rerun,
             skip_if_running=False,
             item_ident=strip_ident,
         )
-        == RunDecision.SKIPPED
     ):
         return None
 

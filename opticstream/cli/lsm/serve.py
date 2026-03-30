@@ -15,9 +15,6 @@ from opticstream.flows.lsm.channel_volume_flow import (
 from opticstream.flows.lsm.strip_process_flow import (
     to_deployment as strip_process_deployments,
 )
-from opticstream.flows.lsm.strip_update_flow import (
-    to_deployment as strip_update_deployments,
-)
 from opticstream.flows.lsm.strip_upload_flow import (
     to_deployment as strip_upload_deployments,
 )
@@ -41,12 +38,6 @@ def serve(
     )
     deployments.extend(
         strip_upload_deployments(
-            deployment_name="local",
-            extra_tags=("lsm",),
-        )
-    )
-    deployments.extend(
-        strip_update_deployments(
             deployment_name="local",
             extra_tags=("lsm",),
         )

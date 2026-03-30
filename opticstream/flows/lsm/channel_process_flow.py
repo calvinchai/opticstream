@@ -20,7 +20,7 @@ from opticstream.events.utils import get_event_trigger
 from opticstream.state.state_guards import (
     enter_flow_stage,
     force_rerun_from_payload,
-    RunDecision,
+    should_skip_run,
 )
 from opticstream.flows.lsm.utils import (
     strip_mip_output_path,
@@ -33,6 +33,11 @@ from opticstream.state.lsm_project_state import (
     LSM_STATE_SERVICE,
 )
 from opticstream.tasks.slack_notification import send_slack_message
+from opticstream.hooks import (
+    publish_lsm_project_hook,
+    publish_lsm_slice_hook,
+    slack_notification_hook,
+)
 
 
 @task
@@ -124,7 +129,11 @@ def notify_channel_mip_stitched(
     )
 
 
-@flow(flow_run_name="process-channel-{channel_ident}")
+@flow(
+    flow_run_name="process-channel-{channel_ident}",
+    on_completion=[publish_lsm_project_hook, publish_lsm_slice_hook],
+    on_failure=[slack_notification_hook],
+)
 def process_channel(
     channel_ident: LSMChannelId,
     scan_config: LSMScanConfigModel,
@@ -138,15 +147,13 @@ def process_channel(
     logger = get_run_logger()
     logger.info(f"Processing channel: {channel_ident}")
 
-    channel_view = LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident)
-    if (
+    if should_skip_run(
         enter_flow_stage(
-            channel_view,
+            LSM_STATE_SERVICE.peek_channel(channel_ident=channel_ident),
             force_rerun=force_rerun,
             skip_if_running=True,
             item_ident=channel_ident,
         )
-        == RunDecision.SKIPPED
     ):
         return None
     with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as ch:

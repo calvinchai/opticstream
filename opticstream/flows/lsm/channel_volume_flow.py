@@ -10,10 +10,15 @@ from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
+from opticstream.hooks.publish_hooks import (
+    publish_lsm_project_hook,
+    publish_lsm_slice_hook,
+)
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED, CHANNEL_VOLUME_STITCHED
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.events.utils import get_event_trigger
+from opticstream.hooks.slack_notification_hook import slack_notification_hook
 from opticstream.utils.zarr_validation import ValidationResult, validate_zarr_directory
 from opticstream.state.state_guards import (
     RunDecision,
@@ -73,7 +78,11 @@ def check_channel_volume_result(
     )
 
 
-@flow(flow_run_name="process-channel-volume-{channel_ident}")
+@flow(
+    flow_run_name="process-channel-volume-{channel_ident}",
+    on_completion=[publish_lsm_project_hook, publish_lsm_slice_hook],
+    on_failure=[slack_notification_hook],
+)
 def process_channel_volume(
     channel_ident: LSMChannelId,
     scan_config: LSMScanConfigModel,

@@ -10,12 +10,12 @@ from opticstream.flows.lsm.utils import (
 )
 from opticstream.flows.lsm.strip_process_flow import (
     build_status_message,
-    compare_dir_manifests,
-    format_bytes,
     invalid_path,
 )
+from opticstream.utils.filesystem import format_bytes
 from opticstream.utils.zarr_validation import (
     DirManifest,
+    compare_dir_manifests,
     get_dir_manifest,
     validate_zarr,
     validate_zarr_directory,

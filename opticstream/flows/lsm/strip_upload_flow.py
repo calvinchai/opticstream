@@ -2,6 +2,10 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from prefect import flow, get_run_logger
 
+from opticstream.hooks.publish_hooks import (
+    publish_lsm_project_hook,
+    publish_lsm_slice_hook,
+)
 from opticstream.config.lsm_scan_config import LSMScanConfig, get_lsm_scan_config
 from opticstream.events import get_event_trigger
 from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_UPLOADED
@@ -12,11 +16,13 @@ from opticstream.state.state_guards import (
 from opticstream.flows.lsm.utils import strip_ident_from_payload, strip_zarr_output_path
 from opticstream.state.lsm_project_state import LSMStripId
 from opticstream.tasks.dandi_upload import upload_to_dandi
-from opticstream.utils.slack_notification_hook import slack_notification_hook
+from opticstream.hooks.slack_notification_hook import slack_notification_hook
 
 
 @flow(
-    flow_run_name="upload-to-dandi-{strip_ident}", on_failure=[slack_notification_hook]
+    flow_run_name="upload-to-dandi-{strip_ident}",
+    on_completion=[publish_lsm_slice_hook, publish_lsm_project_hook],
+    on_failure=[slack_notification_hook],
 )
 @strip_processing_milestone(field_name="uploaded", success_event=STRIP_UPLOADED)
 def upload_strip_to_dandi_flow(

@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger
 
-from opticstream.artifacts.publish_hooks import (
+from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
@@ -16,7 +16,7 @@ from opticstream.state.milestone_wrappers_psoct import oct_mosaic_processing_mil
 from opticstream.state.oct_project_state import OCTMosaicId
 from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.tasks.dandi_upload import upload_to_dandi_batch
-from opticstream.utils.slack_notification_hook import slack_notification_hook
+from opticstream.hooks.slack_notification_hook import slack_notification_hook
 
 
 @flow(

@@ -49,7 +49,7 @@ def build_dandi_upload_command(
 
     # Match the CLI flags used elsewhere in the codebase.
     command += f"{file_paths_str} -J {shlex.quote(max_jobs)} --allow-any-path"
-    if dandi_instance == "dandi":
+    if dandi_instance == "dandi" or True:
         command += " --existing overwrite --validation skip"
     else:
         command += " --existing OVERWRITE --validation SKIP"

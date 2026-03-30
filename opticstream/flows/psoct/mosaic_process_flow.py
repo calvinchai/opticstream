@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from opticstream.artifacts.publish_hooks import (
+from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
@@ -53,7 +53,7 @@ from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.flows.psoct.tile_batch_processed_validation import (
     validate_output_files_exist_and_min_size,
 )
-from opticstream.utils.slack_notification_hook import slack_notification_hook
+from opticstream.hooks.slack_notification_hook import slack_notification_hook
 
 
 @task

@@ -3,7 +3,7 @@ from pathlib import Path
 
 from prefect import flow, get_run_logger, task
 
-from opticstream.artifacts.publish_hooks import (
+from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
@@ -13,7 +13,7 @@ from opticstream.flows.psoct.tile_file_reference import TileFileReference
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
 from opticstream.tasks.archive_file import archive_file
-from opticstream.utils.slack_notification_hook import slack_notification_hook
+from opticstream.hooks.slack_notification_hook import slack_notification_hook
 
 
 @task(
