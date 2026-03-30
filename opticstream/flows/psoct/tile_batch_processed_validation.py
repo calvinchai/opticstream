@@ -9,7 +9,6 @@ Which modalities to require follows ``PSOCTScanConfigModel.volume_modalities`` a
 ``enface_modalities`` (same basis as ``build_pipeline_opts`` EnfaceComputeFlags).
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

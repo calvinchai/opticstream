@@ -5,8 +5,6 @@ This module contains the tasks + subflow that compute stitching coordinates and
 generate the Jinja2 tile-info template used by mosaic stitching flows.
 """
 
-from __future__ import annotations
-
 import re
 from pathlib import Path
 from typing import List, Optional

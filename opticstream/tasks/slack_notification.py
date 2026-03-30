@@ -18,10 +18,8 @@ from opticstream.config.constants import (
 @task(retries=2, retry_delay_seconds=5)
 def send_slack_message(
     message: str,
-    slack_bot_token: str = SlackCredentials.load(
-        SLACK_API_TOKEN_BLOCK_NAME
-    ).token.get_secret_value(),
-    slack_channel_id: str = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get(),
+    slack_bot_token: str | None = None,
+    slack_channel_id: str | None = None,
 ) -> bool:
     """
     Send a text message to Slack channel.
@@ -40,6 +38,13 @@ def send_slack_message(
     bool
         True if message sent successfully, False otherwise
     """
+    if slack_bot_token is None:
+        slack_bot_token = SlackCredentials.load(
+            SLACK_API_TOKEN_BLOCK_NAME
+        ).token.get_secret_value()
+    if slack_channel_id is None:
+        slack_channel_id = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get()
+
     logger_instance = get_run_logger()
     client = WebClient(token=slack_bot_token)
 
@@ -69,21 +74,21 @@ def send_slack_message(
 def send_slack_message_webhook(
     body: str,
     subject: Optional[str] = None,
-    webhook: SlackWebhook = SlackWebhook.load(SLACK_WEBHOOK_BLOCK_NAME),
+    webhook: SlackWebhook | None = None,
 ) -> bool:
     """
     Send a text message to Slack channel using a webhook.
     """
+    if webhook is None:
+        webhook = SlackWebhook.load(SLACK_WEBHOOK_BLOCK_NAME)
     webhook.notify(body, subject=subject)
 
 
 @task(retries=2, retry_delay_seconds=5)
 def upload_multiple_files_to_slack(
     filepaths: List[str],
-    slack_bot_token: str = SlackCredentials.load(
-        SLACK_API_TOKEN_BLOCK_NAME
-    ).token.get_secret_value(),
-    slack_channel_id: str = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get(),
+    slack_bot_token: str | None = None,
+    slack_channel_id: str | None = None,
     titles: Optional[List[str]] = None,
     initial_comment: Optional[str] = None,
     thread_ts: Optional[str] = None,
@@ -112,6 +117,13 @@ def upload_multiple_files_to_slack(
     Dict[str, bool]
         Dictionary mapping filepath to upload success status
     """
+    if slack_bot_token is None:
+        slack_bot_token = SlackCredentials.load(
+            SLACK_API_TOKEN_BLOCK_NAME
+        ).token.get_secret_value()
+    if slack_channel_id is None:
+        slack_channel_id = Secret.load(SLACK_CHANNEL_BLOCK_NAME).get()
+
     logger_instance = get_run_logger()
     client = WebClient(token=slack_bot_token)
 

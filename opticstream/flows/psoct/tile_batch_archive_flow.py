@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 from pathlib import Path
 
@@ -14,7 +12,7 @@ from opticstream.events.psoct_events import BATCH_ARCHIVED
 from opticstream.flows.psoct.tile_file_reference import TileFileReference
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticstream.state.oct_project_state import OCT_STATE_SERVICE, OCTBatchId
-from opticstream.tasks.common_tasks import archive_tile_task
+from opticstream.tasks.archive_tile import archive_file
 from opticstream.utils.slack_notification_hook import slack_notification_hook
 
 
@@ -48,7 +46,7 @@ def archive_tile_batch(
         )
         output_path = archive_path / output_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        futures.append(archive_tile_task.submit(str(ref.file_path), output_path))
+        futures.append(archive_file.submit(str(ref.file_path), output_path))
         archived_file_paths.append(str(output_path))
 
     for future in futures:

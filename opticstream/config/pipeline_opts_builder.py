@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from typing import Optional
 
+from prefect import get_run_logger
 from psoct_toolbox.opts_models import (
     AcquisitionOpts,
     EnfaceComputeFlags,
@@ -45,7 +46,6 @@ def build_pipeline_opts(
     aline_size = (
         acq.tile_size_x_normal if illumination == "normal" else acq.tile_size_x_tilted
     )
-
     spectral = SpectralOpts(
         disp_comp_file=str(proc.disp_comp_file),
         aline_size=aline_size,

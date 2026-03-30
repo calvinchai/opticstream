@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger

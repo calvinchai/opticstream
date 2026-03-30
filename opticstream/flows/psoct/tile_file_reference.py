@@ -1,13 +1,12 @@
-from __future__ import annotations
-
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
 from opticstream.flows.psoct.utils import MosaicContext
 from opticstream.utils.filename_utils import (
     extract_processed_index_from_filename,
+    extract_spectral_index_from_filename,
     extract_tile_number_from_filename,
 )
 
@@ -41,7 +40,10 @@ def build_tile_file_reference_list(
         if mosaics_per_slice == 2:
             tile_number = extract_tile_number_from_filename(str(p))
         else:
-            i = extract_processed_index_from_filename(str(p))
+            if config.acquisition.tile_saving_type in (TileSavingType.SPECTRAL, TileSavingType.SPECTRAL_12bit, TileSavingType.COMPLEX_WITH_SPECTRAL):
+                i = extract_spectral_index_from_filename(str(p))
+            else:
+                i = extract_processed_index_from_filename(str(p))
             j = grid_size_x
             if j < 1:
                 raise ValueError(f"grid_size_x must be >= 1, got {j}")

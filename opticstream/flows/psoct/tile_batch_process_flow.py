@@ -45,10 +45,11 @@ def _determine_processing_mode(
     if tile_saving_type in (TileSavingType.SPECTRAL, TileSavingType.SPECTRAL_12bit):
         return "spectral"
     if tile_saving_type in (
-        TileSavingType.COMPLEX,
-        TileSavingType.COMPLEX_WITH_SPECTRAL,
+        TileSavingType.COMPLEX
     ):
         return "complex"
+    if tile_saving_type in (TileSavingType.COMPLEX_WITH_SPECTRAL):
+        return "complex_with_spectral"
     raise ValueError(f"Invalid tile saving type: {tile_saving_type}")
 
 
@@ -148,7 +149,7 @@ def process_tile_batch(
         config=config,
         mosaic_context=mosaic_context,
     )
-
+    logger.info("File reference list: %s", file_reference_list)
     archive_future = None
     if config.archive_path:
         archive_future = archive_tile_batch.submit(
@@ -178,6 +179,7 @@ def process_tile_batch(
             config=config,
             mosaic_context=mosaic_context,
         )
+    
 
     if archive_future:
         archive_future.wait()

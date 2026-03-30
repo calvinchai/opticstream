@@ -5,8 +5,6 @@ Triggered by MOSAIC_ENFACE_STITCHED event. Converts stitched enface NIfTI output
 to JPEG previews and uploads them to Slack in a single message.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 

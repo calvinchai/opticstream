@@ -120,6 +120,18 @@ def extract_tile_number_from_filename(file_path: str) -> int:
         raise ValueError(f"Could not parse tile number from filename: {file_path}")
     return int(match.group(1))
 
+def extract_spectral_index_from_filename(file_path: str) -> int:
+    """
+    Extract the numeric index after ``spectral_`` in the basename.
+
+    Used for ``mosaics_per_slice == 3`` processed paths such as
+    ``.../processed/processed_0123*.nii``.
+    """
+    filename = op.basename(file_path)
+    match = re.search(r"spectral_(\d+)", filename)
+    if not match:
+        raise ValueError(f"Could not parse processed index from filename: {file_path}")
+    return int(match.group(1))
 
 def extract_processed_index_from_filename(file_path: str) -> int:
     """
