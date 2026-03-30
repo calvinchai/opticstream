@@ -12,7 +12,7 @@ def slack_notification_hook(flow: Any, flow_run: Any, state: Any) -> None:
     Send a Slack notification when a flow enters a state.
     """
     oncall_person = Variable.get(SLACK_ONCALL_VARIABLE_NAME, default={})
-    oncall_person_mention = "<@".join([f"<@{person}>" for person in oncall_person.values()])
+    oncall_person_mention = " ".join([f"<@{person}>" for person in oncall_person.values()])
     slack_webhook_block = SlackWebhook.load(SLACK_WEBHOOK_BLOCK_NAME)
     slack_webhook_block.notify(
         (
