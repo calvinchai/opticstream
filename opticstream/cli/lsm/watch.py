@@ -57,7 +57,12 @@ def _can_snapshot_folder(folder: Path) -> bool:
 
 def _should_process_folder(path: Path) -> bool:
     return (
-        path.is_dir() and path.name.lower().startswith("run") and _is_readable_dir(path)
+        (
+            path.is_dir()
+            and path.name.lower().startswith("run")
+            and _is_readable_dir(path)
+            and sum(1 for p in path.rglob("*") if p.is_file()) > 100
+        )
     )
 
 
