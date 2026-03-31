@@ -20,6 +20,59 @@ lsm_state_cli = lsm_cli.command(App(name="state"))
 
 
 @lsm_state_cli.command
+def show(
+    project_name: str,
+    *,
+    slice: int | None = None,
+    channel: int | None = None,
+    strip: int | None = None,
+) -> None:
+    """
+    Show LSM project state as pretty JSON.
+
+    Examples:
+    - opticstream lsm state show myproject
+    - opticstream lsm state show myproject --slice 1
+    - opticstream lsm state show myproject --slice 1 --channel 2
+    - opticstream lsm state show myproject --slice 1 --channel 2 --strip 3
+    """
+    if strip is not None and channel is None:
+        raise ValueError("`--channel` is required when `--strip` is provided.")
+    if channel is not None and slice is None:
+        raise ValueError("`--slice` is required when `--channel` is provided.")
+
+    with LSM_STATE_SERVICE.open_project_by_parts(project_name=project_name) as project:
+        if slice is None:
+            view = project.to_view()
+        elif channel is None:
+            slice_state = project.slices.get(slice)
+            if slice_state is None:
+                raise ValueError(f"Slice not found: slice={slice}")
+            view = slice_state.to_view()
+        elif strip is None:
+            channel_state = project.slices.get(slice)
+            if channel_state is None:
+                raise ValueError(f"Slice not found: slice={slice}")
+            ch = channel_state.channels.get(channel)
+            if ch is None:
+                raise ValueError(f"Channel not found: slice={slice}, channel={channel}")
+            view = ch.to_view()
+        else:
+            slice_state = project.slices.get(slice)
+            if slice_state is None:
+                raise ValueError(f"Slice not found: slice={slice}")
+            channel_state = slice_state.channels.get(channel)
+            if channel_state is None:
+                raise ValueError(f"Channel not found: slice={slice}, channel={channel}")
+            strip_state = channel_state.strips.get(strip)
+            if strip_state is None:
+                raise ValueError(f"Strip not found: slice={slice}, channel={channel}, strip={strip}")
+            view = strip_state.to_view()
+
+    print(view.model_dump_json(indent=2))
+
+
+@lsm_state_cli.command
 def reset(
     project_name: str,
     *,

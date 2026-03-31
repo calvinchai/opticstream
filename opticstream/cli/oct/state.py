@@ -20,9 +20,54 @@ oct_state_cli = oct_cli.command(App(name="state"))
 
 
 @oct_state_cli.command
+def show(
+    project_name: str,
+    *,
+    slice: int | None = None,
+    mosaic: int | None = None,
+    batch: int | None = None,
+) -> None:
+    """
+    Show OCT project state as pretty JSON.
+
+    Examples:
+    - opticstream oct state show myproject
+    - opticstream oct state show myproject --slice 1
+    - opticstream oct state show myproject --slice 1 --mosaic 1
+    - opticstream oct state show myproject --slice 1 --mosaic 1 --batch 1
+    """
+    if batch is not None and mosaic is None:
+        raise ValueError("`--mosaic` is required when `--batch` is provided.")
+    if mosaic is not None and slice is None:
+        raise ValueError("`--slice` is required when `--mosaic` is provided.")
+
+    with OCT_STATE_SERVICE.open_project_by_parts(project_name=project_name) as project:
+        if slice is None:
+            view = project.to_view()
+        elif mosaic is None:
+            slice_state = project.get_slice(slice)
+            if slice_state is None:
+                raise ValueError(f"Slice not found: slice={slice}")
+            view = slice_state.to_view()
+        elif batch is None:
+            mosaic_state = project.get_mosaic(slice, mosaic)
+            if mosaic_state is None:
+                raise ValueError(f"Mosaic not found: slice={slice}, mosaic={mosaic}")
+            view = mosaic_state.to_view()
+        else:
+            batch_state = project.get_batch(slice, mosaic, batch)
+            if batch_state is None:
+                raise ValueError(f"Batch not found: slice={slice}, mosaic={mosaic}, batch={batch}")
+            view = batch_state.to_view()
+
+    print(view.model_dump_json(indent=2))
+
+
+@oct_state_cli.command
 def reset(
     project_name: str,
     *,
+    all: bool = False,
     slice: int | None = None,
     mosaic: int | None = None,
     batch: int | None = None,
@@ -31,19 +76,27 @@ def reset(
     Delete a slice, mosaic, or batch from OCT project state.
 
     Examples:
-    - opticstream oct reset myproject --slice 1
-    - opticstream oct reset myproject --slice 1 --mosaic 1
-    - opticstream oct reset myproject --slice 1 --mosaic 1 --batch 1
+    - opticstream oct state reset myproject --all
+    - opticstream oct state reset myproject --slice 1
+    - opticstream oct state reset myproject --slice 1 --mosaic 1
+    - opticstream oct state reset myproject --slice 1 --mosaic 1 --batch 1
     """
-    if slice is None:
+    if all:
+        if slice is not None or mosaic is not None or batch is not None:
+            raise ValueError("`--all` cannot be used with `--slice`, `--mosaic`, or `--batch`.")
+    if slice is None and not all:
         raise ValueError("`--slice` is required.")
     if batch is not None and mosaic is None:
         raise ValueError("`--mosaic` is required when `--batch` is provided.")
 
     with OCT_STATE_SERVICE.open_project_by_parts(project_name=project_name) as project:
         if mosaic is None:
-            deleted = project.delete_slice(slice)
-            target = f"slice={slice}"
+            if all:
+                deleted = all(project.delete_slice(slice_id) for slice_id in list(project.slices))
+                target = "all slices"
+            else:
+                deleted = project.delete_slice(slice)
+                target = f"slice={slice}"
             hierarchy = "slice"
         elif batch is None:
             deleted = project.delete_mosaic(slice_id=slice, mosaic_id=mosaic)

@@ -1,5 +1,6 @@
 import os
 import os.path as op
+from pathlib import Path
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -54,16 +55,23 @@ from opticstream.utils.zarr_validation import (
 
 
 def build_status_message(
-    success: bool, failure_reasons: List[str], slice_id: int, strip_id: int
+    success: bool,
+    failure_reasons: List[str],
+    slice_id: int,
+    strip_id: int,
+    camera: Optional[str] = None,
 ) -> tuple[str, str]:
     """
     Build a status key and human-readable message for Slack notifications.
     """
+    camera_part = f" ({camera})" if camera else ""
     if success:
-        message = f"Strip {strip_id} of slice {slice_id} processed successfully"
+        message = (
+            f"Strip {strip_id} of slice {slice_id}{camera_part} processed successfully"
+        )
         return "success", message
 
-    base = f"Strip {strip_id} of slice {slice_id} failed validation"
+    base = f"Strip {strip_id} of slice {slice_id}{camera_part} failed validation"
     if failure_reasons:
         base += ": " + ", ".join(failure_reasons)
     return "error", base
@@ -81,27 +89,71 @@ def build_strip_usage_details(
     Build the notification/report payload for strip storage usage.
     """
     return {
-        "strip_size_bytes": strip_size_bytes,
-        "strip_size_human": format_bytes(strip_size_bytes),
-        "zarr_size_bytes": zarr_size_bytes,
-        "zarr_size_human": format_bytes(zarr_size_bytes),
-        "backup_size_bytes": backup_size_bytes,
-        "backup_size_human": format_bytes(backup_size_bytes),
-        "strip_disk_total_bytes": strip_disk["total_bytes"],
-        "strip_disk_used_bytes": strip_disk["used_bytes"],
-        "strip_disk_free_bytes": strip_disk["free_bytes"],
-        "strip_disk_total_human": strip_disk["total_human"],
-        "strip_disk_used_human": strip_disk["used_human"],
-        "strip_disk_free_human": strip_disk["free_human"],
-        "strip_disk_used_percent": strip_disk["used_percent"],
-        "backup_disk_total_bytes": backup_disk["total_bytes"],
-        "backup_disk_used_bytes": backup_disk["used_bytes"],
-        "backup_disk_free_bytes": backup_disk["free_bytes"],
-        "backup_disk_total_human": backup_disk["total_human"],
-        "backup_disk_used_human": backup_disk["used_human"],
-        "backup_disk_free_human": backup_disk["free_human"],
-        "backup_disk_used_percent": backup_disk["used_percent"],
+        "sizes": {
+            "raw_strip": {
+                "bytes": strip_size_bytes,
+                "human": format_bytes(strip_size_bytes),
+            },
+            "zarr": {
+                "bytes": zarr_size_bytes,
+                "human": format_bytes(zarr_size_bytes),
+            },
+            "backup": {
+                "bytes": backup_size_bytes,
+                "human": format_bytes(backup_size_bytes),
+            },
+        },
+        "disk": {
+            "strip": {
+                "used_percent": strip_disk["used_percent"],
+                "used_human": strip_disk["used_human"],
+                "free_human": strip_disk["free_human"],
+                "total_human": strip_disk["total_human"],
+            },
+            "backup": {
+                "used_percent": backup_disk["used_percent"],
+                "used_human": backup_disk["used_human"],
+                "free_human": backup_disk["free_human"],
+                "total_human": backup_disk["total_human"],
+            },
+        },
     }
+
+
+def format_strip_usage_details(usage: Dict[str, Any]) -> str:
+    """
+    Render strip usage details into a compact, human-readable Slack message.
+    """
+    sizes = usage.get("sizes", {})
+    disk = usage.get("disk", {})
+
+    raw = sizes.get("raw_strip", {}).get("human", "n/a")
+    zarr = sizes.get("zarr", {}).get("human", "n/a")
+    backup = sizes.get("backup", {}).get("human", "n/a")
+
+    strip_disk = disk.get("strip", {})
+    backup_disk = disk.get("backup", {})
+
+    strip_disk_line = (
+        f'{strip_disk.get("used_percent", "n/a")} used '
+        f'({strip_disk.get("used_human", "n/a")}/{strip_disk.get("total_human", "n/a")}, '
+        f'free {strip_disk.get("free_human", "n/a")})'
+    )
+    backup_disk_line = (
+        f'{backup_disk.get("used_percent", "n/a")} used '
+        f'({backup_disk.get("used_human", "n/a")}/{backup_disk.get("total_human", "n/a")}, '
+        f'free {backup_disk.get("free_human", "n/a")})'
+    )
+
+    return (
+        "Storage\n"
+        f"- raw strip: {raw}\n"
+        f"- zarr: {zarr}\n"
+        f"- backup: {backup}\n"
+        "Disk\n"
+        f"- strip: {strip_disk_line}\n"
+        f"- backup: {backup_disk_line}"
+    )
 
 
 @task(task_run_name="compress-{strip_ident}")
@@ -292,7 +344,8 @@ def check_backup_result(
             size_bytes=backup_manifest.total_bytes,
             reason="backup differs from source",
         )
-
+    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
+        strip_state.set_archived(True)
     return ValidationResult(ok=True, size_bytes=backup_manifest.total_bytes)
 
 
@@ -327,7 +380,7 @@ def strip_mip_qc_notification(
         split=2,
     )
     files = [preview_path] + [
-        preview_path.with_suffix(f".part{i + 1}.jpg") for i in range(2)
+        Path(preview_path).with_suffix(f".part{i + 1}.jpg") for i in range(2)
     ]
     upload_multiple_files_to_slack(
         filepaths=files, initial_comment=f"MIP QC for {strip_ident}"
@@ -567,10 +620,15 @@ def process_strip(
 
     cleanup_note = describe_cleanup(strip_cleanup_action)
     status, message = build_status_message(
-        success, failure_reasons, strip_ident.slice_id, strip_ident.strip_id
+        success,
+        failure_reasons,
+        strip_ident.slice_id,
+        strip_ident.strip_id,
+        camera=acq,
     )
 
-    send_slack_message(f"{message} {cleanup_note}, {usage_info},")
+    usage_summary = format_strip_usage_details(usage_info)
+    send_slack_message(f"{message}\n{cleanup_note}\n\n{usage_summary}")
 
     if not success:
         raise RuntimeError(message)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from opticstream.cli.lsm.cli import lsm_cli
 from opticstream.config import LSMScanConfig
+from opticstream.config.lsm_scan_config import get_lsm_scan_config
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.events.lsm_events import STRIP_READY
 from opticstream.flows.lsm.strip_process_flow import process_strip
@@ -97,7 +98,7 @@ class LSMWatcherService:
         if not _is_readable_dir(self.watch_dir):
             logger.warning("LSM watch directory is not readable: %s", self.watch_dir)
             return []
-
+        
         return [
             LSMFolderCandidate(folder=d)
             for d in self.watch_dir.iterdir()
@@ -232,7 +233,7 @@ def watch(
 
     Only immediate subdirectories whose names start with 'Run' are considered.
     """
-    scan_config = LSMScanConfig.load(f"{project_name}-lsm-config")
+    scan_config = get_lsm_scan_config(project_name)
     watch_path = Path(watch_dir)
 
     if not watch_path.exists():

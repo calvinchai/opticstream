@@ -9,7 +9,7 @@ from prefect.logging.loggers import flow_run_logger
 from opticstream.config.psoct_scan_config import get_psoct_scan_config
 from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.events.psoct_events import MOSAIC_READY
-from opticstream.flows.psoct.utils import grid_size_x_for_mosaic
+from opticstream.flows.psoct.utils import mosaic_context_from_ident
 from opticstream.state.oct_project_state import OCTMosaicId, OCT_STATE_SERVICE
 from opticstream.utils.flow_run_name_parse import (
     missing_required_fields,
@@ -46,7 +46,8 @@ def check_mosaic_ready_hook(flow: Any, flow_run: Any, state: Any) -> None:
     )
 
     scan_config = get_psoct_scan_config(str(parsed["project_name"]))
-    total_batches = grid_size_x_for_mosaic(scan_config, mosaic_ident)
+    ctx = mosaic_context_from_ident(mosaic_ident, scan_config)
+    total_batches = ctx.grid_size_x(scan_config)
 
     mosaic_view = OCT_STATE_SERVICE.peek_mosaic(mosaic_ident=mosaic_ident)
     if mosaic_view is None:

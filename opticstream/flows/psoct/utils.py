@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Mapping, Optional, Sequence, Tuple
+from typing import Any, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
@@ -14,19 +14,114 @@ from opticstream.state.oct_project_state import (
 )
 
 
-def mosaic_ident_from_project_and_mosaic_id(
-    project_name: str, mosaic_id: int
-) -> OCTMosaicId:
-    cfg = get_psoct_scan_config(project_name)
-    return OCTMosaicId(
-        project_name=project_name,
-        slice_id=slice_from_mosaic(mosaic_id, cfg.mosaics_per_slice),
-        mosaic_id=mosaic_id,
+# ---------------------------------------------------------------------------
+# Internal primitives
+# ---------------------------------------------------------------------------
+
+
+def _ensure_path(value: str | Path) -> Path:
+    return value if isinstance(value, Path) else Path(value)
+
+
+def _project_name_from_payload(payload: Mapping[str, Any]) -> str:
+    """Extract ``project_name`` from *payload*, trying ident keys as fallback."""
+    project_name = payload.get("project_name")
+    if project_name is not None:
+        return str(project_name)
+    for ident_key in ("batch_ident", "mosaic_ident", "slice_ident"):
+        raw = payload.get(ident_key)
+        if isinstance(raw, (OCTBatchId, OCTMosaicId, OCTSliceId)):
+            return raw.project_name
+        elif isinstance(raw, Mapping):
+            pn = raw.get("project_name")
+            if pn is not None:
+                return str(pn)
+    raise KeyError(
+        "payload must include project_name or one of "
+        "batch_ident/mosaic_ident/slice_ident with project_name"
     )
 
 
+def _mosaic_file_path(
+    base_dir: str | Path, mosaic_id: int, suffix: str
+) -> Path:
+    """``{base_dir}/mosaic_{mosaic_id:03d}_{suffix}``"""
+    return _ensure_path(base_dir) / f"{mosaic_prefix(mosaic_id)}_{suffix}"
+
+
+# ---------------------------------------------------------------------------
+# Slice / mosaic arithmetic
+# ---------------------------------------------------------------------------
+
+
+def slice_from_mosaic(mosaic_id: int, mosaics_per_slice: int) -> int:
+    """Return the 1-based slice id for a 1-based mosaic id."""
+    if mosaic_id < 1:
+        raise ValueError(f"mosaic_id must be >= 1, got {mosaic_id}")
+    return ((mosaic_id - 1) // mosaics_per_slice) + 1
+
+
+def first_mosaic_for_slice(slice_id: int, mosaics_per_slice: int) -> int:
+    """Return the first mosaic id belonging to a 1-based slice id."""
+    if slice_id < 1:
+        raise ValueError(f"slice_id must be >= 1, got {slice_id}")
+    return mosaics_per_slice * (slice_id - 1) + 1
+
+
+def mosaic_position_in_slice(mosaic_id: int, mosaics_per_slice: int) -> int:
+    """Return the 1-based mosaic position within the slice."""
+    if mosaic_id < 1:
+        raise ValueError(f"mosaic_id must be >= 1, got {mosaic_id}")
+    return ((mosaic_id - 1) % mosaics_per_slice) + 1
+
+
+def logical_mosaic_from_source_mosaic(
+    source_mosaic_id: int,
+    *,
+    mosaics_per_slice: int,
+    slice_offset: int,
+) -> tuple[int, int]:
+    """Convert a source mosaic id into ``(logical_slice_id, logical_mosaic_id)``."""
+    source_slice_id = slice_from_mosaic(source_mosaic_id, mosaics_per_slice)
+    pos_in_slice = mosaic_position_in_slice(source_mosaic_id, mosaics_per_slice)
+    logical_slice_id = source_slice_id + slice_offset
+    if logical_slice_id < 1:
+        raise ValueError(
+            f"slice_offset={slice_offset} produces invalid logical_slice_id={logical_slice_id} "
+            f"from source_mosaic_id={source_mosaic_id}"
+        )
+    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice) + (
+        pos_in_slice - 1
+    )
+    return logical_slice_id, logical_mosaic_id
+
+
+def logical_first_mosaic_from_source_slice(
+    source_slice_id: int,
+    *,
+    mosaics_per_slice: int,
+    slice_offset: int,
+) -> tuple[int, int]:
+    """Convert a source slice id into ``(logical_slice_id, logical first mosaic id)``."""
+    if source_slice_id < 1:
+        raise ValueError(f"source_slice_id must be >= 1, got {source_slice_id}")
+    logical_slice_id = source_slice_id + slice_offset
+    if logical_slice_id < 1:
+        raise ValueError(
+            f"slice_offset={slice_offset} produces invalid logical_slice_id={logical_slice_id} "
+            f"from source_slice_id={source_slice_id}"
+        )
+    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice)
+    return logical_slice_id, logical_mosaic_id
+
+
+# ---------------------------------------------------------------------------
+# Identity builders
+# ---------------------------------------------------------------------------
+
+
 def oct_batch_ident(project_name: str, mosaic_id: int, batch_id: int) -> OCTBatchId:
-    """Build canonical ``OCTBatchId`` for a mosaic batch (``slice_id`` derived from ``mosaic_id``)."""
+    """Build canonical ``OCTBatchId`` (``slice_id`` derived from ``mosaic_id``)."""
     cfg = get_psoct_scan_config(project_name)
     return OCTBatchId(
         project_name=project_name,
@@ -36,56 +131,9 @@ def oct_batch_ident(project_name: str, mosaic_id: int, batch_id: int) -> OCTBatc
     )
 
 
-def nifti_paths_from_enface_outputs(
-    enface_outputs: Mapping[str, Any],
-) -> list[str]:
-    paths: list[str] = []
-    for v in enface_outputs.values():
-        if isinstance(v, str):
-            paths.append(v)
-        elif isinstance(v, dict) and "nifti" in v:
-            paths.append(str(v["nifti"]))
-    return paths
-
-
-def non_empty_paths_from_mapping(paths_by_key: Mapping[str, Any]) -> list[str]:
-    return [str(p) for p in paths_by_key.values() if p]
-
-
-def normalize_float_sequence(
-    value: Any,
-    *,
-    default: Sequence[float] | None = None,
-) -> list[float]:
-    if value is None:
-        return list(default or [0.01, 0.01, 0.0025])
-    if isinstance(value, tuple):
-        return [float(x) for x in value]
-    if isinstance(value, list):
-        return [float(x) for x in value]
-    raise TypeError(f"expected list or tuple, got {type(value)}")
-
-
-def get_project_base_path(project_name: str) -> Path:
-    return get_psoct_scan_config(project_name).project_base_path
-
-
-def get_item_path(
-    item_indent: OCTBatchId | OCTMosaicId | OCTSliceId,
-    project_base_path: Optional[Path|str] = None,
-) -> Path:
-    if project_base_path is None:
-        project_base_path = get_project_base_path(item_indent.project_name)
-    if not isinstance(project_base_path, Path):
-        if isinstance(project_base_path, str):
-            project_base_path = Path(project_base_path)
-        else:
-            raise ValueError(
-                f"project_base_path must be a Path, got {type(project_base_path)}"
-            )
-    if isinstance(item_indent, OCTSliceId):
-        return project_base_path / f"slice-{item_indent.slice_id:02d}"
-    raise ValueError(f"Invalid item indent: {item_indent}")
+# ---------------------------------------------------------------------------
+# Payload parsing
+# ---------------------------------------------------------------------------
 
 
 def _model_from_payload(payload: Mapping[str, Any], key: str, model_type: Any) -> Any:
@@ -112,20 +160,7 @@ def slice_ident_from_payload(payload: Mapping[str, Any]) -> OCTSliceId:
 
 
 def load_scan_config_for_payload(payload: Mapping[str, Any]) -> PSOCTScanConfigModel:
-    project_name = payload.get("project_name")
-    if project_name is None:
-        for ident_key in ("batch_ident", "mosaic_ident", "slice_ident"):
-            raw_ident = payload.get(ident_key)
-            if isinstance(raw_ident, (OCTBatchId, OCTMosaicId, OCTSliceId)):
-                project_name = raw_ident.project_name
-            elif isinstance(raw_ident, Mapping):
-                project_name = raw_ident.get("project_name")
-            if project_name is not None:
-                break
-    if project_name is None:
-        raise KeyError(
-            "payload must include project_name or one of batch_ident/mosaic_ident/slice_ident with project_name"
-        )
+    project_name = _project_name_from_payload(payload)
     override = payload.get("override_config")
     cfg = get_psoct_scan_config(project_name, override_config_name=override)
     return PSOCTScanConfigModel.model_validate(cfg.model_dump())
@@ -140,59 +175,64 @@ def path_list_from_payload(
     return [Path(v) for v in values]
 
 
+# ---------------------------------------------------------------------------
+# Output helpers (enface / path extraction)
+# ---------------------------------------------------------------------------
+
+
+def nifti_paths_from_enface_outputs(
+    enface_outputs: Mapping[str, Any],
+) -> list[str]:
+    paths: list[str] = []
+    for v in enface_outputs.values():
+        if isinstance(v, str):
+            paths.append(v)
+        elif isinstance(v, dict) and "nifti" in v:
+            paths.append(str(v["nifti"]))
+    return paths
+
+
+def non_empty_paths_from_mapping(paths_by_key: Mapping[str, Any]) -> list[str]:
+    return [str(p) for p in paths_by_key.values() if p]
+
+
+def normalize_float_sequence(
+    value: Any,
+    *,
+    default: Sequence[float] | None = None,
+) -> list[float]:
+    if value is None:
+        return list(default or [0.01, 0.01, 0.0025])
+    if isinstance(value, (list, tuple)):
+        return [float(x) for x in value]
+    raise TypeError(f"expected list or tuple, got {type(value)}")
+
+
+# ---------------------------------------------------------------------------
+# Path building
+# ---------------------------------------------------------------------------
+
+
 def get_slice_paths(
     project_base_path: str | Path, slice_id: int
-) -> Tuple[Path, Path, Path, Path]:
+) -> tuple[Path, Path, Path, Path]:
     """
-    Get standard paths for a slice directory structure.
+    Standard slice directory structure.
 
-    Structure:
-    - {project_base_path}/slice-{slice_id:02d}/
-    - {project_base_path}/slice-{slice_id:02d}/processed/
-    - {project_base_path}/slice-{slice_id:02d}/stitched/
-    - {project_base_path}/slice-{slice_id:02d}/complex/
-
-    Parameters
-    ----------
-    project_base_path : str
-        Base path for the project
-    slice_id : int
-        Slice id (1-indexed)
-
-    Returns
-    -------
-    Tuple[Path, Path, Path, Path]
-        Tuple of (slice_path, processed_path, stitched_path, complex_path)
+    Returns ``(slice_path, processed_path, stitched_path, complex_path)``.
     """
-    slice_path = Path(project_base_path) / f"slice-{slice_id:02d}"
-    processed_path = slice_path / "processed/"
-    stitched_path = slice_path / "stitched/"
-    complex_path = slice_path / "complex/"
-    return slice_path, processed_path, stitched_path, complex_path
+    slice_path = _ensure_path(project_base_path) / f"slice-{slice_id:02d}"
+    return (
+        slice_path,
+        slice_path / "processed",
+        slice_path / "stitched",
+        slice_path / "complex",
+    )
 
 
 def get_dandi_slice_path(dandiset_path: str, slice_id: int) -> Path:
-    """
-    Get the DANDI slice-specific directory path.
-
-    Structure: {dandiset_path}/sample-slice{slice_id:02d}/
-
-    Note: dandiset_path already includes derivatives/sub-{subject}/
-
-    Parameters
-    ----------
-    dandiset_path : str
-        Path to DANDI derivatives directory for the subject
-        (already includes derivatives/sub-{subject}/)
-    slice_id : int
-        Slice id (1-indexed)
-
-    Returns
-    -------
-    Path
-        Path to slice-specific directory
-    """
-    return Path(dandiset_path) / f"sample-slice{slice_id:02d}"
+    """``{dandiset_path}/sample-slice{slice_id:02d}/``"""
+    return _ensure_path(dandiset_path) / f"sample-slice{slice_id:02d}"
 
 
 def mosaic_prefix(mosaic_id: int) -> str:
@@ -202,7 +242,7 @@ def mosaic_prefix(mosaic_id: int) -> str:
 
 def processed_output_prefix(mosaic_id: int, tile_index: int) -> str:
     """
-    Basename stem for per-tile processed NIfTIs from indexed batch wrappers.
+    Basename stem for per-tile processed NIfTIs.
 
     Matches MATLAB ``psoct.file.internal.buildProcessedOutputPrefix`` and Fiji-style
     ``{mosaic_prefix}_image_{tile:04d}`` (no extension).
@@ -214,21 +254,21 @@ def get_mosaic_tile_info_path(
     stitched_path: str | Path, mosaic_id: int, modality: str
 ) -> Path:
     """``{stitched_path}/mosaic_{mosaic_id:03d}_{modality}.yaml``"""
-    return Path(stitched_path) / f"{mosaic_prefix(mosaic_id)}_{modality}.yaml"
+    return _mosaic_file_path(stitched_path, mosaic_id, f"{modality}.yaml")
 
 
 def get_mosaic_nifti_path(
     stitched_path: str | Path, mosaic_id: int, modality: str
 ) -> Path:
     """``{stitched_path}/mosaic_{mosaic_id:03d}_{modality}.nii.gz``"""
-    return Path(stitched_path) / f"{mosaic_prefix(mosaic_id)}_{modality}.nii.gz"
+    return _mosaic_file_path(stitched_path, mosaic_id, f"{modality}.nii.gz")
 
 
 def get_mosaic_tile_coords_export_path(
     stitched_path: str | Path, mosaic_id: int
 ) -> Path:
     """``{stitched_path}/mosaic_{mosaic_id:03d}_tile_coords_export.yaml``"""
-    return Path(stitched_path) / f"{mosaic_prefix(mosaic_id)}_tile_coords_export.yaml"
+    return _mosaic_file_path(stitched_path, mosaic_id, "tile_coords_export.yaml")
 
 
 def get_mosaic_fiji_file_template(mosaic_id: int) -> str:
@@ -236,94 +276,21 @@ def get_mosaic_fiji_file_template(mosaic_id: int) -> str:
     return f"{mosaic_prefix(mosaic_id)}_image_{{iiii}}_aip.nii"
 
 
-def first_mosaic_for_slice(slice_id: int, mosaics_per_slice: int) -> int:
-    """
-    Return the first mosaic id belonging to a 1-based slice id.
+# ---------------------------------------------------------------------------
+# Acquisition semantics
+# ---------------------------------------------------------------------------
 
-    Examples
-    --------
-    mosaics_per_slice=2:
-        slice 1 -> mosaic 1
-        slice 2 -> mosaic 3
-
-    mosaics_per_slice=3:
-        slice 1 -> mosaic 1
-        slice 2 -> mosaic 4
-    """
-    if slice_id < 1:
-        raise ValueError(f"slice_id must be >= 1, got {slice_id}")
-    return mosaics_per_slice * (slice_id - 1) + 1
-
-
-def slice_from_mosaic(mosaic_id: int, mosaics_per_slice: int) -> int:
-    """
-    Return the 1-based slice id for a 1-based mosaic id.
-    """
-    if mosaic_id < 1:
-        raise ValueError(f"mosaic_id must be >= 1, got {mosaic_id}")
-    return ((mosaic_id - 1) // mosaics_per_slice) + 1
-
-
-def mosaic_position_in_slice(mosaic_id: int, mosaics_per_slice: int) -> int:
-    """
-    Return the 1-based mosaic position within the slice.
-    """
-    if mosaic_id < 1:
-        raise ValueError(f"mosaic_id must be >= 1, got {mosaic_id}")
-    return ((mosaic_id - 1) % mosaics_per_slice) + 1
-
-
-def logical_mosaic_from_source_mosaic(
-    source_mosaic_id: int,
-    *,
-    mosaics_per_slice: int,
-    slice_offset: int,
-) -> tuple[int, int]:
-    """
-    Convert a source mosaic id into:
-    - logical_slice_id
-    - logical_mosaic_id
-
-    The slice offset is applied at the slice level, not as a flat mosaic offset.
-    """
-    source_slice_id = slice_from_mosaic(source_mosaic_id, mosaics_per_slice)
-    pos_in_slice = mosaic_position_in_slice(source_mosaic_id, mosaics_per_slice)
-    logical_slice_id = source_slice_id + slice_offset
-    if logical_slice_id < 1:
-        raise ValueError(
-            f"slice_offset={slice_offset} produces invalid logical_slice_id={logical_slice_id} "
-            f"from source_mosaic_id={source_mosaic_id}"
-        )
-
-    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice) + (
-        pos_in_slice - 1
-    )
-    return logical_slice_id, logical_mosaic_id
-
-
-def logical_first_mosaic_from_source_slice(
-    source_slice_id: int,
-    *,
-    mosaics_per_slice: int,
-    slice_offset: int,
-) -> tuple[int, int]:
-    """
-    Convert a source slice id into:
-    - logical_slice_id
-    - logical first mosaic id for that slice
-    """
-    if source_slice_id < 1:
-        raise ValueError(f"source_slice_id must be >= 1, got {source_slice_id}")
-
-    logical_slice_id = source_slice_id + slice_offset
-    if logical_slice_id < 1:
-        raise ValueError(
-            f"slice_offset={slice_offset} produces invalid logical_slice_id={logical_slice_id} "
-            f"from source_slice_id={source_slice_id}"
-        )
-
-    logical_mosaic_id = first_mosaic_for_slice(logical_slice_id, mosaics_per_slice)
-    return logical_slice_id, logical_mosaic_id
+_ACQ_LAYOUT: dict[int, dict[int, tuple[str, str, int]]] = {
+    2: {
+        1: ("normal", "normal", 1),
+        2: ("tilted", "tilted", 2),
+    },
+    3: {
+        1: ("normal", "normal", 1),
+        2: ("tiltPos", "normal", 2),
+        3: ("tiltNeg", "normal", 3),
+    },
+}
 
 
 def acquisition_info_for_position(
@@ -333,52 +300,28 @@ def acquisition_info_for_position(
     """
     Resolve per-position acquisition semantics.
 
-    Returns
-    -------
-    tuple[str, str, int]
-        (acq, config_illumination, base_mosaic_id)
-
-    Rules
-    -----
-    2 mosaics per slice:
-        pos 1 -> acq=normal,  config_illumination=normal, base_mosaic_id=1
-        pos 2 -> acq=tilted,  config_illumination=tilted, base_mosaic_id=2
-
-    3 mosaics per slice:
-        pos 1 -> acq=normal,   config_illumination=normal, base_mosaic_id=1
-        pos 2 -> acq=tiltPos,  config_illumination=normal, base_mosaic_id=2
-        pos 3 -> acq=tiltNeg,  config_illumination=normal, base_mosaic_id=3
+    Returns ``(acq, config_illumination, base_mosaic_id)``.
     """
-    if mosaics_per_slice == 2:
-        if pos_in_slice == 1:
-            return ("normal", "normal", 1)
-        if pos_in_slice == 2:
-            return ("tilted", "tilted", 2)
+    positions = _ACQ_LAYOUT.get(mosaics_per_slice)
+    if positions is None or pos_in_slice not in positions:
+        raise ValueError(
+            f"Unsupported pos_in_slice={pos_in_slice} "
+            f"for mosaics_per_slice={mosaics_per_slice}"
+        )
+    return positions[pos_in_slice]
 
-    if mosaics_per_slice == 3:
-        if pos_in_slice == 1:
-            return ("normal", "normal", 1)
-        if pos_in_slice == 2:
-            return ("tiltPos", "normal", 2)
-        if pos_in_slice == 3:
-            return ("tiltNeg", "normal", 3)
 
-    raise ValueError(
-        f"Unsupported pos_in_slice={pos_in_slice} for mosaics_per_slice={mosaics_per_slice}"
-    )
+# ---------------------------------------------------------------------------
+# MosaicContext
+# ---------------------------------------------------------------------------
 
 
 class MosaicContext(BaseModel):
     """
     Resolved per-mosaic runtime context.
 
-    Notes
-    -----
-    - `acquisition_label` is the acquisition label used for naming/template selection.
-    - `config_illumination` is the config bucket used to resolve old-schema fields
-      such as `grid_size_x_normal` vs `grid_size_x_tilted`.
-    - In 3-mosaic mode, all mosaics use `config_illumination="normal"` while
-      `acquisition_label` is one of: normal, tiltPos, tiltNeg.
+    - ``acquisition_label``: naming / template selection.
+    - ``config_illumination``: config bucket for illumination-dependent fields.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -443,17 +386,11 @@ def mosaic_context_from_ids(
     mosaic_id: int,
     mosaics_per_slice: int,
 ) -> MosaicContext:
-    """
-    Build MosaicContext from resolved ids and layout size.
-    """
+    """Build MosaicContext from resolved ids and layout size."""
     pos_in_slice = mosaic_position_in_slice(mosaic_id, mosaics_per_slice)
     acquisition_label, config_illumination, base_mosaic_id = (
-        acquisition_info_for_position(
-            mosaics_per_slice,
-            pos_in_slice,
-        )
+        acquisition_info_for_position(mosaics_per_slice, pos_in_slice)
     )
-
     return MosaicContext(
         slice_id=slice_id,
         mosaic_id=mosaic_id,
@@ -479,45 +416,17 @@ def mosaic_context_from_ident(
         mosaic_ident.mosaic_id and config.mosaics_per_slice.
     """
     if validate_slice_consistency:
-        expected_slice_id = slice_from_mosaic(
+        expected = slice_from_mosaic(
             mosaic_ident.mosaic_id, config.mosaics_per_slice
         )
-        if expected_slice_id != mosaic_ident.slice_id:
+        if expected != mosaic_ident.slice_id:
             raise ValueError(
                 "Inconsistent OCTMosaicId: "
                 f"slice_id={mosaic_ident.slice_id}, mosaic_id={mosaic_ident.mosaic_id}, "
-                f"expected_slice_id={expected_slice_id} for mosaics_per_slice={config.mosaics_per_slice}"
+                f"expected_slice_id={expected} for mosaics_per_slice={config.mosaics_per_slice}"
             )
-
     return mosaic_context_from_ids(
         slice_id=mosaic_ident.slice_id,
         mosaic_id=mosaic_ident.mosaic_id,
         mosaics_per_slice=config.mosaics_per_slice,
     )
-
-
-def grid_size_x_for_mosaic(
-    config: PSOCTScanConfigModel,
-    mosaic_ident: OCTMosaicId,
-) -> int:
-    return mosaic_context_from_ident(mosaic_ident, config).grid_size_x(config)
-
-
-def tile_size_x_for_mosaic(
-    config: PSOCTScanConfigModel,
-    mosaic_ident: OCTMosaicId,
-) -> int:
-    return mosaic_context_from_ident(mosaic_ident, config).tile_size_x(config)
-
-
-def mask_threshold_for_mosaic(
-    config: PSOCTScanConfigModel,
-    mosaic_ident: OCTMosaicId,
-) -> float:
-    return mosaic_context_from_ident(mosaic_ident, config).mask_threshold(config)
-
-
-def get_slice_path(item_indent: OCTSliceId | OCTMosaicId) -> Path:
-    """Directory ``{project_base}/slice-{slice_id:02d}`` for any slice-scoped ident."""
-    project_base_path = get_project_base_path(item_indent.project_name)
-    return project_base_path / f"slice-{item_indent.slice_id:02d}"
