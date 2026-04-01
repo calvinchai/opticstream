@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal
+from inspect import Parameter
+from typing import Annotated, Literal
 
 from cyclopts import App
 from opticstream.cli.state_common import (
@@ -76,7 +77,7 @@ def show(
 def reset(
     project_name: str,
     *,
-    all: bool = False,
+    reset_all: Annotated[bool, Parameter(name=["--all", "-a"])] = False,
     slice: int | None = None,
     channel: int | None = None,
     strip: int | None = None,
@@ -90,17 +91,17 @@ def reset(
     - opticstream lsm state reset myproject --slice 1 --channel 2
     - opticstream lsm state reset myproject --slice 1 --channel 2 --strip 3
     """
-    if all:
+    if reset_all:
         if slice is not None or channel is not None or strip is not None:
             raise ValueError("`--all` cannot be used with `--slice`, `--channel`, or `--strip`.")
-    if slice is None and not all:
+    if slice is None and not reset_all:
         raise ValueError("`--slice` is required.")
     if strip is not None and channel is None:
         raise ValueError("`--channel` is required when `--strip` is provided.")
 
     with LSM_STATE_SERVICE.open_project_by_parts(project_name=project_name) as project:
         if channel is None:
-            if all:
+            if reset_all:
                 deleted = all(project.delete_slice(slice) for slice in project.slices)
             else:
                 deleted = project.delete_slice(slice)

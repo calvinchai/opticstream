@@ -38,6 +38,12 @@ def archive_tile_batch(
     archived_file_paths: list[str] = []
     futures = []
     for ref in file_reference_list:
+        if ref.spectral_file_path:
+            input_path = ref.spectral_file_path
+        elif ref.complex_file_path:
+            input_path = ref.complex_file_path
+        else:
+            raise ValueError(f"No input path found for tile {ref.tile_number}, {ref}")
         output_name = archive_tile_name_format.format(
             project_name=batch_id.project_name,
             slice_id=batch_id.slice_id,
@@ -46,7 +52,7 @@ def archive_tile_batch(
         )
         output_path = archive_path / output_name
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        futures.append(archive_file.submit(str(ref.file_path), output_path))
+        futures.append(archive_file.submit(input_path, output_path))
         archived_file_paths.append(str(output_path))
 
     for future in futures:

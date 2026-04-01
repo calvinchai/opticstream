@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from cyclopts import App
+from cyclopts import App, Parameter
 from opticstream.cli.oct import oct_cli
 from opticstream.cli.state_common import (
     apply_mark_field,
@@ -67,7 +67,7 @@ def show(
 def reset(
     project_name: str,
     *,
-    all: bool = False,
+    reset_all: Annotated[bool, Parameter(name=["--all", "-a"])] = False,
     slice: int | None = None,
     mosaic: int | None = None,
     batch: int | None = None,
@@ -81,17 +81,17 @@ def reset(
     - opticstream oct state reset myproject --slice 1 --mosaic 1
     - opticstream oct state reset myproject --slice 1 --mosaic 1 --batch 1
     """
-    if all:
+    if reset_all:
         if slice is not None or mosaic is not None or batch is not None:
             raise ValueError("`--all` cannot be used with `--slice`, `--mosaic`, or `--batch`.")
-    if slice is None and not all:
+    if slice is None and not reset_all:
         raise ValueError("`--slice` is required.")
     if batch is not None and mosaic is None:
         raise ValueError("`--mosaic` is required when `--batch` is provided.")
 
     with OCT_STATE_SERVICE.open_project_by_parts(project_name=project_name) as project:
         if mosaic is None:
-            if all:
+            if reset_all:
                 deleted = all(project.delete_slice(slice_id) for slice_id in list(project.slices))
                 target = "all slices"
             else:

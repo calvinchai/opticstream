@@ -16,11 +16,13 @@ from typing import Any, Dict, Optional, Sequence
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
+from psoct_toolbox.matlab_bridge import build_thruplane_from_files_command
+
 from opticstream.hooks.publish_hooks import publish_oct_project_hook
 from opticstream.events import SLICE_READY, SLICE_REGISTERED, get_event_trigger
 from opticstream.events.psoct_event_emitters import emit_slice_psoct_event
 from opticstream.state.oct_project_state import OCTSliceId, OCT_STATE_SERVICE
-from opticstream.utils.matlab_execution import run_matlab_function_or_cli
+from opticstream.utils.matlab_execution import run_matlab_batch_command_or_cli
 from opticstream.flows.psoct.utils import get_slice_paths
 
 
@@ -123,14 +125,16 @@ def thruplane_from_files_task(
     )
 
     try:
-        run_matlab_function_or_cli(
-            "thruplane_from_files",
+        cmd = build_thruplane_from_files_command(
             fixed_ori_abs,
             moving_ori_abs,
             fixed_biref_abs,
             moving_biref_abs,
-            output_dir_abs,
-            float(gamma),
+            output_dir=output_dir_abs,
+            gamma=float(gamma),
+        )
+        run_matlab_batch_command_or_cli(
+            cmd,
             matlab_script_path=matlab_script_path,
         )
     except Exception as e:

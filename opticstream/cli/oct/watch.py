@@ -403,9 +403,10 @@ class OCTWatcherService:
         if j < 1:
             raise ValueError(f"grid_size_x_normal must be >= 1, got {j}")
 
-        mosaic_number = (i - 1) // j + 1
+        slice_number = (i - 1) // j + 1
         tile_number = (i - 1) % j + 1
-        source_mosaic_id = mosaic_number
+        mosaics_per_slice = self.scan_config.mosaics_per_slice
+        source_mosaic_id = (slice_number - 1) * mosaics_per_slice + 1
         return ParsedProcessedFile(path=path, source_mosaic_id=source_mosaic_id, tile_number=tile_number)
 
     def _parse_complex_file(self, path: Path) -> ParsedTileFile | None:

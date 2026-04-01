@@ -3,6 +3,7 @@ from typing import Any, Dict, Literal, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
+from opticstream.config.pipeline_opts_builder import build_pipeline_opts
 from opticstream.hooks import slack_notification_hook
 from opticstream.hooks.check_mosaic_ready_hook import check_mosaic_ready_hook
 from opticstream.hooks.publish_hooks import (
@@ -12,10 +13,6 @@ from opticstream.hooks.publish_hooks import (
 from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
 from opticstream.events import BATCH_PROCESSED, BATCH_READY, get_event_trigger
 from opticstream.flows.psoct.tile_batch_archive_flow import archive_tile_batch
-from opticstream.flows.psoct.tile_batch_matlab import (
-    build_complex_to_processed_command,
-    build_spectral_to_processed_command,
-)
 from opticstream.flows.psoct.tile_batch_processed_validation import (
     validate_processed_batch_outputs,
 )
@@ -26,6 +23,8 @@ from opticstream.flows.psoct.tile_file_reference import (
 from opticstream.flows.psoct.utils import (
     MosaicContext,
     batch_ident_from_payload,
+    get_processed_tile_path,
+    get_slice_paths,
     load_scan_config_for_payload,
     mosaic_context_from_ids,
     path_list_from_payload,
@@ -39,6 +38,11 @@ from opticstream.state.state_guards import (
 )
 from opticstream.utils.matlab_execution import run_matlab_batch_command_or_cli
 
+from psoct_toolbox.matlab_bridge import (
+    build_complex2processed_batch_indexed_command,
+    build_spectral2processed_batch_indexed_command,
+)
+
 
 def _determine_processing_mode(
     *,
@@ -47,11 +51,11 @@ def _determine_processing_mode(
     if tile_saving_type in (TileSavingType.SPECTRAL, TileSavingType.SPECTRAL_12bit):
         return "spectral"
     if tile_saving_type in (
-        TileSavingType.COMPLEX
+        TileSavingType.COMPLEX, TileSavingType.COMPLEX_WITH_SPECTRAL
     ):
         return "complex"
-    if tile_saving_type in (TileSavingType.COMPLEX_WITH_SPECTRAL):
-        return "complex_with_spectral"
+    if tile_saving_type in (TileSavingType.PROCESSED_WITH_SPECTRAL):
+        return "processed"
     raise ValueError(f"Invalid tile saving type: {tile_saving_type}")
 
 
@@ -64,11 +68,22 @@ def spectral_to_processed_tile_batch(
     mosaic_context: MosaicContext,
 ) -> Path:
     logger = get_run_logger()
-    processed_path, cmd = build_spectral_to_processed_command(
-        batch_id,
-        file_reference_list,
+
+    _, processed_path, _, _ = get_slice_paths(str(config.project_base_path), batch_id.slice_id)
+    processed_path.mkdir(parents=True, exist_ok=True)
+
+    pipeline_opts = build_pipeline_opts(
         config=config,
-        mosaic_context=mosaic_context,
+        illumination=mosaic_context.config_illumination,
+    )
+    cmd = build_spectral2processed_batch_indexed_command(
+        [str(ref.spectral_file_path) for ref in file_reference_list],
+        output_dir=str(processed_path),
+        mosaic_id=batch_id.mosaic_id,
+        tile_indices=[ref.tile_number for ref in file_reference_list],
+        pipeline_opts=pipeline_opts,
+        num_workers=config.processing.matlab_num_workers,
+        pool_type=config.processing.matlab_pool_type,
     )
     logger.info("Running MATLAB command: %s", cmd)
     run_matlab_batch_command_or_cli(
@@ -93,11 +108,22 @@ def complex_to_processed_tile_batch(
     mosaic_context: MosaicContext,
 ) -> Path:
     logger = get_run_logger()
-    processed_path, cmd = build_complex_to_processed_command(
-        batch_id,
-        file_reference_list,
+
+    _, processed_path, _, _ = get_slice_paths(str(config.project_base_path), batch_id.slice_id)
+    processed_path.mkdir(parents=True, exist_ok=True)
+
+    pipeline_opts = build_pipeline_opts(
         config=config,
-        mosaic_context=mosaic_context,
+        illumination=mosaic_context.config_illumination,
+    )
+    cmd = build_complex2processed_batch_indexed_command(
+        [str(ref.complex_file_path) for ref in file_reference_list],
+        output_dir=str(processed_path),
+        mosaic_id=batch_id.mosaic_id,
+        tile_indices=[ref.tile_number for ref in file_reference_list],
+        pipeline_opts=pipeline_opts,
+        num_workers=config.processing.matlab_num_workers,
+        pool_type=config.processing.matlab_pool_type,
     )
     logger.info("Running MATLAB command: %s", cmd)
     run_matlab_batch_command_or_cli(
@@ -112,6 +138,49 @@ def complex_to_processed_tile_batch(
     )
     return processed_path
 
+
+
+@task
+def processed_to_processed_tile_batch(
+    batch_id: OCTBatchId,
+    file_reference_list: list[TileFileReference],
+    *,
+    config: PSOCTScanConfigModel,
+    mosaic_context: MosaicContext,
+) -> Path:
+    logger = get_run_logger()
+    __, processed_path, _, _ = get_slice_paths(str(config.project_base_path), batch_id.slice_id)
+    for ref in file_reference_list:
+        if ref.aip_file_path:
+            aip_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "aip")
+            aip_path.symlink_to(ref.aip_file_path)
+        if ref.mip_file_path:
+            mip_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "mip")
+            mip_path.symlink_to(ref.mip_file_path)
+        if ref.ori_file_path:
+            ori_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "ori")
+            ori_path.symlink_to(ref.ori_file_path)
+        if ref.ret_file_path:
+            ret_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "ret")
+            ret_path.symlink_to(ref.ret_file_path)
+        if ref.surf_file_path:
+            surf_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "surf")
+            surf_path.symlink_to(ref.surf_file_path)
+        if ref.dbi_file_path:
+            dbi_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "dBI")
+            dbi_path.symlink_to(ref.dbi_file_path)
+
+def split_channel_data(
+    input_path: Path,
+    output_paths: list[Path]
+) -> None:
+    logger = get_run_logger()
+    data = nib.load(input_path)
+    # interleave the second dimension to three channels
+    for i in range(3):
+        data_slice = data[:, i::3, ...]
+        nib.save(data_slice, output_path[i])
+    
 
 @flow(
     flow_run_name="process-tile-batch-{batch_id}",
@@ -128,6 +197,7 @@ def process_tile_batch(
     *,
     force_rerun: bool = False,
 ) -> None:
+    
     logger = get_run_logger()
     if should_skip_run(
         enter_flow_stage(
@@ -152,6 +222,8 @@ def process_tile_batch(
         config=config,
         mosaic_context=mosaic_context,
     )
+    file_reference_list = list(file_reference_list.values())
+
     logger.info("File reference list: %s", file_reference_list)
     archive_future = None
     if config.archive_path:
@@ -177,6 +249,13 @@ def process_tile_batch(
         )
     elif mode == "complex":
         processed_path = complex_to_processed_tile_batch(
+            batch_id=batch_id,
+            file_reference_list=file_reference_list,
+            config=config,
+            mosaic_context=mosaic_context,
+        )
+    elif mode == "processed":
+        processed_path = processed_to_processed_tile_batch(
             batch_id=batch_id,
             file_reference_list=file_reference_list,
             config=config,
