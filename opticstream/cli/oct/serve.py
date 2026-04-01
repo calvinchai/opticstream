@@ -24,9 +24,6 @@ from opticstream.flows.psoct.mosaic_volume_upload_flow import (
 from opticstream.flows.psoct.slice_process_flow import (
     to_deployment as slice_process_deployments,
 )
-from opticstream.flows.psoct.tile_batch_complex_flow import (
-    to_deployment as tile_batch_complex_deployments,
-)
 from opticstream.flows.psoct.tile_batch_process_flow import (
     to_deployment as tile_batch_process_deployments,
 )
@@ -76,14 +73,6 @@ def build_deployments(
             concurrency_limit=concurrency_limit,
         )
     )
-    deployments.extend(
-        tile_batch_complex_deployments(
-            project_name=normalized_project_name,
-            deployment_name=deployment_name,
-            extra_tags=COMMON_TAGS,
-        )
-    )
-
     deployments.extend(
         tile_batch_upload_deployments(
             project_name=normalized_project_name,

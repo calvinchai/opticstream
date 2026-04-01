@@ -98,17 +98,25 @@ class LSMWatcherService:
         self.slice_offset = slice_offset
         self.direct = direct
         self.force_resend = force_resend
+        self._seen_folders: set[Path] = set()
 
     def discover_candidates(self) -> list[LSMFolderCandidate]:
         if not _is_readable_dir(self.watch_dir):
             logger.warning("LSM watch directory is not readable: %s", self.watch_dir)
             return []
-        
-        return [
+
+        candidates = [
             LSMFolderCandidate(folder=d)
             for d in self.watch_dir.iterdir()
             if _should_process_folder(d)
         ]
+
+        for candidate in candidates:
+            if candidate.folder not in self._seen_folders:
+                self._seen_folders.add(candidate.folder)
+                logger.info("New LSM folder detected: %s", candidate.folder)
+
+        return candidates
 
     def candidate_key(self, candidate: LSMFolderCandidate) -> str:
         return str(candidate.folder.resolve())
@@ -126,10 +134,7 @@ class LSMWatcherService:
             return 0
 
         try:
-            slice_index, strip_id, channel_index = parse_lsm_strip_index(
-                *parse_lsm_run_folder_name(folder.name)[1:],
-                self.scan_config.strips_per_slice,
-            )
+            slice_index, strip_id, channel_index = parse_lsm_run_folder_name(folder.name)
         except Exception as exc:
             logger.warning(
                 "Skipping folder %r: cannot parse indices (%s)", folder.name, exc
@@ -204,6 +209,18 @@ def watch_lsm(
         slice_offset=slice_offset,
         direct=direct,
         force_resend=force_resend,
+    )
+
+    logger.info(
+        "Starting LSM watcher | project=%s watch_dir=%s mode=%s "
+        "poll_interval=%ss stability=%ss slice_offset=%s force_resend=%s",
+        project_name,
+        watch_dir,
+        "direct" if direct else "event",
+        poll_interval,
+        stability_seconds,
+        slice_offset,
+        force_resend,
     )
 
     watcher = PollingStableWatcher[LSMFolderCandidate, str](
