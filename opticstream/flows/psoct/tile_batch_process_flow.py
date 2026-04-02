@@ -150,24 +150,37 @@ def processed_to_processed_tile_batch(
 ) -> Path:
     logger = get_run_logger()
     __, processed_path, _, _ = get_slice_paths(str(config.project_base_path), batch_id.slice_id)
+    processed_path.mkdir(parents=True, exist_ok=True)
     for ref in file_reference_list:
         if ref.aip_file_path:
-            aip_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "aip")
+            aip_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "aip", compressed=False)
+            if aip_path.exists() or aip_path.is_symlink():
+                aip_path.unlink()
             aip_path.symlink_to(ref.aip_file_path)
         if ref.mip_file_path:
-            mip_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "mip")
+            mip_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "mip", compressed=False)
+            if mip_path.exists() or mip_path.is_symlink():
+                mip_path.unlink()
             mip_path.symlink_to(ref.mip_file_path)
         if ref.ori_file_path:
-            ori_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "ori")
+            ori_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "ori", compressed=False)
+            if ori_path.exists() or ori_path.is_symlink():
+                ori_path.unlink()
             ori_path.symlink_to(ref.ori_file_path)
         if ref.ret_file_path:
-            ret_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "ret")
+            ret_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "ret", compressed=False)
+            if ret_path.exists() or ret_path.is_symlink():
+                ret_path.unlink()
             ret_path.symlink_to(ref.ret_file_path)
         if ref.surf_file_path:
-            surf_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "surf")
+            surf_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "surf", compressed=False)
+            if surf_path.exists() or surf_path.is_symlink():
+                surf_path.unlink()
             surf_path.symlink_to(ref.surf_file_path)
         if ref.dbi_file_path:
-            dbi_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "dBI")
+            dbi_path = get_processed_tile_path(processed_path, batch_id.mosaic_id, ref.tile_number, "dBI", compressed=False)
+            if dbi_path.exists() or dbi_path.is_symlink():
+                dbi_path.unlink()
             dbi_path.symlink_to(ref.dbi_file_path)
 
 def split_channel_data(

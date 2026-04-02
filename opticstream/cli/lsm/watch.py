@@ -59,8 +59,8 @@ def _should_process_folder(path: Path) -> bool:
     return (
         (
             path.is_dir()
-            and path.name.lower().startswith("run")
             and _is_readable_dir(path)
+            and not path.name.lower().startswith("processed")
             and sum(1 for p in path.rglob("*") if p.is_file()) > 100
         )
     )

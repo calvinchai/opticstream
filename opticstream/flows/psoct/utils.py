@@ -250,7 +250,7 @@ def processed_output_prefix(mosaic_id: int, tile_index: int) -> str:
     return f"{mosaic_prefix(mosaic_id)}_image_{tile_index:04d}"
 
 def get_processed_tile_path(processed_path: Path, mosaic_id:int, tile_id:int, modality:str, compressed: bool = True) -> Path:
-    return processed_path / (f"{processed_output_prefix(mosaic_id, tile_id)}_{modality}.nii" + ".gz" if compressed else "")
+    return processed_path / (f"{processed_output_prefix(mosaic_id, tile_id)}_{modality}.nii" + (".gz" if compressed else ""))
 
 def get_mosaic_tile_info_path(
     stitched_path: str | Path, mosaic_id: int, modality: str

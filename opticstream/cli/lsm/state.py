@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from inspect import Parameter
+from cyclopts import Parameter
 from typing import Annotated, Literal
 
 from cyclopts import App
@@ -76,7 +76,6 @@ def show(
 @lsm_state_cli.command
 def reset(
     project_name: str,
-    *,
     reset_all: Annotated[bool, Parameter(name=["--all", "-a"])] = False,
     slice: int | None = None,
     channel: int | None = None,

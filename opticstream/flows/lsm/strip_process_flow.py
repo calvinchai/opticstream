@@ -406,6 +406,7 @@ def rename_strip_task(
     os.makedirs(processed_folder, exist_ok=True)
     new_strip_path = op.join(processed_folder, basename)
     os.rename(strip_path, new_strip_path)
+    os.makedirs(strip_path, exist_ok=True)
     logger.info(f"Renamed {strip_ident} to {new_strip_path}")
 
 
@@ -424,6 +425,7 @@ def delete_strip_task(
         return
     logger.info(f"Deleting {strip_ident}")
     shutil.rmtree(strip_path)
+    os.makedirs(strip_path, exist_ok=True)
 
 
 def describe_cleanup(cleanup_action: StripCleanupAction) -> str:
