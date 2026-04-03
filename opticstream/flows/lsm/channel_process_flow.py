@@ -105,9 +105,9 @@ def stitch_channel_mips(
     )
     # sort the file list
     mip_paths.sort()
-    import dask_image
+    from dask.array.image import imread
     # load all files into a numpy array
-    mips = [dask_image.imread.imread(mip_path) for mip_path in mip_paths]
+    mips = [imread(mip_path) for mip_path in mip_paths]
 
     # split each file into 2 channels, which is split along y in half
     mips_ch1 = [mip[:, :mip.shape[1]//2] for mip in mips]
@@ -121,8 +121,11 @@ def stitch_channel_mips(
     # scan_config.project_base_path / slice_id_channel_id_mip_ch2.tiff
     mip_ch1_path = op.join(scan_config.project_base_path, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch1.tiff")
     mip_ch2_path = op.join(scan_config.project_base_path, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch2.tiff")
-    dask_image.imwrite.imwrite(mip_ch1, mip_ch1_path)
-    dask_image.imwrite.imwrite(mip_ch2, mip_ch2_path)
+    
+    from PIL import Image
+    Image.fromarray(mip_ch1).save(mip_ch1_path)
+    Image.fromarray(mip_ch2).save(mip_ch2_path)
+
     # generate the preview jpeg
     convert_image(
         input=mip_ch1_path,
