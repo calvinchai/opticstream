@@ -12,6 +12,7 @@ import os
 import os.path as op
 from typing import Any, Dict, List, Optional, Sequence
 
+import numpy as np
 import dask.array as da
 from prefect import flow, get_run_logger, task
 
@@ -107,15 +108,18 @@ def stitch_channel_mips(
     mip_paths.sort()
     from dask.array.image import imread
     # load all files into a numpy array
-    mips = [imread(mip_path) for mip_path in mip_paths]
+    mips = [imread(mip_path).squeeze() for mip_path in mip_paths]
 
-    # split each file into 2 channels, which is split along y in half
-    mips_ch1 = [mip[:, :mip.shape[1]//2] for mip in mips]
-    mips_ch2 = [mip[:, mip.shape[1]//2:] for mip in mips]
-    mip_ch1 = da.concatenate(mips_ch1, axis=1)
-    mip_ch2 = da.concatenate(mips_ch2, axis=1)
+    # split each file into 2 channels, which is split along x in half
+    mips_ch1 = [mip[:mip.shape[0]//2, :] for mip in mips]
+    mips_ch2 = [mip[mip.shape[0]//2:, :] for mip in mips]
+    mip_ch1 = da.concatenate(mips_ch1, axis=0)
+    mip_ch2 = da.concatenate(mips_ch2, axis=0)
     mip_ch1 = mip_ch1.compute()
     mip_ch2 = mip_ch2.compute()
+    # change to uint16
+    mip_ch1 = mip_ch1.astype(np.uint16)
+    mip_ch2 = mip_ch2.astype(np.uint16)
     # save to files
     # scan_config.project_base_path / slice_id_channel_id_mip_ch1.tiff
     # scan_config.project_base_path / slice_id_channel_id_mip_ch2.tiff
