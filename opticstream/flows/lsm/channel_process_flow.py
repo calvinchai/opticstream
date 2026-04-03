@@ -9,11 +9,14 @@ CHANNEL_MIP_STITCHED so channel_volume_flow can run 3D stitching afterward.
 from __future__ import annotations
 
 import os
+import os.path as op
 from typing import Any, Dict, List, Optional, Sequence
 
+import dask.array as da
 from prefect import flow, get_run_logger, task
 
 from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED, CHANNEL_READY
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.events.utils import get_event_trigger
@@ -32,7 +35,7 @@ from opticstream.state.lsm_project_state import (
     LSMStripId,
     LSM_STATE_SERVICE,
 )
-from opticstream.tasks.slack_notification import send_slack_message
+from opticstream.tasks.slack_notification import send_slack_message, upload_multiple_files_to_slack
 from opticstream.hooks import (
     publish_lsm_project_hook,
     publish_lsm_slice_hook,
@@ -100,9 +103,45 @@ def stitch_channel_mips(
         f"Stitching {len(mip_paths)} MIP images for slice {channel_ident.slice_id} "
         f"channel {channel_ident.channel_id} in project {channel_ident.project_name}"
     )
+    # sort the file list
+    mip_paths.sort()
+    import dask_image
+    # load all files into a numpy array
+    mips = [dask_image.imread.imread(mip_path) for mip_path in mip_paths]
 
-    # TODO: replace this placeholder with actual stitching logic.
-    import os.path as op
+    # split each file into 2 channels, which is split along y in half
+    mips_ch1 = [mip[:, :mip.shape[1]//2] for mip in mips]
+    mips_ch2 = [mip[:, mip.shape[1]//2:] for mip in mips]
+    mip_ch1 = da.concatenate(mips_ch1, axis=1)
+    mip_ch2 = da.concatenate(mips_ch2, axis=1)
+    mip_ch1 = mip_ch1.compute()
+    mip_ch2 = mip_ch2.compute()
+    # save to files
+    # scan_config.project_base_path / slice_id_channel_id_mip_ch1.tiff
+    # scan_config.project_base_path / slice_id_channel_id_mip_ch2.tiff
+    mip_ch1_path = op.join(scan_config.project_base_path, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch1.tiff")
+    mip_ch2_path = op.join(scan_config.project_base_path, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch2.tiff")
+    dask_image.imwrite.imwrite(mip_ch1, mip_ch1_path)
+    dask_image.imwrite.imwrite(mip_ch2, mip_ch2_path)
+    # generate the preview jpeg
+    convert_image(
+        input=mip_ch1_path,
+        output=mip_ch1_path.replace(".tiff", ".jpg"),
+        window_min=0,
+        window_max=1000
+    )
+    convert_image(
+        input=mip_ch2_path,
+        output=mip_ch2_path.replace(".tiff", ".jpg"),
+        window_min=0,
+        window_max=1000
+    )
+    # upload to slack
+    upload_multiple_files_to_slack(
+        filepaths=[mip_ch1_path.replace(".tiff", ".jpg"), mip_ch2_path.replace(".tiff", ".jpg")],
+        initial_comment=f"MIP QC for slice {channel_ident.slice_id} channel {channel_ident.channel_id}"
+    )
+    return mip_ch1_path, mip_ch2_path
 
     output_root = scan_config.output_path or scan_config.project_base_path
     stitched_name = (
