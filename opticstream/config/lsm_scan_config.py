@@ -73,8 +73,8 @@ class LSMScanConfigModel(BaseModel):
     )
 
     # for acquisition host
-    cpu_affinity: List[int] = Field(
-        default=[],
+    cpu_affinity: Optional[List[int]] = Field(
+        default=None,
         description="Range of CPU cores to use for processing. If empty, all cores will be used.",
     )
     num_workers: int = Field(

@@ -27,9 +27,10 @@ from opticstream.state.state_guards import (
     should_skip_run,
 )
 from opticstream.flows.lsm.utils import (
-    strip_mip_output_path,
     channel_ident_from_payload,
     load_scan_config_for_payload,
+    lsm_output_root,
+    strip_mip_output_path,
 )
 from opticstream.state.lsm_project_state import (
     LSMChannelId,
@@ -121,10 +122,10 @@ def stitch_channel_mips(
     mip_ch1 = mip_ch1.astype(np.uint16)
     mip_ch2 = mip_ch2.astype(np.uint16)
     # save to files
-    # scan_config.project_base_path / slice_id_channel_id_mip_ch1.tiff
-    # scan_config.project_base_path / slice_id_channel_id_mip_ch2.tiff
-    mip_ch1_path = op.join(scan_config.project_base_path, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch1.tiff")
-    mip_ch2_path = op.join(scan_config.project_base_path, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch2.tiff")
+    # Same root as strip MIP/zarr outputs (output_path if set, else project_base_path).
+    out_root = lsm_output_root(scan_config)
+    mip_ch1_path = op.join(out_root, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch1.tiff")
+    mip_ch2_path = op.join(out_root, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch2.tiff")
     
     from PIL import Image
     Image.fromarray(mip_ch1).save(mip_ch1_path)
@@ -150,7 +151,7 @@ def stitch_channel_mips(
     )
     return mip_ch1_path, mip_ch2_path
 
-    output_root = scan_config.output_path or scan_config.project_base_path
+    output_root = lsm_output_root(scan_config)
     stitched_name = (
         f"{channel_ident.project_name}_slice-{channel_ident.slice_id:02d}_"
         f"channel-{channel_ident.channel_id:02d}_mip_qc.tiff"

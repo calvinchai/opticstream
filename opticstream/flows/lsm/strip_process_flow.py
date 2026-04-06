@@ -30,10 +30,11 @@ from opticstream.state.state_guards import (
     should_skip_run,
 )
 from opticstream.flows.lsm.utils import (
-    strip_mip_output_path,
-    strip_zarr_output_path,
+    host_lsm_fs_path,
     load_scan_config_for_payload,
     strip_ident_from_payload,
+    strip_mip_output_path,
+    strip_zarr_output_path,
 )
 from opticstream.state.lsm_project_state import (
     LSMStripId,
@@ -189,7 +190,7 @@ def compress_strip(
         == RunDecision.SKIPPED
     ):
         return
-    if cpu_affinity is not None:
+    if cpu_affinity:
         p = psutil.Process(os.getpid())
         p.cpu_affinity(list(range(*cpu_affinity)))
         logger.info(f"cpu affinity:{p.cpu_affinity()}")
@@ -485,6 +486,7 @@ def process_strip(
     Process a strip of a slice.
     """
     logger = get_run_logger()
+    strip_path = host_lsm_fs_path(strip_path)
     logger.info(f"Processing strip path: {strip_path} {strip_ident}")
 
     if should_skip_run(
@@ -506,7 +508,11 @@ def process_strip(
     acq = f"camera-{strip_ident.channel_id:02d}"
     logger.info(f"Processing {strip_ident} (acq={acq})")
 
-    archive_path = scan_config.archive_path
+    archive_path = (
+        host_lsm_fs_path(scan_config.archive_path)
+        if scan_config.archive_path is not None
+        else None
+    )
     strip_cleanup_action = scan_config.strip_cleanup_action
 
     zarr_output_path = strip_zarr_output_path(strip_ident, scan_config)
@@ -525,7 +531,7 @@ def process_strip(
         compress_future = compress_strip.submit(
             strip_ident=strip_ident,
             strip_path=strip_path,
-            info_file=scan_config.info_file,
+            info_file=host_lsm_fs_path(scan_config.info_file),
             output_path=zarr_output_path,
             zarr_config=scan_config.zarr_config,
             num_workers=scan_config.num_workers,

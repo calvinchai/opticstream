@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import os.path as op
+import sys
+from pathlib import Path
 from typing import Any, Dict, Mapping, Type, TypeVar
 
 from opticstream.config.lsm_scan_config import (
@@ -62,8 +65,48 @@ def load_scan_config_for_payload(
     )
 
 
-def _output_root(scan_config: LSMScanConfigModel) -> str:
-    return scan_config.output_path or scan_config.project_base_path
+def host_lsm_fs_path(path: Path | str) -> str:
+    """
+    Resolve paths from Windows acquisition hosts when flows run on Linux.
+
+    Prefect config often stores ``D:/...``; the same share is mounted at
+    ``/mnt/willow-d/`` on Linux workers.
+    """
+    s = os.fspath(path)
+    if not sys.platform.startswith("linux"):
+        return s
+    import re
+
+    # Replace Windows drive-letter paths (e.g. D:/ or d:\) with corresponding /mnt/willow-x/ path
+    def _replace_windows_drive_prefix(path_str: str) -> str:
+        """
+        Replace Windows drive-letter prefixes at the start of a path string
+        (e.g. 'D:/...' or 'd:\\...') with their Linux mount equivalent (e.g. '/mnt/willow-d/').
+        Only matches at the start of the string.
+        Returns the modified string or the original string if no match was found.
+
+        This function is safe under expected usage: it only rewrites
+        absolute Windows paths starting with a drive-letter and a slash or backslash.
+        """
+        def _mnt_repl(match):
+            letter = match.group(1).lower()
+            return f"/mnt/willow-{letter}/"
+        # Regex explanation:
+        # ^          : start of string
+        # [A-Za-z]   : single letter (drive)
+        # :          : colon
+        # [\\/]{1}   : either slash or backslash (only one character)
+        return re.sub(r'^([A-Za-z]):[\\/]', _mnt_repl, path_str, count=1)
+
+    s = _replace_windows_drive_prefix(s)
+    s = s.replace("\\", "/")
+    return s
+
+
+def lsm_output_root(scan_config: LSMScanConfigModel) -> str:
+    """Normalized output root: ``output_path`` if set, else ``project_base_path``."""
+    root = scan_config.output_path or scan_config.project_base_path
+    return host_lsm_fs_path(root)
 
 
 def _strip_formatted_output_path(
@@ -73,7 +116,7 @@ def _strip_formatted_output_path(
 ) -> str:
     acq = f"camera-{strip_ident.channel_id:02d}"
     return op.join(
-        _output_root(scan_config),
+        lsm_output_root(scan_config),
         format_template.format(
             project_name=strip_ident.project_name,
             slice_id=strip_ident.slice_id,
@@ -107,4 +150,4 @@ def channel_zarr_volume_path(
         f"{channel_ident.project_name}_slice-{channel_ident.slice_id:02d}_"
         f"channel-{channel_ident.channel_id:02d}_volume.zarr"
     )
-    return op.join(_output_root(scan_config), vol_name)
+    return op.join(lsm_output_root(scan_config), vol_name)

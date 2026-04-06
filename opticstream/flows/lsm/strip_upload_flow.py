@@ -13,7 +13,11 @@ from opticstream.state.milestone_wrappers_lsm import strip_processing_milestone
 from opticstream.state.state_guards import (
     force_rerun_from_payload,
 )
-from opticstream.flows.lsm.utils import strip_ident_from_payload, strip_zarr_output_path
+from opticstream.flows.lsm.utils import (
+    host_lsm_fs_path,
+    strip_ident_from_payload,
+    strip_zarr_output_path,
+)
 from opticstream.state.lsm_project_state import LSMStripId
 from opticstream.tasks.dandi_upload import upload_to_dandi
 from opticstream.hooks.slack_notification_hook import slack_notification_hook
@@ -36,6 +40,8 @@ def upload_strip_to_dandi_flow(
     Upload the strip to DANDI.
     """
     logger = get_run_logger()
+    output_path = host_lsm_fs_path(output_path)
+    logger.info(f"Output path: {output_path}")
     logger.info(f"Uploading {strip_ident} to DANDI")
     upload_to_dandi(output_path, dandi_instance=dandi_instance, dandi_bin=dandi_bin)
     logger.info(f"Successfully uploaded {strip_ident} to DANDI")
@@ -53,22 +59,26 @@ def upload_strip_to_dandi_event_flow(payload: Dict[str, Any]) -> None:
         strip_ident.project_name,
         override_config_name=payload.get("override_config"),
     )
+
     output_path = strip_zarr_output_path(strip_ident, cfg)
-    return upload_strip_to_dandi_flow(
+    upload_strip_to_dandi_flow(
         strip_ident=strip_ident,
         output_path=output_path,
         force_rerun=force_rerun_from_payload(payload),
         dandi_instance=payload.get("dandi_instance") or cfg.dandi_instance,
         dandi_bin=payload.get("dandi_bin") or cfg.dandi_bin,
     )
-
+    
+    # shutil.rmtree(output_path)
 
 def to_deployment(
     *,
     project_name: Optional[str] = None,
     deployment_name: str = "local",
     extra_tags: Sequence[str] = (),
-):
+):  
+    
+
     manual = upload_strip_to_dandi_flow.to_deployment(
         name=deployment_name,
         tags=["lsm", "strip", "upload", *list(extra_tags)],

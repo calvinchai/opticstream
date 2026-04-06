@@ -5,6 +5,9 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
+
+from cyclopts import Parameter
 
 from opticstream.cli.lsm.cli import lsm_cli
 from opticstream.config import LSMScanConfig
@@ -14,10 +17,13 @@ from opticstream.events.lsm_events import STRIP_READY
 from opticstream.flows.lsm.strip_process_flow import process_strip
 from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
 from opticstream.utils.filename_utils import (
-    parse_lsm_run_folder_name,
-    parse_lsm_strip_index,
+    parse_lsm_run_folder_name
 )
 from opticstream.utils.polling_watcher import PollingStableWatcher
+from opticstream.utils.process_priority_thread import (
+    resolve_priority_flag,
+    start_periodic_process_priority_thread,
+)
 
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -201,40 +207,66 @@ def watch_lsm(
     poll_interval: int = 5,
     direct: bool = False,
     force_resend: bool = False,
+    process: str = "AndorSolis",
+    priority: str | None = "high",
+    no_pp: bool = False,
 ) -> None:
-    service = LSMWatcherService(
-        project_name=project_name,
-        scan_config=scan_config,
-        watch_dir=watch_dir,
-        slice_offset=slice_offset,
-        direct=direct,
-        force_resend=force_resend,
-    )
+    priority_handle = None
+    resolved_priority: int | None = None
+    if not no_pp:
+        resolved_priority = resolve_priority_flag(priority)
+        priority_handle = start_periodic_process_priority_thread(
+            process,
+            priority=resolved_priority,
+            daemon=False,
+        )
+    try:
+        service = LSMWatcherService(
+            project_name=project_name,
+            scan_config=scan_config,
+            watch_dir=watch_dir,
+            slice_offset=slice_offset,
+            direct=direct,
+            force_resend=force_resend,
+        )
 
-    logger.info(
-        "Starting LSM watcher | project=%s watch_dir=%s mode=%s "
-        "poll_interval=%ss stability=%ss slice_offset=%s force_resend=%s",
-        project_name,
-        watch_dir,
-        "direct" if direct else "event",
-        poll_interval,
-        stability_seconds,
-        slice_offset,
-        force_resend,
-    )
+        logger.info(
+            "Starting LSM watcher | project=%s watch_dir=%s mode=%s "
+            "poll_interval=%ss stability=%ss slice_offset=%s force_resend=%s "
+            "process_priority=%s process_priority_process=%r process_priority_value=%s",
+            project_name,
+            watch_dir,
+            "direct" if direct else "event",
+            poll_interval,
+            stability_seconds,
+            slice_offset,
+            force_resend,
+            "off" if no_pp else "on",
+            process,
+            "n/a"
+            if no_pp
+            else (
+                resolved_priority
+                if resolved_priority is not None
+                else "(default)"
+            ),
+        )
 
-    watcher = PollingStableWatcher[LSMFolderCandidate, str](
-        discover_candidates=service.discover_candidates,
-        candidate_key=service.candidate_key,
-        fingerprint=service.fingerprint,
-        process=service.process,
-        poll_interval=poll_interval,
-        stability_seconds=stability_seconds,
-        running_message=(
-            f"LSM polling watcher running ({'direct' if direct else 'event'} mode)"
-        ),
-    )
-    watcher.run()
+        watcher = PollingStableWatcher[LSMFolderCandidate, str](
+            discover_candidates=service.discover_candidates,
+            candidate_key=service.candidate_key,
+            fingerprint=service.fingerprint,
+            process=service.process,
+            poll_interval=poll_interval,
+            stability_seconds=stability_seconds,
+            running_message=(
+                f"LSM polling watcher running ({'direct' if direct else 'event'} mode)"
+            ),
+        )
+        watcher.run()
+    finally:
+        if priority_handle is not None:
+            priority_handle.stop()
 
 
 @lsm_cli.command
@@ -247,6 +279,30 @@ def watch(
     poll_interval: int = 5,
     direct: bool = False,
     force_resend: bool = False,
+    process: Annotated[
+        str,
+        Parameter(
+            name=["--process", "-p"],
+            help="Executable name for periodic CPU priority adjustment (default: AndorSolis).",
+        ),
+    ] = "AndorSolis",
+    priority: Annotated[
+        str | None,
+        Parameter(
+            name=["--priority", "-l"],
+            help=(
+                "Target priority: same names on Windows and POSIX (high, normal, …); "
+                "POSIX also accepts a nice integer -20..19. Default: high."
+            ),
+        ),
+    ] = "high",
+    no_pp: Annotated[
+        bool,
+        Parameter(
+            name="--no-pp",
+            help="Do not start the periodic process-priority background thread.",
+        ),
+    ] = False,
 ) -> None:
     """
     Poll for new LSM run folders and dispatch each stable strip either by:
@@ -272,4 +328,7 @@ def watch(
         poll_interval=poll_interval,
         direct=direct,
         force_resend=force_resend,
+        process=process,
+        priority=priority,
+        no_pp=no_pp,
     )

@@ -21,8 +21,9 @@ from opticstream.state.state_guards import (
     should_skip_run,
 )
 from opticstream.flows.lsm.utils import (
-    channel_zarr_volume_path,
     channel_ident_from_payload,
+    channel_zarr_volume_path,
+    host_lsm_fs_path,
     load_scan_config_for_payload,
 )
 from opticstream.state.lsm_project_state import (
@@ -73,7 +74,9 @@ def upload_channel_volume(
     ):
         return
 
-    volume_path = channel_zarr_volume_path(channel_ident, scan_config)
+    volume_path = host_lsm_fs_path(
+        channel_zarr_volume_path(channel_ident, scan_config)
+    )
     _upload_channel_volume_to_dandi(channel_ident, volume_path)
 
     with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as ch:

@@ -65,6 +65,10 @@ _SPECTRAL_RAW_RE = re.compile(
     r"^mosaic_(?P<mosaic>\d+)_image_(?P<image>\d+)_spectral_(?P<k>\d+)\.raw$",
     re.IGNORECASE,
 )
+_TILE_NII_RE = re.compile(
+    r"^mosaic_(?P<mosaic>\d+)_image_(?P<image>\d+)_\w+\.nii$",
+    re.IGNORECASE,
+)
 
 
 def _is_readable_dir(path: Path) -> bool:
@@ -79,13 +83,17 @@ def _is_readable_dir(path: Path) -> bool:
     return True
 
 
+_MIN_FILE_SIZE_BYTES = 100 * 1024  # 100 KB
+
+
 def _is_readable_file(path: Path) -> bool:
     if not path.is_file():
         return False
     if not os.access(path, os.R_OK):
         return False
     try:
-        path.stat()
+        if path.stat().st_size < _MIN_FILE_SIZE_BYTES:
+            return False
     except (OSError, PermissionError):
         return False
     return True
@@ -211,13 +219,9 @@ class OCTWatcherService:
                 (parsed.source_mosaic_id, parsed.image_index)
             ].append(parsed.path)
 
-        files_by_source_mosaic: dict[int, list[Path]] = defaultdict(list)
-        for (
-            source_mosaic_id,
-            _image_index,
-        ), paths in files_by_mosaic_and_image.items():
-            # spectral k does not matter; pick one representative per tile
-            files_by_source_mosaic[source_mosaic_id].append(sorted(paths)[0])
+        tiles_by_source_mosaic: dict[int, set[int]] = defaultdict(set)
+        for source_mosaic_id, image_index in files_by_mosaic_and_image:
+            tiles_by_source_mosaic[source_mosaic_id].add(image_index)
 
         out: list[OCTBatchCandidate] = []
 
@@ -225,28 +229,31 @@ class OCTWatcherService:
             for source_mosaic_id in range(
                 min_source_mosaic_id, max_source_mosaic_id + 1
             ):
-                mosaic_files = files_by_source_mosaic.get(source_mosaic_id)
-                if not mosaic_files:
+                tile_indices = tiles_by_source_mosaic.get(source_mosaic_id)
+                if not tile_indices:
                     continue
 
-                mosaic_files.sort(key=self._image_index_from_file)
-
-                batches: dict[int, list[Path]] = defaultdict(list)
-                for file_path in mosaic_files:
-                    image_index = self._image_index_from_file(file_path)
+                batches: dict[int, list[int]] = defaultdict(list)
+                for image_index in sorted(tile_indices):
                     logical_batch = (image_index - 1) // self.batch_size + 1
-                    batches[logical_batch].append(file_path)
+                    batches[logical_batch].append(image_index)
 
-                for logical_batch, batch_files in sorted(batches.items()):
-                    if len(batch_files) < self.batch_size:
+                for logical_batch, batch_tile_indices in sorted(batches.items()):
+                    if len(batch_tile_indices) < self.batch_size:
                         logger.warning(
-                            "Incomplete batch source_mosaic=%s logical_batch=%s (%s files, need %s)",
+                            "Incomplete batch source_mosaic=%s logical_batch=%s (%s tiles, need %s)",
                             source_mosaic_id,
                             logical_batch,
-                            len(batch_files),
+                            len(batch_tile_indices),
                             self.batch_size,
                         )
                         continue
+
+                    batch_files: list[Path] = []
+                    for image_index in batch_tile_indices:
+                        batch_files.extend(
+                            files_by_mosaic_and_image[(source_mosaic_id, image_index)]
+                        )
 
                     candidate_files = tuple(sorted(batch_files))
                     if not _all_files_readable(candidate_files):
@@ -284,8 +291,7 @@ class OCTWatcherService:
         return out
 
     def _discover_two_mosaic_files(self) -> list[ParsedTileFile]:
-        saving_type = self._selected_tile_saving_type()
-        logger.debug("_discover_two_mosaic_files: saving_type=%s", saving_type)
+        logger.debug("_discover_two_mosaic_files: scanning all tile files")
         out: list[ParsedTileFile] = []
 
         for path in self.folder_path.iterdir():
@@ -296,18 +302,20 @@ class OCTWatcherService:
                 continue
 
             parsed: ParsedTileFile | None = None
-
-            if saving_type is TileSavingType.COMPLEX:
-                parsed = self._parse_complex_file(path)
-            elif saving_type is TileSavingType.SPECTRAL:
-                parsed = self._parse_spectral_nii_file(path)
-            elif saving_type is TileSavingType.SPECTRAL_12bit:
-                parsed = self._parse_spectral_raw_file(path)
+            for parser in (
+                self._parse_complex_file,
+                self._parse_spectral_nii_file,
+                self._parse_spectral_raw_file,
+                self._parse_tile_nii_file,
+            ):
+                parsed = parser(path)
+                if parsed is not None:
+                    break
 
             if parsed is not None:
                 out.append(parsed)
             else:
-                logger.debug("File did not match saving_type=%s pattern: %s", saving_type, path.name)
+                logger.debug("File did not match any tile pattern: %s", path.name)
 
         logger.debug("_discover_two_mosaic_files: matched %s tile file(s)", len(out))
         return out
@@ -322,23 +330,29 @@ class OCTWatcherService:
 
         out: list[OCTBatchCandidate] = []
         for source_mosaic_id, parsed_files in sorted(parsed_by_mosaic.items()):
-            parsed_files.sort(key=lambda p: p.tile_number)
-
-            batches: dict[int, list[Path]] = defaultdict(list)
+            files_by_tile: dict[int, list[Path]] = defaultdict(list)
             for pf in parsed_files:
-                logical_batch = (pf.tile_number - 1) // self.batch_size + 1
-                batches[logical_batch].append(pf.path)
+                files_by_tile[pf.tile_number].append(pf.path)
 
-            for logical_batch, batch_files in sorted(batches.items()):
-                if len(batch_files) < self.batch_size:
+            batches: dict[int, list[int]] = defaultdict(list)
+            for tile_number in sorted(files_by_tile.keys()):
+                logical_batch = (tile_number - 1) // self.batch_size + 1
+                batches[logical_batch].append(tile_number)
+
+            for logical_batch, batch_tile_numbers in sorted(batches.items()):
+                if len(batch_tile_numbers) < self.batch_size:
                     logger.warning(
-                        "Incomplete batch source_mosaic=%s logical_batch=%s (%s files, need %s)",
+                        "Incomplete batch source_mosaic=%s logical_batch=%s (%s tiles, need %s)",
                         source_mosaic_id,
                         logical_batch,
-                        len(batch_files),
+                        len(batch_tile_numbers),
                         self.batch_size,
                     )
                     continue
+
+                batch_files: list[Path] = []
+                for tile_number in batch_tile_numbers:
+                    batch_files.extend(files_by_tile[tile_number])
 
                 candidate_files = tuple(sorted(batch_files))
                 if not _all_files_readable(candidate_files):
@@ -390,13 +404,17 @@ class OCTWatcherService:
         if path.suffix.lower() != ".nii":
             return None
 
-        saving_type = self._selected_tile_saving_type()
+        i = None
         try:
-            if saving_type in (TileSavingType.SPECTRAL, TileSavingType.SPECTRAL_12bit, TileSavingType.COMPLEX_WITH_SPECTRAL):
-                i = extract_spectral_index_from_filename(path.name)
-            else:
-                i = extract_processed_index_from_filename(path.name)
+            i = extract_spectral_index_from_filename(path.name)
         except ValueError:
+            pass
+        if i is None:
+            try:
+                i = extract_processed_index_from_filename(path.name)
+            except ValueError:
+                pass
+        if i is None:
             return None
 
         j = self.scan_config.acquisition.grid_size_x_normal
@@ -438,6 +456,16 @@ class OCTWatcherService:
 
     def _parse_spectral_raw_file(self, path: Path) -> ParsedTileFile | None:
         match = _SPECTRAL_RAW_RE.match(path.name)
+        if match is None:
+            return None
+        return ParsedTileFile(
+            path=path,
+            source_mosaic_id=int(match.group("mosaic")),
+            image_index=int(match.group("image")),
+        )
+
+    def _parse_tile_nii_file(self, path: Path) -> ParsedTileFile | None:
+        match = _TILE_NII_RE.match(path.name)
         if match is None:
             return None
         return ParsedTileFile(
