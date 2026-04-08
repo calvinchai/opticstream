@@ -102,10 +102,10 @@ class LSMScanConfigModel(BaseModel):
         default=False, description="Whether to stitch the volume from the strips"
     )
     
-    channel_volume_zarr_size_threshold: int = Field(
-        default=10**9,
-        ge=1,
-        description="Min total bytes for stitched channel volume zarr when validation runs",
+    channel_volume_zarr_size_threshold: float = Field(
+        default=1.0,
+        gt=0,
+        description="Min total size in GB for stitched channel volume zarr when validation runs",
     )
     skip_channel_volume_zarr_validation: bool = Field(
         default=True,
@@ -178,7 +178,7 @@ class LSMScanConfigOverrides(BaseModel):
     num_workers: Optional[int] = Field(default=None, ge=1)
     stitch_volume: Optional[bool] = None
     strip_folder_size_threshold: Optional[float] = Field(default=None, gt=0)
-    channel_volume_zarr_size_threshold: Optional[int] = Field(default=None, ge=1)
+    channel_volume_zarr_size_threshold: Optional[float] = Field(default=None, gt=0)
     skip_channel_volume_zarr_validation: Optional[bool] = None
 
 

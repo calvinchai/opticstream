@@ -112,7 +112,7 @@ def process_channel_volume(
     zthr = (
         0
         if scan_config.skip_channel_volume_zarr_validation
-        else scan_config.channel_volume_zarr_size_threshold
+        else int(scan_config.channel_volume_zarr_size_threshold * 10**9)
     )
     check = check_channel_volume_result(
         channel_ident=channel_ident,

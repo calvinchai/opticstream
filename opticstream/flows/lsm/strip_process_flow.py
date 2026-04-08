@@ -51,7 +51,6 @@ from opticstream.utils.zarr_validation import (
 from opticstream.flows.lsm.strip_archive_flow import (
     archive_strip,
     check_archive_result,
-    check_disbributed_archive_result,
     invalid_path,
 )
 from opticstream.flows.lsm.strip_cleanup_flow import (
@@ -448,13 +447,6 @@ def process_strip(
     backup_result = ValidationResult(ok=True, size_bytes=0)
     if check_backup_future:
         backup_result = check_backup_future.result(raise_on_failure=True)
-    elif archive_path is not None and scan_config.distribute_archive:
-        backup_result = check_disbributed_archive_result(
-            strip_ident=strip_ident,
-            timeout=scan_config.distribute_archive_timeout,
-            backup_path=os.fspath(backup_path),
-        )
-
 
     success = compress_result.ok and backup_result.ok
 
@@ -469,13 +461,19 @@ def process_strip(
         backup_disk=backup_disk,
     )
 
+    should_cleanup = True
     with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        if backup_result.ok and backup_path is not None:
+        if not scan_config.distribute_archive and backup_result.ok and backup_path is not None:
             strip_state.set_archived(True)
         if success:
             strip_state.mark_completed()
         else:
             strip_state.mark_failed()
+        # For distributed archive: atomically decide cleanup responsibility.
+        # If archive is already done (archived=True), we take cleanup here;
+        # otherwise the archive flow will handle it when it finishes.
+        if scan_config.distribute_archive and archive_path is not None:
+            should_cleanup = strip_state.archived
 
     failure_reasons: List[str] = []
     if not compress_result.ok and compress_result.reason:
@@ -498,13 +496,14 @@ def process_strip(
     if not success:
         raise RuntimeError(message)
 
-    cleanup_future = run_cleanup_tasks(
-        cleanup_action=strip_cleanup_action,
-        strip_ident=strip_ident,
-        strip_path=os.fspath(strip_path),
-    )
-    if cleanup_future:
-        cleanup_future.wait()
+    if should_cleanup:
+        cleanup_future = run_cleanup_tasks(
+            cleanup_action=strip_cleanup_action,
+            strip_ident=strip_ident,
+            strip_path=os.fspath(strip_path),
+        )
+        if cleanup_future:
+            cleanup_future.wait()
 
     return None
 

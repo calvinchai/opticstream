@@ -19,6 +19,7 @@ from opticstream.flows.lsm.utils import (
     load_scan_config_for_payload,
     strip_ident_from_payload,
 )
+from opticstream.flows.lsm.strip_cleanup_flow import run_cleanup_tasks
 from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
 from opticstream.state.milestone_wrappers_lsm import strip_processing_milestone
 from opticstream.state.state_guards import RunDecision, enter_milestone_stage, force_rerun_from_payload
@@ -233,6 +234,21 @@ def archive_strip_event_flow(payload: Dict[str, Any]) -> None:
         rate_limit_mb=cfg.archive_rate_limit,
         force_rerun=force_rerun_from_payload(payload),
     )
+
+    if cfg.distribute_archive:
+        # Locked read: archived is already True (set inside archive_strip_flow).
+        # If compressed is also True, the process flow already finished and
+        # handed cleanup responsibility to us. Otherwise, process will handle
+        # cleanup when it completes (it will see archived=True in its open_strip block).
+        strip_view = LSM_STATE_SERVICE.read_strip(strip_ident=strip_ident)
+        if strip_view and strip_view.compressed:
+            cleanup_future = run_cleanup_tasks(
+                cleanup_action=cfg.strip_cleanup_action,
+                strip_ident=strip_ident,
+                strip_path=payload["strip_path"],
+            )
+            if cleanup_future:
+                cleanup_future.wait()
 
 
 def to_deployment(
