@@ -73,13 +73,21 @@ def process(
     concurrent_workers: int = 2,
 ):
     chdir_to_opticstream_install_root()
-    strip_process_deployments(
+    deployments = strip_process_deployments(
         deployment_name="local",
         concurrent_workers=concurrent_workers,
         extra_tags=("lsm",),
-    ).serve()
+    )
+    prefect.serve(*deployments)
+
 
 @serve.command
 def archive():
     chdir_to_opticstream_install_root()
-    archive_strip.serve()
+    from opticstream.flows.lsm.strip_archive_flow import to_deployment
+    deployments = to_deployment(
+        deployment_name="local",
+        extra_tags=("lsm",),
+    )
+    
+    prefect.serve(*deployments)

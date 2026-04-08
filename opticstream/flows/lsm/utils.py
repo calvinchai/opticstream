@@ -114,12 +114,13 @@ def _strip_formatted_output_path(
     format_template: str,
 ) -> Path:
     acq = f"camera-{strip_ident.channel_id:02d}"
-    return lsm_output_root(scan_config) / format_template.format(
+    output_path = lsm_output_root(scan_config) / format_template.format(
         project_name=strip_ident.project_name,
         slice_id=strip_ident.slice_id,
         strip_id=strip_ident.strip_id,
         acq=acq,
     )
+    return host_lsm_fs_path(output_path)
 
 
 def strip_zarr_output_path(
