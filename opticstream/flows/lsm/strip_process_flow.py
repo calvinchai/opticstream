@@ -383,22 +383,21 @@ def process_strip(
     
     backup_path = None
     check_backup_future = None
-    if archive_path is not None:
-        if not scan_config.distribute_archive:
-            backup_path = host_lsm_fs_path(archive_path / strip_path.name)
-            backup_path.parent.mkdir(parents=True, exist_ok=True)
-            backup_future = archive_strip.submit(
-                strip_ident=strip_ident,
-                strip_path=os.fspath(strip_path),
-                output_path=os.fspath(backup_path),
-                force_rerun=force_rerun
-            )
-            check_backup_future = check_archive_result.submit(
-                strip_ident=strip_ident,
-                strip_path=os.fspath(strip_path),
-                backup_path=os.fspath(backup_path),
-                wait_for=[backup_future],
-            )
+    if archive_path is not None and not scan_config.distribute_archive:
+        backup_path = host_lsm_fs_path(archive_path / strip_path.name)
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        backup_future = archive_strip.submit(
+            strip_ident=strip_ident,
+            strip_path=os.fspath(strip_path),
+            output_path=os.fspath(backup_path),
+            force_rerun=force_rerun
+        )
+        check_backup_future = check_archive_result.submit(
+            strip_ident=strip_ident,
+            strip_path=os.fspath(strip_path),
+            backup_path=os.fspath(backup_path),
+            wait_for=[backup_future],
+        )
 
     compress_result = ValidationResult(ok=True, size_bytes=0)
     if scan_config.output_path is not None or scan_config.generate_mip:
@@ -431,11 +430,12 @@ def process_strip(
 
     backup_result = ValidationResult(ok=True, size_bytes=0)
     if check_backup_future:
-        if not scan_config.distribute_archive:
-            backup_result = check_backup_future.result(raise_on_failure=True)
-        else:
-            # wait for backup to complete
-            backup_result = check_disbributed_archive_result(strip_ident=strip_ident, strip_path=os.fspath(strip_path), backup_path=os.fspath(backup_path), timeout=scan_config.distribute_archive_timeout)
+        backup_result = check_backup_future.result(raise_on_failure=True)
+    elif archive_path is not None and scan_config.distribute_archive:
+        backup_result = check_disbributed_archive_result(
+            strip_ident=strip_ident,
+            timeout=scan_config.distribute_archive_timeout,
+        )
 
 
     success = compress_result.ok and backup_result.ok

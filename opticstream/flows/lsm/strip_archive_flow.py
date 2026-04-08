@@ -119,9 +119,9 @@ def check_archive_result(
 @task
 def check_disbributed_archive_result(
     strip_ident: LSMStripId,
-    strip_path: str,
-    backup_path: str,
     timeout: int,
+    strip_path: Optional[str] = None,
+    backup_path: Optional[str] = None,
 ) -> ValidationResult:
     """
     Check if the backup strip is valid.
