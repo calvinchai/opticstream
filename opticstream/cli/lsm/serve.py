@@ -28,7 +28,7 @@ serve = lsm_cli.command(App(name="serve"))
 @serve.command
 def all(
     concurrent_workers: int = 2,
-    process:bool = False,
+    process:bool = True,
 ) -> None:
     chdir_to_opticstream_install_root()
     deployments: list = []
@@ -82,4 +82,4 @@ def process(
 @serve.command
 def archive():
     chdir_to_opticstream_install_root()
-    archive_strip.serve(con)
+    archive_strip.serve()
