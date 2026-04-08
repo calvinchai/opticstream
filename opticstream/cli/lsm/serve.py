@@ -13,7 +13,6 @@ from opticstream.flows.lsm.channel_upload_flow import (
 from opticstream.flows.lsm.channel_volume_flow import (
     to_deployment as channel_volume_deployments,
 )
-from opticstream.flows.lsm.strip_archive_flow import archive_strip
 from opticstream.flows.lsm.strip_process_flow import (
     to_deployment as strip_process_deployments,
 )
@@ -82,12 +81,14 @@ def process(
 
 
 @serve.command
-def archive():
+def archive(concurrent_workers: int = 1):
     chdir_to_opticstream_install_root()
     from opticstream.flows.lsm.strip_archive_flow import to_deployment
+
     deployments = to_deployment(
         deployment_name="local",
         extra_tags=("lsm",),
+        concurrent_workers=concurrent_workers,
     )
-    
+
     prefect.serve(*deployments)

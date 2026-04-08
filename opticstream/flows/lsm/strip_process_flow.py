@@ -360,19 +360,20 @@ def process_strip(
         else DirManifest(file_count=0, total_bytes=0, sizes={})
     )
 
-    if initial_strip_manifest.total_bytes < scan_config.strip_folder_size_threshold:
+    strip_threshold_bytes = int(scan_config.strip_folder_size_threshold * 10**9)
+    if initial_strip_manifest.total_bytes < strip_threshold_bytes:
         msg = (
             f":warning: Strip folder too small for {strip_ident} — "
             f"please check if the acquisition completed correctly.\n"
             f"- Path: `{strip_path}`\n"
             f"- Size: {format_bytes(initial_strip_manifest.total_bytes)} "
-            f"(threshold: {format_bytes(scan_config.strip_folder_size_threshold)})"
+            f"(threshold: {format_bytes(strip_threshold_bytes)})"
         )
         send_slack_message(msg)
         raise RuntimeError(
             f"Strip folder {strip_path} is too small: "
             f"{format_bytes(initial_strip_manifest.total_bytes)} < "
-            f"{format_bytes(scan_config.strip_folder_size_threshold)}"
+            f"{format_bytes(strip_threshold_bytes)}"
         )
 
     acq = f"camera-{strip_ident.channel_id:02d}"

@@ -33,14 +33,15 @@ def invalid_path(path: Optional[str]) -> bool:
     return path is None or path in {"/", ".", ""}
 
 
-def _make_throttled_copy(rate_limit_bytes: int):
+def _make_throttled_copy(rate_limit_mb: int):
     """
     Return a copy_function for shutil.copytree that paces transfers to
-    ``rate_limit_bytes`` bytes/s by sleeping between files.
+    ``rate_limit_mb`` MB/s by sleeping between files.
 
     Because individual files are small relative to the rate limit the
     sleep granularity is per-file, which is sufficient.
     """
+    rate_limit_bytes = rate_limit_mb * 10**6
     start = time.monotonic()
     total_copied: list[int] = [0]
 
@@ -60,7 +61,7 @@ def archive_strip(
     strip_ident: LSMStripId,
     strip_path: str,
     output_path: str,
-    rate_limit_bytes: int = 500 * 10**6,
+    rate_limit_mb: int = 500,
     force_rerun: bool = False,
 ) -> None:
     """
@@ -87,7 +88,7 @@ def archive_strip(
     rsync_path = shutil.which("rsync")
 
     if rsync_path is not None:
-        bwlimit_kb = max(1, rate_limit_bytes // 1000)
+        bwlimit_kb = max(1, rate_limit_mb * 1000)
         subprocess.run(
             [rsync_path, "-a", f"--bwlimit={bwlimit_kb}", f"{strip_path}/", f"{output_path}/"],
             check=True,
@@ -97,7 +98,7 @@ def archive_strip(
             strip_path,
             output_path,
             dirs_exist_ok=True,
-            copy_function=_make_throttled_copy(rate_limit_bytes),
+            copy_function=_make_throttled_copy(rate_limit_mb),
         )
     logger.info(f"Backed up {strip_ident} to {output_path}")
 
@@ -174,7 +175,7 @@ def archive_strip_flow(
     strip_ident: LSMStripId,
     strip_path: str,
     archive_path: str,
-    rate_limit_bytes: int = 500 * 10**6,
+    rate_limit_mb: int = 500,
     force_rerun: bool = False,
 ) -> None:
     """
@@ -196,7 +197,7 @@ def archive_strip_flow(
         strip_ident=strip_ident,
         strip_path=resolved_strip,
         output_path=backup_path,
-        rate_limit_bytes=rate_limit_bytes,
+        rate_limit_mb=rate_limit_mb,
         force_rerun=force_rerun,
     )
     check_archive_result.submit(
@@ -229,7 +230,7 @@ def archive_strip_event_flow(payload: Dict[str, Any]) -> None:
         strip_ident=strip_ident,
         strip_path=payload["strip_path"],
         archive_path=os.fspath(cfg.archive_path),
-        rate_limit_bytes=cfg.archive_rate_limit,
+        rate_limit_mb=cfg.archive_rate_limit,
         force_rerun=force_rerun_from_payload(payload),
     )
 
@@ -239,6 +240,7 @@ def to_deployment(
     project_name: Optional[str] = None,
     deployment_name: str = "local",
     extra_tags: Sequence[str] = (),
+    concurrent_workers: int = 1,
 ) -> list:
     """
     Create both deployments:
@@ -248,10 +250,12 @@ def to_deployment(
     manual = archive_strip_flow.to_deployment(
         name=deployment_name,
         tags=["lsm", "archive-strip", *list(extra_tags)],
+        concurrency_limit=concurrent_workers,
     )
     event = archive_strip_event_flow.to_deployment(
         name=deployment_name,
         tags=["event-driven", "lsm", "archive-strip", *list(extra_tags)],
+        concurrency_limit=concurrent_workers,
         triggers=[get_event_trigger(STRIP_READY, project_name=project_name)],
     )
     return [manual, event]
