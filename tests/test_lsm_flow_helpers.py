@@ -87,7 +87,7 @@ def test_strip_zarr_output_path_uses_project_base_when_output_none():
     cfg = _minimal_cfg(output_path=None)
     sid = LSMStripId(project_name="myproj", slice_id=2, strip_id=7, channel_id=1)
     p = strip_zarr_output_path(sid, cfg)
-    assert p.startswith("/base")
+    assert str(p).startswith("/base")
     assert "slice02" in p or "02" in p
     assert "chunk-0007" in p or "0007" in p
 
@@ -96,14 +96,14 @@ def test_strip_zarr_output_path_prefers_output_path():
     cfg = _minimal_cfg(output_path="/out")
     sid = LSMStripId(project_name="myproj", slice_id=1, strip_id=1, channel_id=2)
     p = strip_zarr_output_path(sid, cfg)
-    assert p.startswith("/out")
+    assert str(p).startswith("/out")
 
 
 def test_strip_mip_output_path():
     cfg = _minimal_cfg(output_path="/z")
     sid = LSMStripId(project_name="myproj", slice_id=1, strip_id=3, channel_id=1)
     p = strip_mip_output_path(sid, cfg)
-    assert p.startswith("/z")
+    assert str(p).startswith("/z")
     assert "proc-mip" in p
 
 
@@ -111,10 +111,11 @@ def test_channel_zarr_volume_path():
     cfg = _minimal_cfg()
     cid = LSMChannelId(project_name="myproj", slice_id=4, channel_id=2)
     p = channel_zarr_volume_path(cid, cfg)
-    assert "myproj" in p
-    assert "slice-04" in p
-    assert "channel-02" in p
-    assert p.endswith("_volume.zarr")
+    ps = str(p)
+    assert "myproj" in ps
+    assert "slice-04" in ps
+    assert "channel-02" in ps
+    assert ps.endswith("_volume.zarr")
 
 
 def test_strip_ident_from_payload_dict():

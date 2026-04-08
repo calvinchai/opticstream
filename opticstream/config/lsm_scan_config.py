@@ -49,7 +49,14 @@ class LSMScanConfigModel(BaseModel):
         default=None,
         description="Path to the archive directory for backup of compressed strips",
     )
-
+    distribute_archive: bool = Field(
+        default=False,
+        description="Whether to run the archive process in a distributed manner",
+    )
+    distribute_archive_timeout: int = Field(
+        default=600, ge=0,
+        description="Timeout for the archive process in seconds, after compression is complete",
+    )
     strip_cleanup_action: StripCleanupAction = Field(
         default=StripCleanupAction.RENAME,
         description="How to handle the raw spooled strip after compression/backup: keep, rename into processed/, or delete",

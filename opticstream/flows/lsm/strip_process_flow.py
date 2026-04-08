@@ -1,8 +1,5 @@
 import os
-import os.path as op
 from pathlib import Path
-import shutil
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -10,14 +7,13 @@ import dask
 import psutil
 from niizarr.multizarr import ZarrConfig
 from prefect import flow, get_run_logger, task
-from prefect.futures import PrefectFuture
 
 from opticstream.hooks.publish_hooks import (
     publish_lsm_project_hook,
     publish_lsm_slice_hook,
 )
 from opticstream.hooks.check_channel_ready_hook import check_channel_ready_hook
-from opticstream.config.lsm_scan_config import LSMScanConfigModel, StripCleanupAction
+from opticstream.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_READY
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
@@ -49,9 +45,17 @@ from opticstream.utils.filesystem import format_bytes, get_disk_usage_info
 from opticstream.utils.zarr_validation import (
     DirManifest,
     ValidationResult,
-    compare_dir_manifests,
     get_dir_manifest,
     validate_zarr_directory,
+)
+from opticstream.flows.lsm.strip_archive_flow import (
+    archive_strip,
+    check_archive_result,
+    invalid_path,
+)
+from opticstream.flows.lsm.strip_cleanup_flow import (
+    describe_cleanup,
+    run_cleanup_tasks,
 )
 
 
@@ -160,13 +164,13 @@ def format_strip_usage_details(usage: Dict[str, Any]) -> str:
 @task(task_run_name="compress-{strip_ident}")
 def compress_strip(
     strip_ident: LSMStripId,
-    strip_path: str,
-    info_file: str,
-    output_path: str,
+    strip_path: Path,
+    info_file: Path,
+    output_path: Path,
     zarr_config: "ZarrConfig",
     num_workers: int = 6,
     cpu_affinity: Optional[List[int]] = None,
-    mip_output_path: Optional[str] = None,
+    mip_output_path: Optional[Path] = None,
     force_rerun: bool = False,
 ) -> None:
     """
@@ -197,59 +201,17 @@ def compress_strip(
 
     with dask.config.set(pool=ThreadPoolExecutor(num_workers)):
         strip.convert(
-            inp=strip_path,
-            info_file=info_file,
-            mip_image_output=mip_output_path,
-            out=output_path,
+            inp=os.fspath(strip_path),
+            info_file=os.fspath(info_file),
+            mip_image_output=os.fspath(mip_output_path)
+            if mip_output_path is not None
+            else None,
+            out=os.fspath(output_path),
             zarr_config=zarr_config,
             nii=False,
         )
     logger.info(f"Compressed {strip_ident} to {output_path}")
 
-
-@task(task_run_name="archive-{strip_ident}", tags=["lsm-data-archive"])
-def archive_strip(
-    strip_ident: LSMStripId,
-    strip_path: str,
-    output_path: str,
-    force_rerun: bool = False,
-) -> None:
-    """
-    Backup a strip of a slice.
-    """
-    logger = get_run_logger()
-    logger.info(f"Backing up {strip_ident}")
-
-    strip_view = LSM_STATE_SERVICE.peek_strip(
-        strip_ident=strip_ident,
-    )
-    if (
-        enter_milestone_stage(
-            item_state_view=strip_view,
-            item_ident=strip_ident,
-            field_name="archived",
-            force_rerun=force_rerun,
-        )
-        == RunDecision.SKIPPED
-    ):
-        return
-    if invalid_path(output_path):
-        raise ValueError(f"Refusing unsafe archive destination: {output_path}")
-    rsync_path = shutil.which("rsync")
-
-    if rsync_path is not None:
-        subprocess.run(
-            [rsync_path, "-a", f"{strip_path}/", f"{output_path}/"],
-            check=True,
-        )
-    else:
-        shutil.copytree(
-            strip_path,
-            output_path,
-            dirs_exist_ok=True,
-            copy_function=shutil.copy2,
-        )
-    logger.info(f"Backed up {strip_ident} to {output_path}")
 
 
 @task(task_run_name="check-compressed-{strip_ident}")
@@ -311,44 +273,6 @@ def check_compressed_result(
     return ValidationResult(ok=True, size_bytes=zarr_size_bytes)
 
 
-@task(task_run_name="check-backup-{strip_ident}")
-def check_backup_result(
-    strip_ident: LSMStripId,
-    strip_path: str,
-    backup_path: Optional[str] = None,
-) -> ValidationResult:
-    """
-    Check if the backup strip is valid.
-    """
-    logger = get_run_logger()
-    logger.info(f"Checking if backup for {strip_ident} is valid")
-
-    if backup_path is None:
-        logger.warning(f"Backup path is not set for {strip_ident}")
-        return ValidationResult(ok=True, size_bytes=0)
-
-    if not os.path.exists(backup_path):
-        logger.error(f"Backup strip {strip_ident} does not exist")
-        return ValidationResult(
-            ok=False,
-            size_bytes=0,
-            reason="backup missing",
-        )
-
-    source_manifest = get_dir_manifest(strip_path)
-    backup_manifest = get_dir_manifest(backup_path)
-
-    if not compare_dir_manifests(source_manifest, backup_manifest, logger=logger):
-        logger.error(f"Backup strip {strip_ident} is not the same as the strip path")
-        return ValidationResult(
-            ok=False,
-            size_bytes=backup_manifest.total_bytes,
-            reason="backup differs from source",
-        )
-    with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
-        strip_state.set_archived(True)
-    return ValidationResult(ok=True, size_bytes=backup_manifest.total_bytes)
-
 
 @task(on_failure=[slack_notification_hook])
 def strip_mip_qc_notification(
@@ -380,7 +304,7 @@ def strip_mip_qc_notification(
         window_max=window_max,
         split=2,
     )
-    files = [preview_path] + [
+    files = [
         Path(preview_path).with_suffix(f".part{i + 1}.jpg") for i in range(2)
     ]
     upload_multiple_files_to_slack(
@@ -388,88 +312,18 @@ def strip_mip_qc_notification(
     )
 
 
-@task(task_run_name="rename-strip-{strip_ident}")
-def rename_strip_task(
+
+@task
+def check_strip_timestamp(
     strip_ident: LSMStripId,
     strip_path: str,
-    do_rename: bool = False,
 ) -> None:
     """
-    Rename a strip of a slice.
+    Check if the strip timestamp is valid.
     """
+    # TODO: two channels should have similar timestamps
     logger = get_run_logger()
-    logger.info(f"Renaming {strip_ident}")
-    if not do_rename:
-        logger.info(f"Skipping renaming of {strip_ident}")
-        return
-    parent_path, basename = os.path.split(strip_path)
-    processed_folder = op.join(parent_path, "processed")
-    os.makedirs(processed_folder, exist_ok=True)
-    new_strip_path = op.join(processed_folder, basename)
-    os.rename(strip_path, new_strip_path)
-    os.makedirs(strip_path, exist_ok=True)
-    logger.info(f"Renamed {strip_ident} to {new_strip_path}")
-
-
-@task(task_run_name="delete-strip-{strip_ident}")
-def delete_strip_task(
-    strip_ident: LSMStripId,
-    strip_path: str,
-    do_delete: bool = False,
-) -> None:
-    """
-    Delete a strip of a slice.
-    """
-    logger = get_run_logger()
-    if not do_delete:
-        logger.info(f"Skipping deletion of {strip_ident}")
-        return
-    logger.info(f"Deleting {strip_ident}")
-    shutil.rmtree(strip_path)
-    os.makedirs(strip_path, exist_ok=True)
-
-
-def describe_cleanup(cleanup_action: StripCleanupAction) -> str:
-    """
-    Describe what will happen to the raw strip folder based on configuration.
-    """
-    if cleanup_action == StripCleanupAction.DELETE:
-        return "raw strip folder will be deleted"
-    if cleanup_action == StripCleanupAction.RENAME:
-        return "raw strip folder will be renamed into processed/"
-    return "raw strip folder will be kept in place"
-
-
-def invalid_path(path: Optional[str]) -> bool:
-    return path is None or path in {"/", ".", ""}
-
-
-def run_cleanup_tasks(
-    cleanup_action: StripCleanupAction,
-    strip_ident: LSMStripId,
-    strip_path: str,
-) -> Optional[PrefectFuture]:
-    """
-    Run cleanup task synchronously according to cleanup action.
-    """
-    if cleanup_action == StripCleanupAction.DELETE:
-        delete_future = delete_strip_task.submit(
-            strip_ident=strip_ident,
-            strip_path=strip_path,
-            do_delete=True,
-        )
-        return delete_future
-
-    if cleanup_action == StripCleanupAction.RENAME:
-        rename_future = rename_strip_task.submit(
-            strip_ident=strip_ident,
-            strip_path=strip_path,
-            do_rename=True,
-        )
-        return rename_future
-
-    return None
-
+    logger.info(f"Checking strip timestamp for {strip_ident}")
 
 @flow(
     flow_run_name="process-strip-{strip_ident}",
@@ -500,7 +354,7 @@ def process_strip(
         return None
 
     initial_strip_manifest = (
-        get_dir_manifest(strip_path)
+        get_dir_manifest(os.fspath(strip_path))
         if os.path.exists(strip_path)
         else DirManifest(file_count=0, total_bytes=0, sizes={})
     )
@@ -516,19 +370,41 @@ def process_strip(
     strip_cleanup_action = scan_config.strip_cleanup_action
 
     zarr_output_path = strip_zarr_output_path(strip_ident, scan_config)
+    zarr_output_path = host_lsm_fs_path(zarr_output_path)
+    zarr_output_path.parent.mkdir(parents=True, exist_ok=True)
     has_zarr_output = scan_config.output_path is not None
 
     mip_output_path = None
     if scan_config.generate_mip:
         mip_output_path = strip_mip_output_path(strip_ident, scan_config)
-
+        mip_output_path = host_lsm_fs_path(mip_output_path)
+        mip_output_path.parent.mkdir(parents=True, exist_ok=True)
+    
     backup_path = None
+    check_backup_future = None
     if archive_path is not None:
-        backup_path = op.join(archive_path, os.path.basename(strip_path))
+        backup_path = host_lsm_fs_path(archive_path / strip_path.name)
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        if scan_config.distribute_archive:
+            run_method = archive_strip.delay
+        else:
+            run_method = archive_strip.submit
+        backup_future = run_method(
+            strip_ident=strip_ident,
+            strip_path=os.fspath(strip_path),
+            output_path=os.fspath(backup_path),
+            force_rerun=force_rerun
+        )
+        check_backup_future = check_archive_result.submit(
+            strip_ident=strip_ident,
+            strip_path=os.fspath(strip_path),
+            backup_path=os.fspath(backup_path),
+            wait_for=[backup_future],
+        )
 
-    compress_future = None
-    if scan_config.output_path is not None:
-        compress_future = compress_strip.submit(
+    compress_result = ValidationResult(ok=True, size_bytes=0)
+    if scan_config.output_path is not None or scan_config.generate_mip:
+        compress_strip(
             strip_ident=strip_ident,
             strip_path=strip_path,
             info_file=host_lsm_fs_path(scan_config.info_file),
@@ -539,70 +415,34 @@ def process_strip(
             mip_output_path=mip_output_path,
             force_rerun=force_rerun,
         )
-
-    backup_future = None
-    if backup_path:
-        backup_future = archive_strip.submit(
+        check_compressed_result(
             strip_ident=strip_ident,
-            strip_path=strip_path,
-            output_path=backup_path,
-            force_rerun=force_rerun,
-        )
-
-    check_compressed_future = None
-    if compress_future:
-        check_compressed_future = check_compressed_result.submit(
-            strip_ident=strip_ident,
-            output_path=zarr_output_path,
-            mip_output_path=mip_output_path,
+            output_path=os.fspath(zarr_output_path),
+            mip_output_path=os.fspath(mip_output_path) if mip_output_path else None,
             generate_mip=scan_config.generate_mip,
             generate_zarr=has_zarr_output,
-            wait_for=[compress_future],
         )
-
-    check_backup_future = None
-    if backup_future:
-        check_backup_future = check_backup_result.submit(
-            strip_ident=strip_ident,
-            strip_path=strip_path,
-            backup_path=backup_path,
-            wait_for=[backup_future],
-        )
-
-    backup_result = ValidationResult(ok=True, size_bytes=0)
-    if check_backup_future:
-        try:
-            backup_result = check_backup_future.result()
-        except Exception as e:
-            logger.error(f"Error checking backup result: {e}")
-            backup_result = ValidationResult(
-                ok=False,
-                size_bytes=0,
-                reason=f"backup check error: {e}",
-            )
-
-    compress_result = ValidationResult(ok=True, size_bytes=0)
-    if check_compressed_future:
-        try:
-            compress_result = check_compressed_future.result()
-        except Exception as e:
-            logger.error(f"Error checking compressed result: {e}")
-            compress_result = ValidationResult(
-                ok=False,
-                size_bytes=0,
-                reason=f"compressed check error: {e}",
-            )
         if scan_config.generate_mip:
             strip_mip_qc_notification(
                 strip_ident=strip_ident,
-                mip_stitched_path=mip_output_path,
+                mip_stitched_path=os.fspath(mip_output_path)
+                if mip_output_path
+                else None,
                 output_mip_preview_window=scan_config.output_mip_preview_window,
             )
 
+    backup_result = ValidationResult(ok=True, size_bytes=0)
+    if check_backup_future:
+        timeout = None
+        if scan_config.distribute_archive:
+            timeout = scan_config.distribute_archive_timeout
+        backup_result = check_backup_future.result(timeout=timeout, raise_on_failure=True)
+
+
     success = compress_result.ok and backup_result.ok
 
-    strip_disk = get_disk_usage_info(strip_path)
-    backup_disk = get_disk_usage_info(backup_path)
+    strip_disk = get_disk_usage_info(os.fspath(strip_path))
+    backup_disk = get_disk_usage_info(os.fspath(backup_path) if backup_path else None)
 
     usage_info = build_strip_usage_details(
         strip_size_bytes=initial_strip_manifest.total_bytes,
@@ -644,7 +484,7 @@ def process_strip(
     cleanup_future = run_cleanup_tasks(
         cleanup_action=strip_cleanup_action,
         strip_ident=strip_ident,
-        strip_path=strip_path,
+        strip_path=os.fspath(strip_path),
     )
     if cleanup_future:
         cleanup_future.wait()

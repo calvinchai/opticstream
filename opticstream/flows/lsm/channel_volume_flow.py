@@ -6,6 +6,7 @@ Upload runs in channel_upload_flow (separate deployment).
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
@@ -46,17 +47,15 @@ def _stitch_channel_volume(
 
     Ensures output directory exists; real implementation should write the zarr store.
     """
-    import os
-
     logger = get_run_logger()
     out = channel_zarr_volume_path(channel_ident, scan_config)
     os.makedirs(out, exist_ok=True)
-    marker = os.path.join(out, ".opticstream_volume_placeholder")
+    marker = out / ".opticstream_volume_placeholder"
     if not os.path.exists(marker):
         with open(marker, "w", encoding="utf-8") as f:
             f.write("placeholder\n")
     logger.info(f"Volume stitch placeholder for {channel_ident} -> {out}")
-    return out
+    return os.fspath(out)
 
 
 @task(task_run_name="check-channel-volume-{channel_ident}")

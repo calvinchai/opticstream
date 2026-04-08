@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger
@@ -43,7 +44,9 @@ def upload_strip_to_dandi_flow(
     output_path = host_lsm_fs_path(output_path)
     logger.info(f"Output path: {output_path}")
     logger.info(f"Uploading {strip_ident} to DANDI")
-    upload_to_dandi(output_path, dandi_instance=dandi_instance, dandi_bin=dandi_bin)
+    upload_to_dandi(
+        os.fspath(output_path), dandi_instance=dandi_instance, dandi_bin=dandi_bin
+    )
     logger.info(f"Successfully uploaded {strip_ident} to DANDI")
 
 

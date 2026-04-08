@@ -4,6 +4,7 @@ Upload stitched channel volume (e.g. DANDI). Triggered on CHANNEL_VOLUME_STITCHE
 
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
@@ -77,7 +78,7 @@ def upload_channel_volume(
     volume_path = host_lsm_fs_path(
         channel_zarr_volume_path(channel_ident, scan_config)
     )
-    _upload_channel_volume_to_dandi(channel_ident, volume_path)
+    _upload_channel_volume_to_dandi(channel_ident, os.fspath(volume_path))
 
     with LSM_STATE_SERVICE.open_channel(channel_ident=channel_ident) as ch:
         ch.set_volume_uploaded(True)
@@ -87,7 +88,7 @@ def upload_channel_volume(
         CHANNEL_VOLUME_UPLOADED,
         channel_ident,
         extra_payload={
-            "volume_path": volume_path,
+            "volume_path": os.fspath(volume_path),
         },
     )
     logger.info(f"Channel {channel_ident} volume uploaded")

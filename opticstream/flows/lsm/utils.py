@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-import os.path as op
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, Mapping, Type, TypeVar
@@ -65,7 +65,7 @@ def load_scan_config_for_payload(
     )
 
 
-def host_lsm_fs_path(path: Path | str) -> str:
+def host_lsm_fs_path(path: Path | str) -> Path:
     """
     Resolve paths from Windows acquisition hosts when flows run on Linux.
 
@@ -74,8 +74,7 @@ def host_lsm_fs_path(path: Path | str) -> str:
     """
     s = os.fspath(path)
     if not sys.platform.startswith("linux"):
-        return s
-    import re
+        return Path(s)
 
     # Replace Windows drive-letter paths (e.g. D:/ or d:\) with corresponding /mnt/willow-x/ path
     def _replace_windows_drive_prefix(path_str: str) -> str:
@@ -100,10 +99,10 @@ def host_lsm_fs_path(path: Path | str) -> str:
 
     s = _replace_windows_drive_prefix(s)
     s = s.replace("\\", "/")
-    return s
+    return Path(s)
 
 
-def lsm_output_root(scan_config: LSMScanConfigModel) -> str:
+def lsm_output_root(scan_config: LSMScanConfigModel) -> Path:
     """Normalized output root: ``output_path`` if set, else ``project_base_path``."""
     root = scan_config.output_path or scan_config.project_base_path
     return host_lsm_fs_path(root)
@@ -113,22 +112,19 @@ def _strip_formatted_output_path(
     strip_ident: LSMStripId,
     scan_config: LSMScanConfigModel,
     format_template: str,
-) -> str:
+) -> Path:
     acq = f"camera-{strip_ident.channel_id:02d}"
-    return op.join(
-        lsm_output_root(scan_config),
-        format_template.format(
-            project_name=strip_ident.project_name,
-            slice_id=strip_ident.slice_id,
-            strip_id=strip_ident.strip_id,
-            acq=acq,
-        ),
+    return lsm_output_root(scan_config) / format_template.format(
+        project_name=strip_ident.project_name,
+        slice_id=strip_ident.slice_id,
+        strip_id=strip_ident.strip_id,
+        acq=acq,
     )
 
 
 def strip_zarr_output_path(
     strip_ident: LSMStripId, scan_config: LSMScanConfigModel
-) -> str:
+) -> Path:
     """Per-strip compressed zarr path (same convention as process_strip)."""
     fmt = scan_config.output_format or ""
     return _strip_formatted_output_path(strip_ident, scan_config, fmt)
@@ -136,7 +132,7 @@ def strip_zarr_output_path(
 
 def strip_mip_output_path(
     strip_ident: LSMStripId, scan_config: LSMScanConfigModel
-) -> str:
+) -> Path:
     """Per-strip MIP output path (same convention as process_strip)."""
     fmt = scan_config.output_mip_format or ""
     return _strip_formatted_output_path(strip_ident, scan_config, fmt)
@@ -144,10 +140,10 @@ def strip_mip_output_path(
 
 def channel_zarr_volume_path(
     channel_ident: LSMChannelId, scan_config: LSMScanConfigModel
-) -> str:
+) -> Path:
     """Stitched channel volume zarr path (same convention as channel_volume_flow)."""
     vol_name = (
         f"{channel_ident.project_name}_slice-{channel_ident.slice_id:02d}_"
         f"channel-{channel_ident.channel_id:02d}_volume.zarr"
     )
-    return op.join(lsm_output_root(scan_config), vol_name)
+    return lsm_output_root(scan_config) / vol_name

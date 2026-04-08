@@ -9,7 +9,6 @@ CHANNEL_MIP_STITCHED so channel_volume_flow can run 3D stitching afterward.
 from __future__ import annotations
 
 import os
-import os.path as op
 from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
@@ -124,39 +123,45 @@ def stitch_channel_mips(
     # save to files
     # Same root as strip MIP/zarr outputs (output_path if set, else project_base_path).
     out_root = lsm_output_root(scan_config)
-    mip_ch1_path = op.join(out_root, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch1.tiff")
-    mip_ch2_path = op.join(out_root, f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch2.tiff")
+    mip_ch1_path = out_root / (
+        f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch1.tiff"
+    )
+    mip_ch2_path = out_root / (
+        f"{channel_ident.slice_id:02d}_{channel_ident.channel_id:02d}_mip_ch2.tiff"
+    )
     
     from PIL import Image
     Image.fromarray(mip_ch1).save(mip_ch1_path)
     Image.fromarray(mip_ch2).save(mip_ch2_path)
 
     # generate the preview jpeg
+    mip_ch1_jpg = mip_ch1_path.with_suffix(".jpg")
+    mip_ch2_jpg = mip_ch2_path.with_suffix(".jpg")
     convert_image(
-        input=mip_ch1_path,
-        output=mip_ch1_path.replace(".tiff", ".jpg"),
+        input=os.fspath(mip_ch1_path),
+        output=os.fspath(mip_ch1_jpg),
         window_min=0,
         window_max=1000
     )
     convert_image(
-        input=mip_ch2_path,
-        output=mip_ch2_path.replace(".tiff", ".jpg"),
+        input=os.fspath(mip_ch2_path),
+        output=os.fspath(mip_ch2_jpg),
         window_min=0,
         window_max=1000
     )
     # upload to slack
     upload_multiple_files_to_slack(
-        filepaths=[mip_ch1_path.replace(".tiff", ".jpg"), mip_ch2_path.replace(".tiff", ".jpg")],
+        filepaths=[os.fspath(mip_ch1_jpg), os.fspath(mip_ch2_jpg)],
         initial_comment=f"MIP QC for slice {channel_ident.slice_id} channel {channel_ident.channel_id}"
     )
-    return mip_ch1_path, mip_ch2_path
+    return os.fspath(mip_ch1_path), os.fspath(mip_ch2_path)
 
     output_root = lsm_output_root(scan_config)
     stitched_name = (
         f"{channel_ident.project_name}_slice-{channel_ident.slice_id:02d}_"
         f"channel-{channel_ident.channel_id:02d}_mip_qc.tiff"
     )
-    stitched_path = op.join(output_root, stitched_name)
+    stitched_path = output_root / stitched_name
 
     logger.info(f"Channel-level stitched QC image would be written to {stitched_path}")
     return stitched_path
