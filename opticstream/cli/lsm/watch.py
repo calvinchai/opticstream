@@ -27,18 +27,25 @@ from opticstream.utils.process_priority_thread import (
 
 logger = logging.getLogger(__name__)
 
-# Ensure module logs are printed to the console
-if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
 
-logger = logging.getLogger(__name__)
+
+def _configure_logging(verbose: bool) -> None:
+    """Force log level on the root logger and ensure a StreamHandler is present.
+
+    basicConfig() is a no-op when any library has already attached a handler,
+    so we set the level explicitly here instead of relying on it.
+    """
+    level = logging.DEBUG if verbose else logging.INFO
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+        root.addHandler(handler)
+    root.setLevel(level)
+    # Ensure the opticstream namespace is not filtered out by a library-set level.
+    logging.getLogger("opticstream").setLevel(level)
 
 
 def _is_readable_dir(path: Path) -> bool:
@@ -310,6 +317,7 @@ def watch(
             help="Do not start the periodic process-priority background thread.",
         ),
     ] = False,
+    verbose: bool = False,
 ) -> None:
     """
     Poll for new LSM run folders and dispatch each stable strip either by:
@@ -318,6 +326,8 @@ def watch(
 
     Only immediate subdirectories whose names start with 'Run' are considered.
     """
+    _configure_logging(verbose)
+
     scan_config = get_lsm_scan_config(project_name)
     watch_path = Path(watch_dir)
 
