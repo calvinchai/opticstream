@@ -33,11 +33,34 @@ def invalid_path(path: Optional[str]) -> bool:
     return path is None or path in {"/", ".", ""}
 
 
+def _make_throttled_copy(rate_limit_bytes: int):
+    """
+    Return a copy_function for shutil.copytree that paces transfers to
+    ``rate_limit_bytes`` bytes/s by sleeping between files.
+
+    Because individual files are small relative to the rate limit the
+    sleep granularity is per-file, which is sufficient.
+    """
+    start = time.monotonic()
+    total_copied: list[int] = [0]
+
+    def _copy(src: str, dst: str) -> None:
+        shutil.copy2(src, dst)
+        total_copied[0] += os.path.getsize(dst)
+        expected_elapsed = total_copied[0] / rate_limit_bytes
+        deficit = expected_elapsed - (time.monotonic() - start)
+        if deficit > 0:
+            time.sleep(deficit)
+
+    return _copy
+
+
 @task(task_run_name="archive-{strip_ident}", tags=["lsm-data-archive"])
 def archive_strip(
     strip_ident: LSMStripId,
     strip_path: str,
     output_path: str,
+    rate_limit_bytes: int = 500 * 10**6,
     force_rerun: bool = False,
 ) -> None:
     """
@@ -64,8 +87,9 @@ def archive_strip(
     rsync_path = shutil.which("rsync")
 
     if rsync_path is not None:
+        bwlimit_kb = max(1, rate_limit_bytes // 1000)
         subprocess.run(
-            [rsync_path, "-a", f"{strip_path}/", f"{output_path}/"],
+            [rsync_path, "-a", f"--bwlimit={bwlimit_kb}", f"{strip_path}/", f"{output_path}/"],
             check=True,
         )
     else:
@@ -73,7 +97,7 @@ def archive_strip(
             strip_path,
             output_path,
             dirs_exist_ok=True,
-            copy_function=shutil.copy2,
+            copy_function=_make_throttled_copy(rate_limit_bytes),
         )
     logger.info(f"Backed up {strip_ident} to {output_path}")
 
@@ -132,7 +156,10 @@ def check_disbributed_archive_result(
     while time.time() - start_time < timeout:
         strip_view = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
         if strip_view.archived:
-            return ValidationResult(ok=True, size_bytes=0)
+            size_bytes = 0
+            if backup_path and os.path.exists(backup_path):
+                size_bytes = get_dir_manifest(backup_path).total_bytes
+            return ValidationResult(ok=True, size_bytes=size_bytes)
         time.sleep(1)
 
     return ValidationResult(ok=False, size_bytes=0, reason="timeout")
@@ -147,6 +174,7 @@ def archive_strip_flow(
     strip_ident: LSMStripId,
     strip_path: str,
     archive_path: str,
+    rate_limit_bytes: int = 500 * 10**6,
     force_rerun: bool = False,
 ) -> None:
     """
@@ -168,6 +196,7 @@ def archive_strip_flow(
         strip_ident=strip_ident,
         strip_path=resolved_strip,
         output_path=backup_path,
+        rate_limit_bytes=rate_limit_bytes,
         force_rerun=force_rerun,
     )
     check_archive_result.submit(
@@ -200,6 +229,7 @@ def archive_strip_event_flow(payload: Dict[str, Any]) -> None:
         strip_ident=strip_ident,
         strip_path=payload["strip_path"],
         archive_path=os.fspath(cfg.archive_path),
+        rate_limit_bytes=cfg.archive_rate_limit,
         force_rerun=force_rerun_from_payload(payload),
     )
 

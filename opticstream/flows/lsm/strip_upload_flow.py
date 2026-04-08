@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger
@@ -32,7 +33,7 @@ from opticstream.hooks.slack_notification_hook import slack_notification_hook
 @strip_processing_milestone(field_name="uploaded", success_event=STRIP_UPLOADED)
 def upload_strip_to_dandi_flow(
     strip_ident: LSMStripId,
-    output_path: str,
+    output_path: Path,
     dandi_instance: str = "linc",
     dandi_bin: str = "dandi",
     force_rerun: bool = False,

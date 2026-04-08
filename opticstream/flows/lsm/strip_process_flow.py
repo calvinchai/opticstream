@@ -360,6 +360,21 @@ def process_strip(
         else DirManifest(file_count=0, total_bytes=0, sizes={})
     )
 
+    if initial_strip_manifest.total_bytes < scan_config.strip_folder_size_threshold:
+        msg = (
+            f":warning: Strip folder too small for {strip_ident} — "
+            f"please check if the acquisition completed correctly.\n"
+            f"- Path: `{strip_path}`\n"
+            f"- Size: {format_bytes(initial_strip_manifest.total_bytes)} "
+            f"(threshold: {format_bytes(scan_config.strip_folder_size_threshold)})"
+        )
+        send_slack_message(msg)
+        raise RuntimeError(
+            f"Strip folder {strip_path} is too small: "
+            f"{format_bytes(initial_strip_manifest.total_bytes)} < "
+            f"{format_bytes(scan_config.strip_folder_size_threshold)}"
+        )
+
     acq = f"camera-{strip_ident.channel_id:02d}"
     logger.info(f"Processing {strip_ident} (acq={acq})")
 
@@ -383,8 +398,9 @@ def process_strip(
     
     backup_path = None
     check_backup_future = None
-    if archive_path is not None and not scan_config.distribute_archive:
+    if archive_path is not None:
         backup_path = host_lsm_fs_path(archive_path / strip_path.name)
+    if archive_path is not None and not scan_config.distribute_archive:
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         backup_future = archive_strip.submit(
             strip_ident=strip_ident,
@@ -412,7 +428,7 @@ def process_strip(
             mip_output_path=mip_output_path,
             force_rerun=force_rerun,
         )
-        check_compressed_result(
+        compress_result = check_compressed_result(
             strip_ident=strip_ident,
             output_path=os.fspath(zarr_output_path),
             mip_output_path=os.fspath(mip_output_path) if mip_output_path else None,
@@ -435,6 +451,7 @@ def process_strip(
         backup_result = check_disbributed_archive_result(
             strip_ident=strip_ident,
             timeout=scan_config.distribute_archive_timeout,
+            backup_path=os.fspath(backup_path),
         )
 
 

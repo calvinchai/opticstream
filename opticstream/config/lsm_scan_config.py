@@ -23,6 +23,11 @@ class LSMScanConfigModel(BaseModel):
         ..., description="Base filesystem path for project data"
     )
     info_file: Path = Field(..., description="Path to the info .mat file")
+    strip_folder_size_threshold: int = Field(
+        default=25*10**9,
+        ge=1,
+        description="Min total bytes for raw strip folder when running, if lower than this, the processing will just fail",
+    )
     output_path: Path | None = Field(
         default=None, description="Path to the output directory for compressed strips, if not set, no zarr output will be generated"
     )
@@ -56,6 +61,11 @@ class LSMScanConfigModel(BaseModel):
     distribute_archive_timeout: int = Field(
         default=600, ge=0,
         description="Timeout for the archive process in seconds, after compression is complete",
+    )
+    archive_rate_limit: int = Field(
+        default=500*10**6, # 800MB/s
+        ge=1,
+        description="Rate limit for the archive process in strips per second",
     )
     strip_cleanup_action: StripCleanupAction = Field(
         default=StripCleanupAction.RENAME,
@@ -91,6 +101,7 @@ class LSMScanConfigModel(BaseModel):
     stitch_volume: bool = Field(
         default=False, description="Whether to stitch the volume from the strips"
     )
+    
     channel_volume_zarr_size_threshold: int = Field(
         default=10**9,
         ge=1,

@@ -22,11 +22,17 @@ warnings.filterwarnings(
 )
 
 @lsm_cli.command
-def update_block() -> None:
+def update_block(
+    current_block_name: str | None = None,
+) -> None:
     """
     Update the LSMScanConfig block.
     """
     LSMScanConfig.register_type_and_schema()
+    if current_block_name is not None:
+        current_block = LSMScanConfig.load(current_block_name)
+        logger.info(f"Updating block {current_block_name}")
+        current_block.save(current_block_name, overwrite=True)
 
 
 @lsm_cli.command
