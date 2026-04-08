@@ -47,7 +47,23 @@ def delete_strip_task(
         logger.info(f"Skipping deletion of {strip_ident}")
         return
     logger.info(f"Deleting {strip_ident}")
-    shutil.rmtree(strip_path)
+    # Delete .dat files in the immediate directory only (not recursively)
+    deleted_files = 0
+    for filename in os.listdir(strip_path):
+
+        if filename.endswith('.dat'):
+            file_path = os.path.join(strip_path, filename)
+            try:
+                os.remove(file_path)
+                deleted_files += 1
+            except Exception as e:
+                logger.warning(f"Failed to delete .dat file {file_path}: {e}")
+    
+    if deleted_files > 0:
+        logger.info(f"Deleted {deleted_files} .dat files in {strip_path}")
+    else:
+        logger.info(f"No .dat files found in {strip_path}")
+    
     os.makedirs(strip_path, exist_ok=True)
 
 
