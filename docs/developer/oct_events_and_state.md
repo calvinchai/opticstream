@@ -82,7 +82,7 @@ config block (`PSOCTScanConfig`); the payload may override individual keys
 (see `PROCESS_MOSAIC_FLOW_KWARGS_KEYS` in `opticstream.flows.psoct.utils`), same
 idea as LSM strip flows.
 
-Emitters include `mosaic_ident` (e.g. `state_management_flow`, `tile_batch_update_flow` via `emit_mosaic_psoct_event`).
+Emitters include `mosaic_ident` (e.g. `state_management_flow`, `check_mosaic_ready_hook` via `emit_mosaic_psoct_event`).
 
 ### Event payload structure
 

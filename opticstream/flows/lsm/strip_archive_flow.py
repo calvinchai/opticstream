@@ -90,10 +90,10 @@ def archive_strip(
 
     if rsync_path is not None:
         bwlimit_kb = max(1, rate_limit_mb * 1000)
-        subprocess.run(
-            [rsync_path, "-a", f"--bwlimit={bwlimit_kb}", f"{strip_path}/", f"{output_path}/"],
-            check=True,
-        )
+        command = [rsync_path, "-a", f"--bwlimit={bwlimit_kb}", f"{strip_path}/", f"{output_path}/"]
+        
+        subprocess.run(command, check=True)
+        logger.info(f"Backed up {strip_ident} to {output_path} with command: {command}")
     else:
         shutil.copytree(
             strip_path,

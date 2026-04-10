@@ -16,7 +16,6 @@ Symptoms:
 
 Checks:
 
-- run `opticstream init blocks`
 - run `opticstream lsm setup PROJECT_NAME` or `opticstream oct setup PROJECT_NAME`
 - verify block names follow project naming conventions used by setup commands
 

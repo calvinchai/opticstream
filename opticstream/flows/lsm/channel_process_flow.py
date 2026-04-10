@@ -68,7 +68,7 @@ def collect_channel_mip_paths(
         )
         mip_path = strip_mip_output_path(sid, scan_config)
         if os.path.exists(mip_path):
-            mip_paths.append(mip_path)
+            mip_paths.append(os.fspath(mip_path))
         else:
             logger.warning(
                 f"Expected MIP not found for slice {channel_ident.slice_id} "

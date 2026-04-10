@@ -1,0 +1,1 @@
+on windows we setup storage pool for the ssd, so it survive single drive failure, 

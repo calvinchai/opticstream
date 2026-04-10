@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 """
-Standalone Cyclopts CLI for the periodic process-priority daemon.
-
-This module lives at the ``opticstream`` package root (not under ``opticstream.cli``)
-so the console script does not import the full main CLI (which pulls optional deps).
+Cyclopts subapp for the periodic process-priority daemon.
 """
 
 import logging
@@ -14,6 +11,7 @@ from typing import Annotated, Literal
 import psutil
 from cyclopts import App, Parameter
 
+from opticstream.cli.root import app
 from opticstream.utils.process_priority_thread import start_periodic_process_priority_thread
 
 if not logging.getLogger().handlers:
@@ -24,9 +22,11 @@ if not logging.getLogger().handlers:
     )
 logger = logging.getLogger(__name__)
 
-app = App(
-    name="opticstream-process-priority",
-    help="Periodically set CPU priority for processes matching a name.",
+process_priority_cli = app.command(
+    App(
+        name="process-priority",
+        help="Periodically set CPU priority for processes matching a name.",
+    )
 )
 
 WindowsPriority = Literal[
@@ -50,7 +50,7 @@ def _windows_priority_value(name: WindowsPriority) -> int:
     }[name]
 
 
-@app.default
+@process_priority_cli.default
 def run(
     process_name: Annotated[
         str,
@@ -123,12 +123,3 @@ def run(
         logger.info("Stopping …")
     finally:
         handle.stop()
-
-
-def main() -> None:
-    """Console script entry point for ``opticstream-process-priority``."""
-    app()
-
-
-if __name__ == "__main__":
-    main()

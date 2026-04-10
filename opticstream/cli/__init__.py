@@ -14,6 +14,7 @@ from .init import init_cli
 from .oct import oct_cli
 from .lsm import lsm_cli  # noqa: F401
 from .utils import utils_cli  # noqa: F401
+from .process_priority import process_priority_cli  # noqa: F401
 
 
 def main() -> None:

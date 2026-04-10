@@ -1,5 +1,5 @@
 ---
-title: Quickstart
+title: Quickstart - LSM
 ---
 
 # Quickstart
@@ -34,12 +34,36 @@ opticstream --help      # or: ops --help
 
 ## 2. Configure an LSM project
 
-Create and save an `LSMScanConfig` block (see the configuration page for details),
-ensuring `project_base_path`, `info_file`, and `output_path` are set.
+```bash
+ops lsm setup --help
+```
 
-## 3. Run a strip processing flow
+```bash
+ops lsm setup testscan
+```
 
-Once your scan configuration block is saved, you can trigger the
-`process_strip_event` flow via Prefect by emitting the appropriate event
-payload (see the LSM workflow user guide for a full example).
+you should be able to see a block in prefect ui named testscan-lsm-config
+
+in there you will need to complete the detailed setup, each field will have doc in there
+
+in one window, start 
+```bash
+ops lsm serve 3
+```
+which will start 3 local workers to process lsm flows
+
+in another windows, start watcher
+```bash
+ops lsm watch testscan E:/temp/testscan
+```
+
+## 3. somethings goes wrong and restart a slice
+in most case, the watcher doesn't need to be restarted if the configuration is going to stay the same
+make sure the flow run for this slice are done/stopped , we dont want two flow run for the same strip running at the same time
+```bash
+ops lsm state reset testscan --slice SLICE_TO_RESET
+```
+
+the watcher will emit events for this slice again and reprocess them
+
 
