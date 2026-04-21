@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "cyclopts>=3.3.0",
-    "linc-convert[all] @ git+https://github.com/lincbrain/linc-convert.git@lsm-features",
+    "linc-convert[all] @ git+https://github.com/lincbrain/linc-convert.git@dc8f3243df01d09493a13e53305adede08784695",
     "nifti-zarr @ git+https://github.com/calvinchai/nifti-zarr-py.git@port-multizarr",
     "psoct-toolbox @ git+https://github.com/calvinchai/psoct-toolbox.git",
     "matplotlib>=3.10.8",
