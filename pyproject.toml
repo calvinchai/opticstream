@@ -11,16 +11,24 @@ dependencies = [
     "psoct-toolbox @ git+https://github.com/calvinchai/psoct-toolbox.git@5182337044d2b7f8337ca205a33c9da3ddd69bda",
     "matplotlib>=3.10.8",
     "prefect[shell,slack,sqlalchemy]>=3.6.20",
-    "watchdog",
-    "psutil",
+    "watchdog>=4",
+    "psutil>=6",
+    "pystray>=0.19",
     "slack-sdk",
     "pydantic",
+    "grpcio>=1.60.0",
+    "redis>=5.0.0",
+    "streamlit>=1.40.0",
+    "streamlit-autorefresh>=1.0.1",
     "jinja2",
     "PyYAML",
     "dask",
     "nibabel",
     "numpy",
-    "psycopg2-binary"
+    "psycopg2-binary",
+    "streamlit-extras>=1.5.0",
+    "requests>=2.32.0",
+    "packaging>=24.0",
 ]
 
 [project.optional-dependencies]
@@ -31,12 +39,15 @@ dev = [
     "mkdocs-material",
     "mkdocstrings[python]",
     "mkdocs-git-revision-date-localized-plugin",
-    "ruff"
+    "ruff",
+    "grpcio-tools>=1.60.0",
+    "pyinstaller>=6.0",
 ]
 
 [project.scripts]
 opticstream = "opticstream.cli:main"
 ops = "opticstream.cli:main"
+opticnode = "opticnode.main:main"
 
 [tool.uv.sources]
 #linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert", editable = true }
@@ -48,8 +59,11 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["opticstream*"]
+include = ["opticstream*", "opticnode*", "optichub*"]
 exclude = ["notebooks*"]
+
+[tool.ruff]
+extend-exclude = ["opticnode/generated"]
 
 [tool.pytest.ini_options]
 markers = [
