@@ -20,7 +20,7 @@ from typing import ClassVar, Iterator
 from pydantic import BaseModel, ConfigDict, Field
 
 from opticstream.utils.naming_convention import normalize_project_name
-from opticstream.state.project_state_postgres import PostgresProjectStateRepository
+from opticstream.state.project_state_redis import RedisProjectStateRepository
 from opticstream.state.project_state_core import (
     BaseProjectStateStore,
     PrefectProjectLock,
@@ -36,7 +36,7 @@ from opticstream.state.project_state_core import (
 
 
 LSM_PROJECT_TYPE = "lsm"
-STATE_DB_BLOCK_NAME = "opticstream-db"
+STATE_REDIS_BLOCK_NAME = "opticstream-redis"
 
 
 def _state_lock_name(project_name: str) -> str:
@@ -394,12 +394,11 @@ def _get_strip_view(
 # ------------------------------------------------------------------------------
 
 
-def _make_lsm_repository() -> PostgresProjectStateRepository[LSMProjectState]:
-    return PostgresProjectStateRepository(
-        block_name=STATE_DB_BLOCK_NAME,
+def _make_lsm_repository() -> RedisProjectStateRepository[LSMProjectState]:
+    return RedisProjectStateRepository(
+        block_name=STATE_REDIS_BLOCK_NAME,
         model_cls=LSMProjectState,
         project_type=LSM_PROJECT_TYPE,
-        table_name="project_state",
     )
 
 

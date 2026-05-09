@@ -1,4 +1,4 @@
-"""OCT-specific project state models and services backed by Postgres."""
+"""OCT-specific project state models and services backed by Redis."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import ClassVar, Iterator
 from pydantic import BaseModel, ConfigDict, Field
 
 from opticstream.utils.naming_convention import normalize_project_name
-from opticstream.state.project_state_postgres import PostgresProjectStateRepository
+from opticstream.state.project_state_redis import RedisProjectStateRepository
 from opticstream.state.project_state_core import (
     BaseProjectStateStore,
     PrefectProjectLock,
@@ -32,7 +32,7 @@ Hierarchy (in-memory and persisted JSON):
 
 
 OCT_PROJECT_TYPE = "oct"
-STATE_DB_BLOCK_NAME = "opticstream-db"
+STATE_REDIS_BLOCK_NAME = "opticstream-redis"
 
 
 def _state_lock_name(project_name: str) -> str:
@@ -480,12 +480,11 @@ def _get_batch_view(
 # ------------------------------------------------------------------------------
 
 
-def _make_oct_repository() -> PostgresProjectStateRepository[OCTProjectState]:
-    return PostgresProjectStateRepository(
-        block_name=STATE_DB_BLOCK_NAME,
+def _make_oct_repository() -> RedisProjectStateRepository[OCTProjectState]:
+    return RedisProjectStateRepository(
+        block_name=STATE_REDIS_BLOCK_NAME,
         model_cls=OCTProjectState,
         project_type=OCT_PROJECT_TYPE,
-        table_name="project_state",
     )
 
 
