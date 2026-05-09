@@ -36,7 +36,24 @@ class Settings(BaseModel):
     grpc_port: int = Field(default=50051, ge=1, le=65535)
     heartbeat_interval_s: float = Field(default=1.0, gt=0)
     heartbeat_ttl_s: int = Field(default=10, ge=1, description="Redis TTL for last_seen (seconds)")
-    log_buffer_size: int = Field(default=100, ge=1, le=10_000)
+    log_buffer_size: int = Field(
+        default=100,
+        ge=1,
+        le=10_000,
+        description="Deprecated alias for redis_log_tail_per_module (if REDIS_LOG_TAIL unset)",
+    )
+    log_full_max_lines: int = Field(
+        default=50_000,
+        ge=100,
+        le=1_000_000,
+        description="Max lines retained per module in memory for gRPC full log",
+    )
+    redis_log_tail_per_module: int = Field(
+        default=100,
+        ge=1,
+        le=10_000,
+        description="Max lines per module mirrored to Redis when node is down",
+    )
     primocache_exe: str = Field(default="rxpcc.exe", description="PrimoCache CLI executable name")
     gui_mode: bool = Field(default=False, description="Enable Tkinter log viewer + system tray")
     mgmt_iface: str | None = Field(default=None, description="Optional override for management NIC name")
@@ -76,6 +93,10 @@ class Settings(BaseModel):
             heartbeat_interval_s=float(os.environ.get("HEARTBEAT_INTERVAL_S", "1.0")),
             heartbeat_ttl_s=int(os.environ.get("HEARTBEAT_TTL_S", "10")),
             log_buffer_size=int(os.environ.get("LOG_BUFFER_SIZE", "100")),
+            log_full_max_lines=int(os.environ.get("LOG_FULL_MAX_LINES", "50000")),
+            redis_log_tail_per_module=int(
+                os.environ.get("REDIS_LOG_TAIL_PER_MODULE", os.environ.get("LOG_BUFFER_SIZE", "100"))
+            ),
             primocache_exe=os.environ.get("PRIMOCACHE_EXE", "rxpcc.exe").strip() or "rxpcc.exe",
             gui_mode=gui_mode,
             mgmt_iface=mgmt or None,

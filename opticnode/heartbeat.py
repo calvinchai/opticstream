@@ -6,7 +6,6 @@ import logging
 import socket
 import threading
 import time
-from collections import deque
 from typing import Any
 
 from . import __version__
@@ -30,50 +29,13 @@ def _redis_client(settings: Settings) -> Any:
     return Redis.from_url(settings.redis_url, decode_responses=True)
 
 
-class ResilientRedisLogHandler(logging.Handler):
-    """Stream logs to a Redis list; buffer locally when Redis is down."""
-
-    def __init__(self, *, list_max: int) -> None:
-        super().__init__()
-        self._list_max = list_max
-        self._client: Any = None
-        self._key = ""
-        self._local: deque[str] = deque(maxlen=list_max)
-        self._lock = threading.Lock()
-
-    def set_target(self, client: Any | None, key: str) -> None:
-        with self._lock:
-            self._client = client
-            self._key = key
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-        except Exception:
-            self.handleError(record)
-            return
-        with self._lock:
-            r = self._client
-            key = self._key
-            if r is not None and key:
-                try:
-                    while self._local:
-                        old = self._local.popleft()
-                        r.lpush(key, old)
-                        r.ltrim(key, 0, self._list_max - 1)
-                    r.lpush(key, msg)
-                    r.ltrim(key, 0, self._list_max - 1)
-                    return
-                except Exception:
-                    pass
-            try:
-                self._local.append(msg)
-            except Exception:
-                self.handleError(record)
-
-
 class HeartbeatLoop:
-    """Background loop: register node, publish telemetry, maintain last_seen TTL."""
+    """Background loop: register node, publish telemetry, maintain last_seen TTL.
+
+    Redis is used as a registry (node presence) and stats sink. Per-module log tails
+    are written by NodeLogBuffer when Redis is connected (see logging_buffer.py).
+    Module state is served live via gRPC (ListModules), not stored in Redis.
+    """
 
     def __init__(
         self,
@@ -81,13 +43,15 @@ class HeartbeatLoop:
         stop_event: threading.Event,
         telemetry: TelemetryEngine,
         planes: NetworkPlanes,
-        log_handler: ResilientRedisLogHandler | None = None,
+        log_buffer: Any = None,
+        module_registry: Any = None,
     ) -> None:
         self._settings = settings
         self._stop = stop_event
         self._telemetry = telemetry
         self._planes = planes
-        self._log_handler = log_handler
+        self._log_buffer = log_buffer
+        self._module_registry = module_registry
 
     def run(self) -> None:
         try:
@@ -104,12 +68,6 @@ class HeartbeatLoop:
         last_seen_key = f"{key_prefix}:last_seen"
         stats_key = f"{key_prefix}:stats"
         meta_key = f"{key_prefix}:meta"
-        logs_key = f"{key_prefix}:logs"
-
-        if self._log_handler is not None:
-            fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-            self._log_handler.setFormatter(fmt)
-            logging.getLogger().addHandler(self._log_handler)
 
         started_at = str(time.time())
         hostname = socket.gethostname()
@@ -119,16 +77,16 @@ class HeartbeatLoop:
             if client is None:
                 try:
                     client = _redis_client(self._settings)
-                    if self._log_handler is not None:
-                        self._log_handler.set_target(client, logs_key)
+                    if self._log_buffer is not None:
+                        self._log_buffer.set_redis_client(client)
                     client.srem(TOMBSTONES_SET_KEY, node_id)
                     client.sadd(NODES_SET_KEY, node_id)
                     logger.info("Heartbeat connected to Redis.")
                 except Exception as exc:
                     logger.warning("Redis unreachable; will retry: %s", exc)
                     client = None
-                    if self._log_handler is not None:
-                        self._log_handler.set_target(None, "")
+                    if self._log_buffer is not None:
+                        self._log_buffer.set_redis_client(None)
                     if self._stop.wait(timeout=min(1.0, interval)):
                         break
                     continue
@@ -164,12 +122,11 @@ class HeartbeatLoop:
                 except Exception:
                     pass
                 client = None
-                if self._log_handler is not None:
-                    self._log_handler.set_target(None, "")
+                if self._log_buffer is not None:
+                    self._log_buffer.set_redis_client(None)
 
             if self._stop.wait(timeout=interval):
                 break
 
-        if self._log_handler is not None:
-            logging.getLogger().removeHandler(self._log_handler)
-            self._log_handler.set_target(None, "")
+        if self._log_buffer is not None:
+            self._log_buffer.set_redis_client(None)

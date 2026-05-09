@@ -36,18 +36,43 @@ class CopyJob:
 
 
 class WorkQueue:
-    """Single-worker queue; Robocopy on Windows, shutil on other platforms."""
+    """Multi-worker queue; Robocopy on Windows, shutil on other platforms."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, num_workers: int = 1) -> None:
         self._settings = settings
         self._q: queue.Queue[CopyJob] = queue.Queue()
         self._paused = threading.Event()
         self._paused.set()
         self._stop = threading.Event()
         self._redis: Any = None
-        self._thread = threading.Thread(target=self._worker, name="work-queue", daemon=True)
-        self._thread.start()
+        self._scale_lock = threading.Lock()
+        self._target_count = max(1, num_workers)
+        self._workers: list[threading.Thread] = []
+        self._spawn_workers(self._target_count)
         self._connect_redis()
+
+    def _spawn_workers(self, n: int) -> None:
+        for i in range(n):
+            t = threading.Thread(target=self._worker, name=f"work-queue-{i}", daemon=True)
+            t.start()
+            self._workers.append(t)
+
+    def set_worker_count(self, n: int) -> None:
+        """Hot-resize the worker pool. Workers check target count and exit if over-provisioned."""
+        with self._scale_lock:
+            n = max(1, n)
+            current_alive = sum(1 for t in self._workers if t.is_alive())
+            self._target_count = n
+            if n > current_alive:
+                for i in range(n - current_alive):
+                    t = threading.Thread(
+                        target=self._worker,
+                        name=f"work-queue-{current_alive + i}",
+                        daemon=True,
+                    )
+                    t.start()
+                    self._workers.append(t)
+        logger.info("WorkQueue: target worker count set to %d.", n)
 
     def _connect_redis(self) -> None:
         try:
@@ -113,6 +138,10 @@ class WorkQueue:
 
     def _worker(self) -> None:
         while not self._stop.is_set():
+            with self._scale_lock:
+                alive = sum(1 for t in self._workers if t.is_alive())
+                if alive > self._target_count:
+                    return
             while not self._paused.is_set() and not self._stop.is_set():
                 time.sleep(0.2)
             if self._stop.is_set():

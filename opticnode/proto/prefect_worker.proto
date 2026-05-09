@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package opticnode;
+
+import "common.proto";
+
+message StartPrefectWorkerRequest {
+  string work_pool = 1;        // empty = use default ("default")
+  int32 worker_count = 2;      // 0 = use default (1)
+  repeated string extra_args = 3;
+  bool auto_restart = 4;
+}
+
+service PrefectWorker {
+  rpc Start(StartPrefectWorkerRequest) returns (RoleTaskResponse);
+}

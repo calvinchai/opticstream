@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package opticnode;
+
+message EmptyRequest {}
+
+message RoleTaskResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message StatusResponse {
+  bool ok = 1;
+  string message = 2;
+}

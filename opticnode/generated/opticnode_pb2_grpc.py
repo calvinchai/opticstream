@@ -3,7 +3,9 @@
 import grpc
 import warnings
 
-from . import opticnode_pb2 as opticnode__pb2
+from . import common_pb2 as common__pb2
+from . import modules_pb2 as modules__pb2
+from . import telemetry_pb2 as telemetry__pb2
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__
@@ -34,66 +36,55 @@ class OpticNodeStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.ExecuteCommand = channel.unary_unary(
-                '/opticnode.OpticNode/ExecuteCommand',
-                request_serializer=opticnode__pb2.ExecuteCommandRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.ExecuteCommandResponse.FromString,
-                _registered_method=True)
         self.Ping = channel.unary_unary(
                 '/opticnode.OpticNode/Ping',
-                request_serializer=opticnode__pb2.PingRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.PingResponse.FromString,
+                request_serializer=telemetry__pb2.PingRequest.SerializeToString,
+                response_deserializer=telemetry__pb2.PingResponse.FromString,
                 _registered_method=True)
         self.GetTelemetry = channel.unary_unary(
                 '/opticnode.OpticNode/GetTelemetry',
-                request_serializer=opticnode__pb2.EmptyRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.TelemetryResponse.FromString,
+                request_serializer=common__pb2.EmptyRequest.SerializeToString,
+                response_deserializer=telemetry__pb2.TelemetryResponse.FromString,
                 _registered_method=True)
-        self.StartWatcher = channel.unary_unary(
-                '/opticnode.OpticNode/StartWatcher',
-                request_serializer=opticnode__pb2.WatcherConfig.SerializeToString,
-                response_deserializer=opticnode__pb2.RoleTaskResponse.FromString,
+        self.ExecuteCommand = channel.unary_unary(
+                '/opticnode.OpticNode/ExecuteCommand',
+                request_serializer=telemetry__pb2.ExecuteCommandRequest.SerializeToString,
+                response_deserializer=telemetry__pb2.ExecuteCommandResponse.FromString,
                 _registered_method=True)
-        self.StopWatcher = channel.unary_unary(
-                '/opticnode.OpticNode/StopWatcher',
-                request_serializer=opticnode__pb2.EmptyRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.RoleTaskResponse.FromString,
+        self.ListModules = channel.unary_unary(
+                '/opticnode.OpticNode/ListModules',
+                request_serializer=common__pb2.EmptyRequest.SerializeToString,
+                response_deserializer=modules__pb2.ModuleListResponse.FromString,
                 _registered_method=True)
-        self.StartPrefectWorker = channel.unary_unary(
-                '/opticnode.OpticNode/StartPrefectWorker',
-                request_serializer=opticnode__pb2.WorkerConfig.SerializeToString,
-                response_deserializer=opticnode__pb2.RoleTaskResponse.FromString,
+        self.StartModule = channel.unary_unary(
+                '/opticnode.OpticNode/StartModule',
+                request_serializer=modules__pb2.StartModuleRequest.SerializeToString,
+                response_deserializer=common__pb2.RoleTaskResponse.FromString,
                 _registered_method=True)
-        self.StopPrefectWorker = channel.unary_unary(
-                '/opticnode.OpticNode/StopPrefectWorker',
-                request_serializer=opticnode__pb2.EmptyRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.RoleTaskResponse.FromString,
+        self.StopModule = channel.unary_unary(
+                '/opticnode.OpticNode/StopModule',
+                request_serializer=modules__pb2.StopModuleRequest.SerializeToString,
+                response_deserializer=common__pb2.RoleTaskResponse.FromString,
                 _registered_method=True)
-        self.QueueCopyJob = channel.unary_unary(
-                '/opticnode.OpticNode/QueueCopyJob',
-                request_serializer=opticnode__pb2.CopyJobRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.CopyJobResponse.FromString,
+        self.ConfigureModule = channel.unary_unary(
+                '/opticnode.OpticNode/ConfigureModule',
+                request_serializer=modules__pb2.ConfigureModuleRequest.SerializeToString,
+                response_deserializer=common__pb2.RoleTaskResponse.FromString,
                 _registered_method=True)
-        self.PauseCopyQueue = channel.unary_unary(
-                '/opticnode.OpticNode/PauseCopyQueue',
-                request_serializer=opticnode__pb2.EmptyRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.StatusResponse.FromString,
+        self.GetModuleLogs = channel.unary_unary(
+                '/opticnode.OpticNode/GetModuleLogs',
+                request_serializer=modules__pb2.ModuleLogsRequest.SerializeToString,
+                response_deserializer=modules__pb2.ModuleLogsResponse.FromString,
                 _registered_method=True)
-        self.ResumeCopyQueue = channel.unary_unary(
-                '/opticnode.OpticNode/ResumeCopyQueue',
-                request_serializer=opticnode__pb2.EmptyRequest.SerializeToString,
-                response_deserializer=opticnode__pb2.StatusResponse.FromString,
+        self.SubmitModuleJob = channel.unary_unary(
+                '/opticnode.OpticNode/SubmitModuleJob',
+                request_serializer=modules__pb2.SubmitModuleJobRequest.SerializeToString,
+                response_deserializer=modules__pb2.SubmitModuleJobResponse.FromString,
                 _registered_method=True)
 
 
 class OpticNodeServicer(object):
     """Missing associated documentation comment in .proto file."""
-
-    def ExecuteCommand(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
 
     def Ping(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -107,43 +98,43 @@ class OpticNodeServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def StartWatcher(self, request, context):
+    def ExecuteCommand(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def StopWatcher(self, request, context):
+    def ListModules(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def StartPrefectWorker(self, request, context):
+    def StartModule(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def StopPrefectWorker(self, request, context):
+    def StopModule(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def QueueCopyJob(self, request, context):
+    def ConfigureModule(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def PauseCopyQueue(self, request, context):
+    def GetModuleLogs(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def ResumeCopyQueue(self, request, context):
+    def SubmitModuleJob(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -152,55 +143,50 @@ class OpticNodeServicer(object):
 
 def add_OpticNodeServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'ExecuteCommand': grpc.unary_unary_rpc_method_handler(
-                    servicer.ExecuteCommand,
-                    request_deserializer=opticnode__pb2.ExecuteCommandRequest.FromString,
-                    response_serializer=opticnode__pb2.ExecuteCommandResponse.SerializeToString,
-            ),
             'Ping': grpc.unary_unary_rpc_method_handler(
                     servicer.Ping,
-                    request_deserializer=opticnode__pb2.PingRequest.FromString,
-                    response_serializer=opticnode__pb2.PingResponse.SerializeToString,
+                    request_deserializer=telemetry__pb2.PingRequest.FromString,
+                    response_serializer=telemetry__pb2.PingResponse.SerializeToString,
             ),
             'GetTelemetry': grpc.unary_unary_rpc_method_handler(
                     servicer.GetTelemetry,
-                    request_deserializer=opticnode__pb2.EmptyRequest.FromString,
-                    response_serializer=opticnode__pb2.TelemetryResponse.SerializeToString,
+                    request_deserializer=common__pb2.EmptyRequest.FromString,
+                    response_serializer=telemetry__pb2.TelemetryResponse.SerializeToString,
             ),
-            'StartWatcher': grpc.unary_unary_rpc_method_handler(
-                    servicer.StartWatcher,
-                    request_deserializer=opticnode__pb2.WatcherConfig.FromString,
-                    response_serializer=opticnode__pb2.RoleTaskResponse.SerializeToString,
+            'ExecuteCommand': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExecuteCommand,
+                    request_deserializer=telemetry__pb2.ExecuteCommandRequest.FromString,
+                    response_serializer=telemetry__pb2.ExecuteCommandResponse.SerializeToString,
             ),
-            'StopWatcher': grpc.unary_unary_rpc_method_handler(
-                    servicer.StopWatcher,
-                    request_deserializer=opticnode__pb2.EmptyRequest.FromString,
-                    response_serializer=opticnode__pb2.RoleTaskResponse.SerializeToString,
+            'ListModules': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListModules,
+                    request_deserializer=common__pb2.EmptyRequest.FromString,
+                    response_serializer=modules__pb2.ModuleListResponse.SerializeToString,
             ),
-            'StartPrefectWorker': grpc.unary_unary_rpc_method_handler(
-                    servicer.StartPrefectWorker,
-                    request_deserializer=opticnode__pb2.WorkerConfig.FromString,
-                    response_serializer=opticnode__pb2.RoleTaskResponse.SerializeToString,
+            'StartModule': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartModule,
+                    request_deserializer=modules__pb2.StartModuleRequest.FromString,
+                    response_serializer=common__pb2.RoleTaskResponse.SerializeToString,
             ),
-            'StopPrefectWorker': grpc.unary_unary_rpc_method_handler(
-                    servicer.StopPrefectWorker,
-                    request_deserializer=opticnode__pb2.EmptyRequest.FromString,
-                    response_serializer=opticnode__pb2.RoleTaskResponse.SerializeToString,
+            'StopModule': grpc.unary_unary_rpc_method_handler(
+                    servicer.StopModule,
+                    request_deserializer=modules__pb2.StopModuleRequest.FromString,
+                    response_serializer=common__pb2.RoleTaskResponse.SerializeToString,
             ),
-            'QueueCopyJob': grpc.unary_unary_rpc_method_handler(
-                    servicer.QueueCopyJob,
-                    request_deserializer=opticnode__pb2.CopyJobRequest.FromString,
-                    response_serializer=opticnode__pb2.CopyJobResponse.SerializeToString,
+            'ConfigureModule': grpc.unary_unary_rpc_method_handler(
+                    servicer.ConfigureModule,
+                    request_deserializer=modules__pb2.ConfigureModuleRequest.FromString,
+                    response_serializer=common__pb2.RoleTaskResponse.SerializeToString,
             ),
-            'PauseCopyQueue': grpc.unary_unary_rpc_method_handler(
-                    servicer.PauseCopyQueue,
-                    request_deserializer=opticnode__pb2.EmptyRequest.FromString,
-                    response_serializer=opticnode__pb2.StatusResponse.SerializeToString,
+            'GetModuleLogs': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetModuleLogs,
+                    request_deserializer=modules__pb2.ModuleLogsRequest.FromString,
+                    response_serializer=modules__pb2.ModuleLogsResponse.SerializeToString,
             ),
-            'ResumeCopyQueue': grpc.unary_unary_rpc_method_handler(
-                    servicer.ResumeCopyQueue,
-                    request_deserializer=opticnode__pb2.EmptyRequest.FromString,
-                    response_serializer=opticnode__pb2.StatusResponse.SerializeToString,
+            'SubmitModuleJob': grpc.unary_unary_rpc_method_handler(
+                    servicer.SubmitModuleJob,
+                    request_deserializer=modules__pb2.SubmitModuleJobRequest.FromString,
+                    response_serializer=modules__pb2.SubmitModuleJobResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -212,33 +198,6 @@ def add_OpticNodeServicer_to_server(servicer, server):
  # This class is part of an EXPERIMENTAL API.
 class OpticNode(object):
     """Missing associated documentation comment in .proto file."""
-
-    @staticmethod
-    def ExecuteCommand(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/opticnode.OpticNode/ExecuteCommand',
-            opticnode__pb2.ExecuteCommandRequest.SerializeToString,
-            opticnode__pb2.ExecuteCommandResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
 
     @staticmethod
     def Ping(request,
@@ -255,8 +214,8 @@ class OpticNode(object):
             request,
             target,
             '/opticnode.OpticNode/Ping',
-            opticnode__pb2.PingRequest.SerializeToString,
-            opticnode__pb2.PingResponse.FromString,
+            telemetry__pb2.PingRequest.SerializeToString,
+            telemetry__pb2.PingResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -282,8 +241,8 @@ class OpticNode(object):
             request,
             target,
             '/opticnode.OpticNode/GetTelemetry',
-            opticnode__pb2.EmptyRequest.SerializeToString,
-            opticnode__pb2.TelemetryResponse.FromString,
+            common__pb2.EmptyRequest.SerializeToString,
+            telemetry__pb2.TelemetryResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -295,7 +254,7 @@ class OpticNode(object):
             _registered_method=True)
 
     @staticmethod
-    def StartWatcher(request,
+    def ExecuteCommand(request,
             target,
             options=(),
             channel_credentials=None,
@@ -308,9 +267,9 @@ class OpticNode(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/opticnode.OpticNode/StartWatcher',
-            opticnode__pb2.WatcherConfig.SerializeToString,
-            opticnode__pb2.RoleTaskResponse.FromString,
+            '/opticnode.OpticNode/ExecuteCommand',
+            telemetry__pb2.ExecuteCommandRequest.SerializeToString,
+            telemetry__pb2.ExecuteCommandResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -322,7 +281,7 @@ class OpticNode(object):
             _registered_method=True)
 
     @staticmethod
-    def StopWatcher(request,
+    def ListModules(request,
             target,
             options=(),
             channel_credentials=None,
@@ -335,9 +294,9 @@ class OpticNode(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/opticnode.OpticNode/StopWatcher',
-            opticnode__pb2.EmptyRequest.SerializeToString,
-            opticnode__pb2.RoleTaskResponse.FromString,
+            '/opticnode.OpticNode/ListModules',
+            common__pb2.EmptyRequest.SerializeToString,
+            modules__pb2.ModuleListResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -349,7 +308,7 @@ class OpticNode(object):
             _registered_method=True)
 
     @staticmethod
-    def StartPrefectWorker(request,
+    def StartModule(request,
             target,
             options=(),
             channel_credentials=None,
@@ -362,9 +321,9 @@ class OpticNode(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/opticnode.OpticNode/StartPrefectWorker',
-            opticnode__pb2.WorkerConfig.SerializeToString,
-            opticnode__pb2.RoleTaskResponse.FromString,
+            '/opticnode.OpticNode/StartModule',
+            modules__pb2.StartModuleRequest.SerializeToString,
+            common__pb2.RoleTaskResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -376,7 +335,7 @@ class OpticNode(object):
             _registered_method=True)
 
     @staticmethod
-    def StopPrefectWorker(request,
+    def StopModule(request,
             target,
             options=(),
             channel_credentials=None,
@@ -389,9 +348,9 @@ class OpticNode(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/opticnode.OpticNode/StopPrefectWorker',
-            opticnode__pb2.EmptyRequest.SerializeToString,
-            opticnode__pb2.RoleTaskResponse.FromString,
+            '/opticnode.OpticNode/StopModule',
+            modules__pb2.StopModuleRequest.SerializeToString,
+            common__pb2.RoleTaskResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -403,7 +362,7 @@ class OpticNode(object):
             _registered_method=True)
 
     @staticmethod
-    def QueueCopyJob(request,
+    def ConfigureModule(request,
             target,
             options=(),
             channel_credentials=None,
@@ -416,9 +375,9 @@ class OpticNode(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/opticnode.OpticNode/QueueCopyJob',
-            opticnode__pb2.CopyJobRequest.SerializeToString,
-            opticnode__pb2.CopyJobResponse.FromString,
+            '/opticnode.OpticNode/ConfigureModule',
+            modules__pb2.ConfigureModuleRequest.SerializeToString,
+            common__pb2.RoleTaskResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -430,7 +389,7 @@ class OpticNode(object):
             _registered_method=True)
 
     @staticmethod
-    def PauseCopyQueue(request,
+    def GetModuleLogs(request,
             target,
             options=(),
             channel_credentials=None,
@@ -443,9 +402,9 @@ class OpticNode(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/opticnode.OpticNode/PauseCopyQueue',
-            opticnode__pb2.EmptyRequest.SerializeToString,
-            opticnode__pb2.StatusResponse.FromString,
+            '/opticnode.OpticNode/GetModuleLogs',
+            modules__pb2.ModuleLogsRequest.SerializeToString,
+            modules__pb2.ModuleLogsResponse.FromString,
             options,
             channel_credentials,
             insecure,
@@ -457,7 +416,7 @@ class OpticNode(object):
             _registered_method=True)
 
     @staticmethod
-    def ResumeCopyQueue(request,
+    def SubmitModuleJob(request,
             target,
             options=(),
             channel_credentials=None,
@@ -470,9 +429,9 @@ class OpticNode(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/opticnode.OpticNode/ResumeCopyQueue',
-            opticnode__pb2.EmptyRequest.SerializeToString,
-            opticnode__pb2.StatusResponse.FromString,
+            '/opticnode.OpticNode/SubmitModuleJob',
+            modules__pb2.SubmitModuleJobRequest.SerializeToString,
+            modules__pb2.SubmitModuleJobResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package opticnode;
+
+import "common.proto";
+
+message StartCopyQueueRequest {
+  int32 worker_count = 1; // 0 = use default (1)
+  bool paused = 2;
+}
+
+message SubmitCopyJobRequest {
+  string src_path = 1;
+  string dst_path = 2;
+  bool move_mode = 3;
+}
+
+message SubmitCopyJobResponse {
+  string job_id = 1;
+  bool ok = 2;
+  string error = 3;
+}
+
+service CopyQueue {
+  rpc Start(StartCopyQueueRequest)   returns (RoleTaskResponse);
+  rpc SubmitCopyJob(SubmitCopyJobRequest) returns (SubmitCopyJobResponse);
+}

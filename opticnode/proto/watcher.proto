@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package opticnode;
+
+import "common.proto";
+
+message StartWatcherRequest {
+  string watch_path = 1;
+  bool recursive = 2;
+}
+
+service Watcher {
+  rpc Start(StartWatcherRequest) returns (RoleTaskResponse);
+}

@@ -2,117 +2,18 @@ syntax = "proto3";
 
 package opticnode;
 
+import "common.proto";
+import "telemetry.proto";
+import "modules.proto";
+
 service OpticNode {
-  rpc ExecuteCommand(ExecuteCommandRequest) returns (ExecuteCommandResponse);
-  rpc Ping(PingRequest) returns (PingResponse);
-  rpc GetTelemetry(EmptyRequest) returns (TelemetryResponse);
-  rpc StartWatcher(WatcherConfig) returns (RoleTaskResponse);
-  rpc StopWatcher(EmptyRequest) returns (RoleTaskResponse);
-  rpc StartPrefectWorker(WorkerConfig) returns (RoleTaskResponse);
-  rpc StopPrefectWorker(EmptyRequest) returns (RoleTaskResponse);
-  rpc QueueCopyJob(CopyJobRequest) returns (CopyJobResponse);
-  rpc PauseCopyQueue(EmptyRequest) returns (StatusResponse);
-  rpc ResumeCopyQueue(EmptyRequest) returns (StatusResponse);
-}
-
-message EmptyRequest {}
-
-message ExecuteCommandRequest {
-  string command = 1;
-  repeated string args = 2;
-  double timeout_s = 3;
-  bool shell = 4;
-}
-
-message ExecuteCommandResponse {
-  bool ok = 1;
-  string command = 2;
-  repeated string args = 3;
-  bool shell = 4;
-  double timeout_s = 5;
-  int32 exit_code = 6;
-  string stdout = 7;
-  string stderr = 8;
-  bool timed_out = 9;
-  string error = 10;
-}
-
-message PingRequest {
-  int64 client_send_unix_ns = 1;
-}
-
-message PingResponse {
-  int64 server_recv_unix_ns = 1;
-  int64 server_send_unix_ns = 2;
-}
-
-message NetIfaceThroughput {
-  string name = 1;
-  uint64 bytes_sent = 2;
-  uint64 bytes_recv = 3;
-}
-
-message PrimoCacheTelemetry {
-  bool is_active = 1;
-  bool binary_present = 2;
-  double l1_hit_rate_current = 3;
-  double l1_hit_rate_cumulative = 4;
-  double l2_hit_rate_current = 5;
-  double l2_hit_rate_cumulative = 6;
-  double cache_used_mb = 7;
-  double cache_free_mb = 8;
-  int64 write_buffer_deferred_blocks = 9;
-  int64 write_buffer_urgent_writes = 10;
-  int64 io_trimmed_blocks = 11;
-  int64 io_read_bytes = 12;
-  int64 io_written_bytes = 13;
-}
-
-message TelemetryResponse {
-  double collected_at_unix = 1;
-  double cpu_pct = 2;
-  double ram_used_pct = 3;
-  repeated NetIfaceThroughput net = 4;
-  PrimoCacheTelemetry primocache = 5;
-  string primocache_error = 6;
-}
-
-message WatcherConfig {
-  string watch_path = 1;
-  bool recursive = 2;
-}
-
-message WorkerConfig {
-  string work_pool = 1;
-  repeated string extra_args = 2;
-}
-
-message RoleTaskResponse {
-  bool ok = 1;
-  string message = 2;
-}
-
-message CopyJobRequest {
-  string src_path = 1;
-  string dst_path = 2;
-  bool move_mode = 3;
-}
-
-enum CopyJobStatus {
-  COPY_JOB_STATUS_UNKNOWN = 0;
-  COPY_JOB_STATUS_QUEUED = 1;
-  COPY_JOB_STATUS_ACTIVE = 2;
-  COPY_JOB_STATUS_COMPLETED = 3;
-  COPY_JOB_STATUS_FAILED = 4;
-}
-
-message CopyJobResponse {
-  string job_id = 1;
-  CopyJobStatus status = 2;
-  string error = 3;
-}
-
-message StatusResponse {
-  bool ok = 1;
-  string message = 2;
+  rpc Ping(PingRequest)                        returns (PingResponse);
+  rpc GetTelemetry(EmptyRequest)               returns (TelemetryResponse);
+  rpc ExecuteCommand(ExecuteCommandRequest)    returns (ExecuteCommandResponse);
+  rpc ListModules(EmptyRequest)                returns (ModuleListResponse);
+  rpc StartModule(StartModuleRequest)          returns (RoleTaskResponse);
+  rpc StopModule(StopModuleRequest)            returns (RoleTaskResponse);
+  rpc ConfigureModule(ConfigureModuleRequest)  returns (RoleTaskResponse);
+  rpc GetModuleLogs(ModuleLogsRequest)         returns (ModuleLogsResponse);
+  rpc SubmitModuleJob(SubmitModuleJobRequest)  returns (SubmitModuleJobResponse);
 }

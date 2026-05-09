@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package opticnode;
+
+message CommandJobResult {
+  string job_id = 1;
+  string status = 2; // queued|running|finished|failed|timed_out
+  string command = 3;
+  repeated string args = 4;
+  bool shell = 5;
+  double timeout_s = 6;
+  double submitted_at_unix = 7;
+  double started_at_unix = 8;
+  double finished_at_unix = 9;
+  int32 exit_code = 10;
+  string stdout = 11;
+  string stderr = 12;
+  bool timed_out = 13;
+  string error = 14;
+}
+
+message SubmitCommandRequest {
+  string command = 1;
+  repeated string args = 2;
+  bool shell = 3;
+  double timeout_s = 4; // 0 = use module default
+}
+
+message SubmitCommandResponse {
+  string job_id = 1;
+  bool ok = 2;
+  string error = 3;
+}
+
+message GetCommandResultRequest {
+  string job_id = 1;
+}
+
+message GetCommandResultResponse {
+  bool ok = 1;
+  string error = 2;
+  CommandJobResult result = 3;
+}
+
+message ListCommandResultsRequest {
+  int32 limit = 1; // 0 = all retained results
+}
+
+message ListCommandResultsResponse {
+  repeated CommandJobResult results = 1;
+}
+
+service CommandRunner {
+  rpc SubmitCommand(SubmitCommandRequest) returns (SubmitCommandResponse);
+  rpc GetCommandResult(GetCommandResultRequest) returns (GetCommandResultResponse);
+  rpc ListCommandResults(ListCommandResultsRequest) returns (ListCommandResultsResponse);
+}

@@ -10,12 +10,25 @@ import signal
 import threading
 
 from .config import Settings
-from .heartbeat import HeartbeatLoop, ResilientRedisLogHandler
+from .heartbeat import HeartbeatLoop
+from .logging_buffer import NodeLogBuffer, NodeLogHandler
+from .modules import ModuleRegistry
+from .modules.command_runner import CommandRunnerModule
+from .modules.copy_queue import CopyQueueModule
+from .modules.prefect_worker import PrefectWorkerModule
+from .modules.watcher import WatcherModule
+from .generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
+from .generated.copy_queue_pb2_grpc import add_CopyQueueServicer_to_server
+from .generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
+from .generated.watcher_pb2_grpc import add_WatcherServicer_to_server
 from .server import create_server, serve_blocking
 from .servicer import OpticNodeServicer
+from .servicer.command_runner_rpc import CommandRunnerServicer
+from .servicer.copy_queue_rpc import CopyQueueServicer
+from .servicer.prefect_worker_rpc import PrefectWorkerServicer
+from .servicer.watcher_rpc import WatcherServicer
 from .telemetry import TelemetryEngine
 from .utils.network import classify_interfaces
-from .work_queue import WorkQueue
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +45,9 @@ def main() -> None:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     settings = Settings.from_env()
+
     if args.check_update:
         from .updater import check_update_once
-
         print(check_update_once(settings))
         return
 
@@ -66,20 +79,47 @@ def main() -> None:
     )
 
     telemetry = TelemetryEngine(settings, planes)
-    log_handler = ResilientRedisLogHandler(list_max=settings.log_buffer_size)
-    hb = HeartbeatLoop(settings, stop, telemetry, planes, log_handler=log_handler)
+
+    log_buffer = NodeLogBuffer(settings)
+    log_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    node_log_handler = NodeLogHandler(log_buffer)
+    node_log_handler.setFormatter(log_fmt)
+    logging.getLogger().addHandler(node_log_handler)
+
+    registry = ModuleRegistry(settings, log_buffer=log_buffer)
+    registry.register_factory("command_runner", CommandRunnerModule)
+    registry.register_factory("prefect_worker", lambda: PrefectWorkerModule(log_buffer))
+    registry.register_factory("copy_queue", lambda: CopyQueueModule(settings))
+    registry.register_factory("watcher", WatcherModule)
+    registry.restore_from_redis()
+
+    hb = HeartbeatLoop(
+        settings,
+        stop,
+        telemetry,
+        planes,
+        log_buffer=log_buffer,
+        module_registry=registry,
+    )
     hb_thread = threading.Thread(target=hb.run, name="heartbeat", daemon=True)
     hb_thread.start()
 
     if settings.auto_update and settings.github_repo.strip():
         from .updater import UpdateChecker
-
         uc = UpdateChecker(settings, stop)
         threading.Thread(target=uc.run, name="updater", daemon=True).start()
 
-    work_queue = WorkQueue(settings)
-    servicer = OpticNodeServicer(settings, telemetry, work_queue)
-    server = create_server(settings, servicer)
+    servicer = OpticNodeServicer(settings, telemetry, registry)
+    server = create_server(
+        settings,
+        servicer,
+        extra_services=[
+            (add_CommandRunnerServicer_to_server, CommandRunnerServicer(registry)),
+            (add_CopyQueueServicer_to_server, CopyQueueServicer(registry)),
+            (add_WatcherServicer_to_server, WatcherServicer(registry)),
+            (add_PrefectWorkerServicer_to_server, PrefectWorkerServicer(registry)),
+        ],
+    )
 
     try:
         if gui_mode and log_queue is not None:
@@ -95,7 +135,8 @@ def main() -> None:
             serve_blocking(server)
     finally:
         stop.set()
-        work_queue.stop()
+        logging.getLogger().removeHandler(node_log_handler)
+        registry.shutdown_all()
 
 
 if __name__ == "__main__":
