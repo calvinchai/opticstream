@@ -13,7 +13,7 @@ from redis import Redis
 from rq import Queue
 
 from opticapi.project_state.lsm_models import LSMStripId
-from opticapi.naming import backlog_queue_name_for_project, queue_name_for_project
+from opticapi.naming import ProjectQueueKind, queue_name_for_project
 from opticapi.project_state.oct_models import OCTBatchId
 
 logger = logging.getLogger(__name__)
@@ -26,16 +26,20 @@ class WorkerConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     project_name: str = Field(..., min_length=1)
     deployment_name: str = Field(..., min_length=1)
+    queue_kind: ProjectQueueKind = Field(
+        ...,
+        description="Which RQ queue namespace to use (lsm:project:… vs oct:project:…).",
+    )
     allowed_window_minutes: float = Field(default=10, ge=0)
     redis_url: str = Field(default="")
 
     @property
     def queue_name(self) -> str:
-        return queue_name_for_project(self.project_name)
+        return queue_name_for_project(self.project_name, self.queue_kind)
 
     @property
     def backlog_queue_name(self) -> str:
-        return backlog_queue_name_for_project(self.project_name)
+        return queue_name_for_project(self.project_name, self.queue_kind, backlog=True)
 
 
 class StripTask(BaseModel):

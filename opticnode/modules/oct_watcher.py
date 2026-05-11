@@ -127,6 +127,7 @@ class OCTWatcherModule(NodeModule):
         worker_config = WorkerConfig(
             project_name=pn,
             deployment_name=config.prefect_deployment,
+            queue_kind="oct",
             allowed_window_minutes=config.allowed_window_minutes,
             redis_url=self._redis_url,
         )

@@ -1,5 +1,9 @@
 """Project name normalization and RQ queue names shared across hub, node, and workers."""
 
+from typing import Literal
+
+ProjectQueueKind = Literal["lsm", "oct"]
+
 
 def normalize_project_name(project_name: str) -> str:
     """
@@ -11,9 +15,12 @@ def normalize_project_name(project_name: str) -> str:
     return project_name.lower().replace("_", "-")
 
 
-def queue_name_for_project(project_name: str) -> str:
-    return f"{normalize_project_name(project_name)}:realtime"
-
-
-def backlog_queue_name_for_project(project_name: str) -> str:
-    return f"{normalize_project_name(project_name)}:backlog"
+def queue_name_for_project(
+    project_name: str,
+    kind: ProjectQueueKind,
+    *,
+    backlog: bool = False,
+) -> str:
+    name = normalize_project_name(project_name)
+    tail = "backlog" if backlog else "realtime"
+    return f"{kind}:project:{name}:{tail}"
