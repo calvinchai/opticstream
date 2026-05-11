@@ -10,12 +10,12 @@ from opticstream.cli.state_common import (
     validate_mark_field_and_value,
 )
 from opticstream.cli.lsm.cli import lsm_cli
-from opticstream.state.lsm_project_state import (
+from opticstream.state.lsm_models import (
     LSMChannelState,
     LSMSliceState,
     LSMStripState,
-    LSM_STATE_SERVICE,
 )
+from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 
 lsm_state_cli = lsm_cli.command(App(name="state"))
 

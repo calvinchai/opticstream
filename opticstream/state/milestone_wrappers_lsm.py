@@ -8,11 +8,11 @@ from opticstream.events.lsm_event_emitters import (
     emit_channel_lsm_event,
     emit_strip_lsm_event,
 )
-from opticstream.state.lsm_project_state import (
+from opticstream.state.lsm_models import (
     LSMChannelId,
     LSMStripId,
-    LSM_STATE_SERVICE,
 )
+from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 from opticstream.state.milestone_runtime import MilestoneAdapter, guarded_milestone
 from opticstream.state.milestone_hooks import (
     strip_failure_slack_hook,

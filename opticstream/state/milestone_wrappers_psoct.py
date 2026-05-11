@@ -9,12 +9,12 @@ from opticstream.events.psoct_event_emitters import (
     emit_mosaic_psoct_event,
     emit_slice_psoct_event,
 )
-from opticstream.state.oct_project_state import (
+from opticstream.state.oct_models import (
     OCTBatchId,
     OCTMosaicId,
     OCTSliceId,
-    OCT_STATE_SERVICE,
 )
+from opticstream.state.oct_state_service import OCT_STATE_SERVICE
 from opticstream.state.milestone_runtime import MilestoneAdapter, guarded_milestone
 
 

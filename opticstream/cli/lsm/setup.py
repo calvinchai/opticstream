@@ -6,7 +6,7 @@ from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
 from opticstream.cli.setup_common import default_zarr_config
 from opticstream.config.lsm_scan_config import get_lsm_scan_config_block_name
-from opticstream.state.lsm_project_state import ensure_lock
+from opticstream.state.lsm_models import ensure_lock
 
 if not logging.getLogger().handlers:
     logging.basicConfig(

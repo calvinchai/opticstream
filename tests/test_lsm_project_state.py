@@ -4,13 +4,12 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from opticstream.state.lsm_project_state import (
+from opticstream.state.lsm_models import (
     LSMChannelId,
     LSMChannelState,
     LSMChannelStateView,
     LSMProjectId,
     LSMProjectState,
-    LSMProjectStateService,
     LSMProjectStateView,
     LSMSliceId,
     LSMSliceState,
@@ -23,6 +22,7 @@ from opticstream.state.lsm_project_state import (
     _state_lock_name,
     ensure_lock,
 )
+from opticstream.state.lsm_state_service import LSMProjectStateService
 from opticstream.state.project_state_core import (
     BaseProjectStateStore,
     PrefectProjectLock,

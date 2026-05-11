@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from opticstream.state.lsm_project_state import LSMChannelId, LSMStripId
+from opticstream.state.lsm_models import LSMChannelId, LSMStripId
 
 
 def send_ops_slack_message(message: str) -> None:

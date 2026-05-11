@@ -20,7 +20,8 @@ from opticstream.flows.lsm.utils import (
     strip_ident_from_payload,
 )
 from opticstream.flows.lsm.strip_cleanup_flow import run_cleanup_tasks
-from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
+from opticstream.state.lsm_models import LSMStripId
+from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 from opticstream.state.milestone_wrappers_lsm import strip_processing_milestone
 from opticstream.state.state_guards import RunDecision, enter_milestone_stage, force_rerun_from_payload
 from opticstream.utils.zarr_validation import (

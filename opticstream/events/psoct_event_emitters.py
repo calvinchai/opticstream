@@ -10,7 +10,7 @@ from opticstream.events.event_emitter_core import (
     ScopedEventAdapter,
     emit_scoped_ident_event,
 )
-from opticstream.state.oct_project_state import OCTBatchId, OCTMosaicId, OCTSliceId
+from opticstream.state.oct_models import OCTBatchId, OCTMosaicId, OCTSliceId
 
 
 PSOCT_BATCH_EVENT_ADAPTER = ScopedEventAdapter[OCTBatchId](

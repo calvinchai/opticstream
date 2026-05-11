@@ -20,7 +20,7 @@ from opticstream.flows.lsm.utils import (
     strip_ident_from_payload,
     strip_zarr_output_path,
 )
-from opticstream.state.lsm_project_state import LSMStripId
+from opticstream.state.lsm_models import LSMStripId
 from opticstream.tasks.dandi_upload import upload_to_dandi
 from opticstream.hooks.slack_notification_hook import slack_notification_hook
 
