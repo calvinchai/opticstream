@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 import psutil
 
 from .config import Settings
-from .utils.network import NetworkPlanes
+from ..utils.network import NetworkPlanes
 
 logger = logging.getLogger(__name__)
 
@@ -93,3 +93,12 @@ def snapshot_to_flat_dict(snap: TelemetrySnapshot) -> dict[str, str]:
             [{"name": n.name, "bytes_sent": n.bytes_sent, "bytes_recv": n.bytes_recv} for n in snap.net]
         ),
     }
+
+
+__all__ = [
+    "TelemetryEngine",
+    "TelemetrySnapshot",
+    "NetIfaceCounters",
+    "snapshot_to_flat_dict",
+]
+

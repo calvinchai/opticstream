@@ -18,8 +18,8 @@ import requests
 from packaging.version import InvalidVersion, Version
 
 from . import __version__
-from .redis_utils import make_redis_client
-from .config import Settings
+from .app.redis_utils import make_redis_client
+from .app.config import Settings
 
 logger = logging.getLogger(__name__)
 

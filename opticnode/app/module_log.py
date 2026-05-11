@@ -101,3 +101,7 @@ class _RedisHandler(logging.Handler):
             client.ltrim(self._key, 0, self._tail - 1)
         except Exception:
             pass
+
+
+__all__ = ["ModuleLog"]
+

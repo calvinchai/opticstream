@@ -22,3 +22,7 @@ def make_redis_client(redis_url: str, *, require: bool = False) -> Any:
             ) from e
         return None
     return Redis.from_url(redis_url, decode_responses=True)
+
+
+__all__ = ["make_redis_client"]
+

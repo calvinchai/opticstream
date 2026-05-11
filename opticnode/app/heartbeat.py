@@ -8,11 +8,11 @@ import threading
 import time
 from typing import Any
 
-from . import __version__
 from .config import Settings
-from .redis_utils import make_redis_client
 from .telemetry import TelemetryEngine, snapshot_to_flat_dict
-from .utils.network import NetworkPlanes, get_primary_ipv4
+from ..redis_utils import make_redis_client
+from ..utils.network import NetworkPlanes, get_primary_ipv4
+from .. import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -118,3 +118,7 @@ class HeartbeatLoop:
 
         if self._module_registry is not None:
             self._module_registry.set_redis_all(None)
+
+
+__all__ = ["HeartbeatLoop", "NODES_SET_KEY"]
+

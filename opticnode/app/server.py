@@ -9,7 +9,7 @@ from concurrent import futures
 from typing import Any
 
 from .config import Settings
-from .generated.opticnode_pb2_grpc import add_OpticNodeServicer_to_server
+from ..generated.opticnode_pb2_grpc import add_OpticNodeServicer_to_server
 
 logger = logging.getLogger(__name__)
 
@@ -59,3 +59,7 @@ def serve_blocking(server: Any, stop_event: threading.Event, *, grace: float = 5
 
     threading.Thread(target=_watch, name="grpc-stop-watcher", daemon=True).start()
     server.wait_for_termination()
+
+
+__all__ = ["ServiceRegistration", "create_server", "serve_blocking"]
+

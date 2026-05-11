@@ -9,8 +9,8 @@ import queue
 import signal
 import threading
 
-from .config import Settings
-from .heartbeat import HeartbeatLoop
+from .app.config import Settings
+from .app.heartbeat import HeartbeatLoop
 from .modules import ModuleRegistry
 from .modules.command_runner import CommandRunnerModule
 from .modules.prefect_worker import PrefectWorkerModule
@@ -20,12 +20,12 @@ from .modules.watcher import WatcherModule
 from .generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
 from .generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
 from .generated.watcher_pb2_grpc import add_WatcherServicer_to_server
-from .server import create_server, serve_blocking
+from .app.server import create_server, serve_blocking
 from .servicer import OpticNodeServicer
 from .servicer.command_runner_rpc import CommandRunnerServicer
 from .servicer.prefect_worker_rpc import PrefectWorkerServicer
 from .servicer.watcher_rpc import WatcherServicer
-from .telemetry import TelemetryEngine
+from .app.telemetry import TelemetryEngine
 from .utils.network import classify_interfaces
 
 logger = logging.getLogger(__name__)

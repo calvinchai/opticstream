@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 def load_dotenv(path: Path | None = None) -> None:
     """Merge key=value lines from a `.env` file into `os.environ` (no override)."""
-    env_path = path or Path(__file__).resolve().parent / ".env"
+    env_path = path or Path(__file__).resolve().parent.parent / ".env"
     if not env_path.is_file():
         return
     for raw in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -59,7 +59,7 @@ class Settings(BaseModel):
     env_file: Path | None = Field(default=None, description="Optional override path for `.env`")
 
     @classmethod
-    def from_env(cls, *, env_file: Path | None = None) -> Settings:
+    def from_env(cls, *, env_file: Path | None = None) -> "Settings":
         load_dotenv(env_file)
         adv = os.environ.get("ADVERTISED_HOST", "").strip()
         mgmt = os.environ.get("MGMT_IFACE", "").strip()
@@ -89,3 +89,7 @@ class Settings(BaseModel):
             updater_asset_pattern=pat,
             env_file=env_file,
         )
+
+
+__all__ = ["Settings", "load_dotenv"]
+
