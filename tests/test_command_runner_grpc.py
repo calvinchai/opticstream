@@ -20,8 +20,17 @@ from opticnode.servicer.command_runner_rpc import CommandRunnerServicer
 
 @pytest.fixture
 def grpc_command_runner():
-    settings = SimpleNamespace(node_id="test-node", redis_url="redis://localhost:0/0")
-    registry = ModuleRegistry(settings, log_buffer=None)
+    import tempfile
+    from pathlib import Path
+
+    log_dir = Path(tempfile.mkdtemp())
+    settings = SimpleNamespace(
+        node_id="test-node",
+        redis_url="redis://localhost:0/0",
+        log_dir=log_dir,
+        redis_log_tail=10,
+    )
+    registry = ModuleRegistry(settings)
     registry._redis = None  # disable persistence for the test
     registry.register_factory("command_runner", CommandRunnerModule)
     registry.start("command_runner", {"max_results": 10})

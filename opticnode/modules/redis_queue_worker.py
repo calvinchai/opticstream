@@ -7,8 +7,6 @@ import os
 import shlex
 import subprocess
 import threading
-from typing import Any
-
 from pydantic import Field
 
 from .base import ModuleConfig, ModuleRegistry, NodeModule
@@ -39,15 +37,11 @@ class RedisQueueWorkerModule(NodeModule):
     name = "redis_queue_worker"
     Config = RedisQueueWorkerConfig
 
-    def __init__(self, redis_url: str, log_buffer: Any) -> None:
+    def __init__(self, redis_url: str) -> None:
         super().__init__()
         self._redis_url = redis_url
-        self._log_buffer = log_buffer
         self._proc: subprocess.Popen[str] | None = None
         self._proc_lock = threading.Lock()
-
-    def _log_bucket(self) -> str:
-        return "redis_queue_worker"
 
     def _rq_command(self, config: RedisQueueWorkerConfig) -> list[str]:
         qn = config.queue_name.strip()
@@ -96,10 +90,9 @@ class RedisQueueWorkerModule(NodeModule):
         with self._proc_lock:
             self._proc = proc
 
-        bucket = self._log_bucket()
         threading.Thread(
             target=self._read_logs,
-            args=(proc, bucket),
+            args=(proc,),
             daemon=True,
             name="rq-worker-logs",
         ).start()
@@ -122,10 +115,10 @@ class RedisQueueWorkerModule(NodeModule):
             proc = self._proc
         return proc is not None and proc.poll() is None
 
-    def _read_logs(self, proc: subprocess.Popen[str], bucket: str) -> None:
+    def _read_logs(self, proc: subprocess.Popen[str]) -> None:
         assert proc.stdout is not None
         for line in proc.stdout:
-            self._log_buffer.append(bucket, line.rstrip())
+            logger.info("%s", line.rstrip())
 
 
 class RedisQueueBurstWorkerModule(RedisQueueWorkerModule):
@@ -133,12 +126,9 @@ class RedisQueueBurstWorkerModule(RedisQueueWorkerModule):
 
     name = "redis_queue_burst_worker"
 
-    def __init__(self, redis_url: str, log_buffer: Any, registry: ModuleRegistry) -> None:
-        super().__init__(redis_url, log_buffer)
+    def __init__(self, redis_url: str, registry: ModuleRegistry) -> None:
+        super().__init__(redis_url)
         self._registry = registry
-
-    def _log_bucket(self) -> str:
-        return "redis_queue_burst_worker"
 
     def _rq_command(self, config: RedisQueueWorkerConfig) -> list[str]:
         cmd = super()._rq_command(config)

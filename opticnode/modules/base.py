@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import threading
 import time
 from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable
 
 from pydantic import BaseModel
 
-from ..logging_buffer import LOG_MODULE_IDS
+from ..module_log import ModuleLog
 from ..redis_utils import make_redis_client
 
 logger = logging.getLogger(__name__)
@@ -161,10 +163,9 @@ class NodeModule:
                 error=self._error,
             )
 
-    def get_logs(self, n: int) -> list[str]:
-        return []
+    def submit_job(self, payload: dict) -> str:
+        raise NotImplementedError(f"Module '{self.name}' does not support job submission")
 
-    # ---------- supervisor ----------
 
     def _supervise_loop(self) -> None:
         """Polls health every _HEALTH_INTERVAL seconds and restarts on failure."""
@@ -272,11 +273,15 @@ class LoopModule(NodeModule):
 class ModuleRegistry:
     """Manages lifecycle of all registered node modules."""
 
-    def __init__(self, settings: Any, log_buffer: Any | None = None) -> None:
+    def __init__(self, settings: Any, *, gui_mode: bool = False) -> None:
         self._settings = settings
-        self._log_buffer = log_buffer
+        self._log_dir = Path(getattr(settings, "log_dir", "logs"))
+        self._redis_tail = getattr(settings, "redis_log_tail", 100)
+        self._gui_mode = gui_mode
         self._factories: dict[str, Callable[[], NodeModule]] = {}
         self._modules: dict[str, NodeModule] = {}
+        self._module_logs: dict[str, ModuleLog] = {}
+        self._gui_queues: dict[str, queue.Queue[logging.LogRecord]] = {}
         self._lock = threading.Lock()
         self._redis: Any = None
         self._connect_redis()
@@ -308,8 +313,29 @@ class ModuleRegistry:
             logger.warning("ModuleRegistry: failed to delete config for %s", name)
 
     def register_factory(self, name: str, factory: Callable[[], NodeModule]) -> None:
+        gui_q: queue.Queue[logging.LogRecord] | None = None
+        if self._gui_mode:
+            gui_q = queue.Queue(maxsize=500)
+            self._gui_queues[name] = gui_q
         with self._lock:
             self._factories[name] = factory
+            self._module_logs[name] = ModuleLog(
+                name,
+                self._log_dir,
+                redis_tail=self._redis_tail,
+                gui_queue=gui_q,
+            )
+
+    def set_redis_all(self, client: Any) -> None:
+        """Propagate a Redis client (or None) to all module log handlers."""
+        with self._lock:
+            logs = dict(self._module_logs)
+        for mod_log in logs.values():
+            mod_log.set_redis(client)
+
+    @property
+    def gui_queues(self) -> dict[str, queue.Queue[logging.LogRecord]]:
+        return dict(self._gui_queues)
 
     def _get_or_create(self, name: str) -> NodeModule:
         with self._lock:
@@ -373,19 +399,13 @@ class ModuleRegistry:
             modules = dict(self._modules)
         return [m.status() for m in modules.values()]
 
-    def get_logs(self, name: str, tail: int | None = None, *, full: bool = False) -> list[str]:
-        """Return log lines for a logical module bucket (core, prefect_worker, watcher, command_runner)."""
-        if name not in LOG_MODULE_IDS:
-            raise KeyError(
-                f"Unknown log module '{name}'. Valid: {', '.join(sorted(LOG_MODULE_IDS))}"
-            )
-        buf = self._log_buffer
-        if buf is None:
-            return []
-        if full:
-            return buf.get_all(name)
-        n = tail if tail is not None and tail > 0 else 100
-        return buf.get_tail(name, n)
+    def get_logs(self, name: str, tail: int = 100) -> list[str]:
+        """Return the last ``tail`` log lines for a module (0 = all available)."""
+        with self._lock:
+            mod_log = self._module_logs.get(name)
+        if mod_log is None:
+            raise KeyError(f"Unknown module '{name}'. Registered: {list(self._module_logs)}")
+        return mod_log.get_tail(tail)
 
     def restore_from_redis(self) -> None:
         """Re-start modules that were enabled before the last shutdown."""
@@ -417,8 +437,11 @@ class ModuleRegistry:
     def shutdown_all(self, timeout: float = 15.0) -> None:
         with self._lock:
             modules = dict(self._modules)
+            logs = dict(self._module_logs)
         for name, module in modules.items():
             try:
                 module.stop()
             except Exception:
                 logger.exception("ModuleRegistry: error stopping module '%s'.", name)
+        for mod_log in logs.values():
+            mod_log.close()

@@ -24,7 +24,7 @@ class HeartbeatLoop:
     """Background loop: register node, publish telemetry, maintain last_seen TTL.
 
     Redis is used as a registry (node presence) and stats sink. Per-module log tails
-    are written by NodeLogBuffer when Redis is connected (see logging_buffer.py).
+    are written directly by each module's _RedisHandler when a client is connected.
     Module state is served live via gRPC (ListModules), not stored in Redis.
     """
 
@@ -34,14 +34,12 @@ class HeartbeatLoop:
         stop_event: threading.Event,
         telemetry: TelemetryEngine,
         planes: NetworkPlanes,
-        log_buffer: Any = None,
         module_registry: Any = None,
     ) -> None:
         self._settings = settings
         self._stop = stop_event
         self._telemetry = telemetry
         self._planes = planes
-        self._log_buffer = log_buffer
         self._module_registry = module_registry
 
     def run(self) -> None:
@@ -68,16 +66,16 @@ class HeartbeatLoop:
             if client is None:
                 try:
                     client = make_redis_client(self._settings.redis_url, require=True)
-                    if self._log_buffer is not None:
-                        self._log_buffer.set_redis_client(client)
+                    if self._module_registry is not None:
+                        self._module_registry.set_redis_all(client)
                     client.srem(TOMBSTONES_SET_KEY, node_id)
                     client.sadd(NODES_SET_KEY, node_id)
                     logger.info("Heartbeat connected to Redis.")
                 except Exception as exc:
                     logger.warning("Redis unreachable; will retry: %s", exc)
                     client = None
-                    if self._log_buffer is not None:
-                        self._log_buffer.set_redis_client(None)
+                    if self._module_registry is not None:
+                        self._module_registry.set_redis_all(None)
                     if self._stop.wait(timeout=min(1.0, interval)):
                         break
                     continue
@@ -106,8 +104,6 @@ class HeartbeatLoop:
                         "version": __version__,
                     },
                 )
-                if self._log_buffer is not None:
-                    self._log_buffer.flush_to_redis()
             except Exception:
                 logger.exception("Heartbeat Redis publish failed")
                 try:
@@ -115,11 +111,11 @@ class HeartbeatLoop:
                 except Exception:
                     pass
                 client = None
-                if self._log_buffer is not None:
-                    self._log_buffer.set_redis_client(None)
+                if self._module_registry is not None:
+                    self._module_registry.set_redis_all(None)
 
             if self._stop.wait(timeout=interval):
                 break
 
-        if self._log_buffer is not None:
-            self._log_buffer.set_redis_client(None)
+        if self._module_registry is not None:
+            self._module_registry.set_redis_all(None)

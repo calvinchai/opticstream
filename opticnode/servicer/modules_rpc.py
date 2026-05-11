@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-import grpc  # type: ignore[reportMissingModuleSource]
+import grpc
 
 from ..generated import common_pb2 as cpb2
 from ..generated import modules_pb2 as mpb2
@@ -105,13 +105,13 @@ class ModulesMixin:
 
     def GetModuleLogs(self, request: Any, context: Any) -> mpb2.ModuleLogsResponse:
         name = (request.name or "").strip()
-        tail_lines = int(request.tail_lines) if request.tail_lines > 0 else 100
-        entire = bool(request.entire_buffer)
+        # tail=0 means "return all available lines from the in-memory deque"
+        tail = 0 if request.entire_buffer else (int(request.tail_lines) if request.tail_lines > 0 else 100)
         if not name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             return mpb2.ModuleLogsResponse(lines=[])
         try:
-            lines = self._registry.get_logs(name, tail=tail_lines, full=entire)
+            lines = self._registry.get_logs(name, tail=tail)
             return mpb2.ModuleLogsResponse(lines=lines)
         except KeyError:
             context.set_code(grpc.StatusCode.NOT_FOUND)

@@ -6,12 +6,12 @@ import logging
 import shlex
 import subprocess
 import threading
-from typing import Any
 
 from pydantic import Field
 
 from .base import ModuleConfig, NodeModule
 
+# Use the module-specific logger so output goes to prefect_worker.log via ModuleLog.
 logger = logging.getLogger(__name__)
 
 
@@ -27,9 +27,8 @@ class PrefectWorkerModule(NodeModule):
     name = "prefect_worker"
     Config = PrefectWorkerConfig
 
-    def __init__(self, log_buffer: Any) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self._log_buffer = log_buffer
         self._proc: subprocess.Popen[str] | None = None
         self._proc_lock = threading.Lock()
 
@@ -77,4 +76,4 @@ class PrefectWorkerModule(NodeModule):
     def _read_logs(self, proc: subprocess.Popen[str]) -> None:
         assert proc.stdout is not None
         for line in proc.stdout:
-            self._log_buffer.append("prefect_worker", line.rstrip())
+            logger.info("%s", line.rstrip())
