@@ -34,6 +34,20 @@ class LSMProjectStateService:
     def __init__(self, backend: RedisStateBackend | None = None) -> None:
         self._backend = backend or RedisStateBackend(STATE_REDIS_BLOCK_NAME)
 
+    # -- discovery ----------------------------------------------------------
+
+    def list_project_names(self) -> list[str]:
+        """Return sorted names of all LSM projects with a meta key in Redis."""
+        client = self._backend.client
+        suffix = ":meta"
+        prefix = f"{_PREFIX}:"
+        names: set[str] = set()
+        for key in client.scan_iter(f"{prefix}*{suffix}"):
+            rest = key.removeprefix(prefix)
+            if rest.count(":") == 1 and rest.endswith(suffix):
+                names.add(rest.removesuffix(suffix))
+        return sorted(names)
+
     # -- key helpers --------------------------------------------------------
 
     def _project_key(self, name: str) -> str:
