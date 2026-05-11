@@ -19,17 +19,16 @@ from opticstream.state.lsm_models import LSMStripId
 from opticstream.utils.polling_watcher import PollingStableWatcher
 
 from opticnode.modules.base import ModuleConfig, NodeModule
-from opticnode.modules.worker import StripTask
+from opticnode.modules.worker import StripTask, WorkerConfig, _PROCESS_FN
 
 logger = logging.getLogger(__name__)
 
-_PROCESS_FN = "opticnode.modules.worker.process"
-
 
 class RedisLSMWatcherService(LSMWatcherService):
-    def __init__(self, *, rq_queue: Queue, **kwargs: Any) -> None:
+    def __init__(self, *, rq_queue: Queue, worker_config: WorkerConfig, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._rq_queue = rq_queue
+        self._worker_config = worker_config
 
     def _process_event(self, *, strip_ident: LSMStripId, folder: Path) -> int:
         task = StripTask(
@@ -38,7 +37,9 @@ class RedisLSMWatcherService(LSMWatcherService):
             force_rerun=self.force_resend,
             timestamp=datetime.fromtimestamp(folder.stat().st_mtime),
         )
-        self._rq_queue.enqueue(_PROCESS_FN, task.model_dump(mode="python"))
+        self._rq_queue.enqueue(
+            _PROCESS_FN, task.model_dump(mode="python"), self._worker_config.model_dump()
+        )
         with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident):
             pass
         logger.info("Enqueued LSM strip job for %s from %s", strip_ident, folder)
@@ -47,12 +48,13 @@ class RedisLSMWatcherService(LSMWatcherService):
 
 class LSMWatcherConfig(ModuleConfig):
     watch_path: str = Field(default="")
-    redis_queue_name: str = Field(default="")
     poll_interval: int = Field(default=5, ge=1)
     stability_seconds: int = Field(default=15, ge=0)
     force_resend: bool = False
     project_name: str = Field(default="")
     slice_offset: int = Field(default=0)
+    prefect_deployment: str = Field(default="")
+    allowed_window_minutes: float = Field(default=10, ge=0)
 
 
 class LSMWatcherModule(NodeModule):
@@ -88,9 +90,6 @@ class LSMWatcherModule(NodeModule):
         watch_path = config.watch_path.strip()
         if not watch_path:
             raise ValueError("LSMWatcherModule requires a non-empty 'watch_path'.")
-        qn = config.redis_queue_name.strip()
-        if not qn:
-            raise ValueError("LSMWatcherModule requires a non-empty 'redis_queue_name'.")
         pn = config.project_name.strip()
         if not pn:
             raise ValueError("LSMWatcherModule requires a non-empty 'project_name'.")
@@ -99,12 +98,18 @@ class LSMWatcherModule(NodeModule):
         if not p.is_dir():
             raise ValueError(f"LSMWatcherModule: watch_path is not a directory: {watch_path}")
 
-        rq_queue = self._make_rq_queue(qn)
+        worker_config = WorkerConfig(
+            project_name=pn,
+            deployment_name=config.prefect_deployment,
+            allowed_window_minutes=config.allowed_window_minutes,
+            redis_url=self._redis_url,
+        )
+        rq_queue = self._make_rq_queue(worker_config.queue_name)
         self._poll_stop.clear()
-
         scan_config: LSMScanConfig = get_lsm_scan_config(pn)
         service = RedisLSMWatcherService(
             rq_queue=rq_queue,
+            worker_config=worker_config,
             project_name=pn,
             scan_config=scan_config,
             watch_dir=p,
@@ -133,7 +138,7 @@ class LSMWatcherModule(NodeModule):
         logger.info(
             "LSMWatcherModule: watch=%s queue=%s poll=%ss stability=%ss",
             watch_path,
-            qn,
+            worker_config.queue_name,
             config.poll_interval,
             config.stability_seconds,
         )

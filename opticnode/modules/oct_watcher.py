@@ -19,11 +19,9 @@ from opticstream.state.oct_models import OCTBatchId
 from opticstream.utils.polling_watcher import PollingStableWatcher
 
 from opticnode.modules.base import ModuleConfig, NodeModule
-from opticnode.modules.worker import OctBatchTask
+from opticnode.modules.worker import OctBatchTask, WorkerConfig, _PROCESS_FN
 
 logger = logging.getLogger(__name__)
-
-_PROCESS_FN = "opticnode.modules.worker.process"
 
 
 def _parse_mosaic_ranges(mosaic_ranges_str: str) -> list[tuple[int, int]]:
@@ -39,9 +37,10 @@ def _parse_mosaic_ranges(mosaic_ranges_str: str) -> list[tuple[int, int]]:
 
 
 class RedisOCTWatcherService(OCTWatcherService):
-    def __init__(self, *, rq_queue: Queue, **kwargs: Any) -> None:
+    def __init__(self, *, rq_queue: Queue, worker_config: WorkerConfig, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._rq_queue = rq_queue
+        self._worker_config = worker_config
 
     def _process_event(self, candidate: OCTBatchCandidate, batch_ident: Any) -> int:
         bid = (
@@ -56,7 +55,9 @@ class RedisOCTWatcherService(OCTWatcherService):
             force_rerun=self.force_resend,
             timestamp=datetime.fromtimestamp(batch_mtime),
         )
-        self._rq_queue.enqueue(_PROCESS_FN, task.model_dump(mode="python"))
+        self._rq_queue.enqueue(
+            _PROCESS_FN, task.model_dump(mode="python"), self._worker_config.model_dump()
+        )
         with OCT_STATE_SERVICE.open_batch(batch_ident=bid):
             pass
         logger.info("Enqueued OCT batch job for %s (%s files)", bid, len(task.file_list))
@@ -65,7 +66,6 @@ class RedisOCTWatcherService(OCTWatcherService):
 
 class OCTWatcherConfig(ModuleConfig):
     watch_path: str = Field(default="")
-    redis_queue_name: str = Field(default="")
     poll_interval: int = Field(default=5, ge=1)
     stability_seconds: int = Field(default=15, ge=0)
     force_resend: bool = False
@@ -75,6 +75,8 @@ class OCTWatcherConfig(ModuleConfig):
     project_base_path: str = Field(default="")
     min_complex_file_size_bytes: int = Field(default=1, ge=0)
     prefer_spectral_for_complex_with_spectral: bool = True
+    prefect_deployment: str = Field(default="")
+    allowed_window_minutes: float = Field(default=10, ge=0)
 
 
 class OCTWatcherModule(NodeModule):
@@ -110,9 +112,6 @@ class OCTWatcherModule(NodeModule):
         watch_path = config.watch_path.strip()
         if not watch_path:
             raise ValueError("OCTWatcherModule requires a non-empty 'watch_path'.")
-        qn = config.redis_queue_name.strip()
-        if not qn:
-            raise ValueError("OCTWatcherModule requires a non-empty 'redis_queue_name'.")
         pn = config.project_name.strip()
         if not pn:
             raise ValueError("OCTWatcherModule requires a non-empty 'project_name'.")
@@ -125,14 +124,20 @@ class OCTWatcherModule(NodeModule):
         if not pbp:
             raise ValueError("OCTWatcherModule requires a non-empty 'project_base_path'.")
 
-        rq_queue = self._make_rq_queue(qn)
+        worker_config = WorkerConfig(
+            project_name=pn,
+            deployment_name=config.prefect_deployment,
+            allowed_window_minutes=config.allowed_window_minutes,
+            redis_url=self._redis_url,
+        )
+        rq_queue = self._make_rq_queue(worker_config.queue_name)
         self._poll_stop.clear()
-
         project_config = get_psoct_scan_config(pn)
         scan_config = PSOCTScanConfigModel.model_validate(project_config.model_dump())
         batch_size = project_config.acquisition.grid_size_y
         service = RedisOCTWatcherService(
             rq_queue=rq_queue,
+            worker_config=worker_config,
             project_name=pn,
             folder_path=p,
             project_base_path=pbp,
@@ -167,7 +172,7 @@ class OCTWatcherModule(NodeModule):
         logger.info(
             "OCTWatcherModule: watch=%s queue=%s poll=%ss stability=%ss",
             watch_path,
-            qn,
+            worker_config.queue_name,
             config.poll_interval,
             config.stability_seconds,
         )

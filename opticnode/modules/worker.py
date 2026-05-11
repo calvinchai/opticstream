@@ -3,29 +3,47 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from prefect.deployments import run_deployment
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from rq import Queue
 
 from opticstream.state.lsm_models import LSMStripId
 from opticstream.state.oct_models import OCTBatchId
+from opticstream.utils.naming_convention import normalize_project_name
 
 logger = logging.getLogger(__name__)
 
-ENV_REDIS_URL = "OPTICNODE_RQ_REDIS_URL"
-ENV_BACKLOG_QUEUE = "OPTICNODE_RQ_BACKLOG_QUEUE"
-ENV_ALLOWED_WINDOW_MINUTES = "OPTICNODE_RQ_ALLOWED_WINDOW_MINUTES"
-ENV_PREFECT_DEPLOYMENT = "OPTICNODE_RQ_PREFECT_DEPLOYMENT"
-ENV_PREFECT_DEPLOYMENT_LSM = "OPTICNODE_RQ_PREFECT_DEPLOYMENT_LSM"
-ENV_PREFECT_DEPLOYMENT_OCT = "OPTICNODE_RQ_PREFECT_DEPLOYMENT_OCT"
+_PROCESS_FN = "opticnode.modules.worker.process"
+_PROCESS_BACKLOG_FN = "opticnode.modules.worker.process_backlog"
 
-_PROCESS_BACKLOG = "opticnode.modules.worker.process_backlog"
+
+def queue_name_for_project(project_name: str) -> str:
+    return f"{normalize_project_name(project_name)}:realtime"
+
+
+def backlog_queue_name_for_project(project_name: str) -> str:
+    return f"{normalize_project_name(project_name)}:backlog"
+
+
+class WorkerConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    project_name: str = Field(..., min_length=1)
+    deployment_name: str = Field(..., min_length=1)
+    allowed_window_minutes: float = Field(default=10, ge=0)
+    redis_url: str = Field(default="")
+
+    @property
+    def queue_name(self) -> str:
+        return queue_name_for_project(self.project_name)
+
+    @property
+    def backlog_queue_name(self) -> str:
+        return backlog_queue_name_for_project(self.project_name)
 
 
 class StripTask(BaseModel):
@@ -42,72 +60,43 @@ class OctBatchTask(BaseModel):
     force_rerun: bool = False
 
 
-def _redis_url() -> str:
-    return (
-        os.environ.get(ENV_REDIS_URL)
-        or os.environ.get("REDIS_URL")
-        or "redis://127.0.0.1:6379/0"
-    )
+def _coerce_timestamp(val: object) -> datetime:
+    if isinstance(val, datetime):
+        return val
+    s = str(val).replace("Z", "+00:00")
+    return datetime.fromisoformat(s)
 
 
-def _redis_conn() -> Redis:
-    return Redis.from_url(_redis_url(), decode_responses=False)
-
-
-def _backlog_queue_name() -> str:
-    return os.environ.get(ENV_BACKLOG_QUEUE, "").strip()
-
-
-def _allowed_window() -> timedelta:
-    raw = os.environ.get(ENV_ALLOWED_WINDOW_MINUTES, "10").strip()
-    if raw == "":
-        return timedelta(minutes=10.0)
-    mins = float(raw)
-    if mins <= 0:
-        return timedelta(0)
-    return timedelta(minutes=mins)
-
-
-def _lsm_deployment_name() -> str:
-    specific = os.environ.get(ENV_PREFECT_DEPLOYMENT_LSM, "").strip()
-    if specific:
-        return specific
-    return os.environ.get(ENV_PREFECT_DEPLOYMENT, "").strip()
-
-
-def _oct_deployment_name() -> str:
-    specific = os.environ.get(ENV_PREFECT_DEPLOYMENT_OCT, "").strip()
-    if specific:
-        return specific
-    return os.environ.get(ENV_PREFECT_DEPLOYMENT, "").strip()
-
-
-def _send_to_backlog(payload: dict[str, Any]) -> None:
-    bq = _backlog_queue_name()
-    if not bq:
-        logger.warning(
-            "Job is outside allowed time window but %s is unset; skipping",
-            ENV_BACKLOG_QUEUE,
+def _maybe_defer_to_backlog(payload: dict[str, Any], config: WorkerConfig) -> bool:
+    """Return True if the job was re-queued to backlog and should not run now."""
+    if config.allowed_window_minutes <= 0:
+        return False
+    ts_raw = payload.get("timestamp")
+    if ts_raw is None:
+        return False
+    ts = _coerce_timestamp(ts_raw)
+    if ts.tzinfo is not None:
+        ts = ts.astimezone().replace(tzinfo=None)
+    if ts < datetime.now() - timedelta(minutes=config.allowed_window_minutes):
+        logger.info("Job timestamp outside allowed window; sending to backlog")
+        conn = Redis.from_url(config.redis_url, decode_responses=False)
+        Queue(config.backlog_queue_name, connection=conn).enqueue(
+            _PROCESS_BACKLOG_FN, payload, config.model_dump()
         )
-        return
-    conn = _redis_conn()
-    Queue(bq, connection=conn).enqueue(_PROCESS_BACKLOG, payload)
-    logger.info("Re-queued job to backlog queue %r", bq)
+        logger.info("Re-queued job to backlog queue %r", config.backlog_queue_name)
+        return True
+    return False
 
 
-def _run_lsm_deployment(task: StripTask) -> None:
+def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     from opticstream.config.lsm_scan_config import LSMScanConfigModel, get_lsm_scan_config
 
-    name = _lsm_deployment_name()
-    if not name:
-        raise RuntimeError(
-            f"Set {ENV_PREFECT_DEPLOYMENT} or {ENV_PREFECT_DEPLOYMENT_LSM} for LSM jobs"
-        )
+    task = StripTask.model_validate(payload)
     project_name = task.lsm_strip_id.project_name
     block = get_lsm_scan_config(project_name)
     scan_config = LSMScanConfigModel.model_validate(block.model_dump())
     run_deployment(
-        name=name,
+        name=deployment_name,
         parameters={
             "strip_ident": task.lsm_strip_id.model_dump(),
             "strip_path": task.strip_path,
@@ -117,78 +106,42 @@ def _run_lsm_deployment(task: StripTask) -> None:
     )
 
 
-def _run_oct_deployment(task: OctBatchTask) -> None:
+def _run_oct_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, get_psoct_scan_config
 
-    name = _oct_deployment_name()
-    if not name:
-        raise RuntimeError(
-            f"Set {ENV_PREFECT_DEPLOYMENT} or {ENV_PREFECT_DEPLOYMENT_OCT} for OCT jobs"
-        )
+    task = OctBatchTask.model_validate(payload)
     project_name = task.batch_id.project_name
     block = get_psoct_scan_config(project_name)
-    config = PSOCTScanConfigModel.model_validate(block.model_dump())
+    scan_config = PSOCTScanConfigModel.model_validate(block.model_dump())
     run_deployment(
-        name=name,
+        name=deployment_name,
         parameters={
             "batch_id": task.batch_id.model_dump(),
-            "config": config.model_dump(mode="json"),
+            "config": scan_config.model_dump(mode="json"),
             "file_list": [str(Path(p)) for p in task.file_list],
             "force_rerun": task.force_rerun,
         },
     )
 
 
-def _coerce_timestamp(val: object) -> datetime:
-    if isinstance(val, datetime):
-        return val
-    s = str(val).replace("Z", "+00:00")
-    return datetime.fromisoformat(s)
-
-
-def _task_from_payload(payload: dict[str, Any]) -> StripTask | OctBatchTask:
+def _run_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     if "lsm_strip_id" in payload:
-        return StripTask.model_validate(payload)
-    if "batch_id" in payload:
-        return OctBatchTask.model_validate(payload)
-    raise ValueError(
-        "Payload must include lsm_strip_id (LSM strip) or batch_id (OCT batch)"
-    )
+        _run_lsm_deployment(payload, deployment_name)
+    elif "batch_id" in payload:
+        _run_oct_deployment(payload, deployment_name)
+    else:
+        raise ValueError("Payload must include lsm_strip_id or batch_id")
 
 
-def _maybe_defer_to_backlog(payload: dict[str, Any]) -> bool:
-    """Return True if the job was re-queued to backlog and should not run now."""
-    window = _allowed_window()
-    if window <= timedelta(0):
-        return False
-    ts_raw = payload.get("timestamp")
-    if ts_raw is None:
-        return False
-    ts = _coerce_timestamp(ts_raw)
-    if ts.tzinfo is not None:
-        ts = ts.astimezone().replace(tzinfo=None)
-    if ts < datetime.now() - window:
-        logger.info("Job timestamp outside allowed window; sending to backlog")
-        _send_to_backlog(payload)
-        return True
-    return False
-
-
-def process(payload: dict[str, Any]) -> None:
-    """Main queue handler: defer stale jobs to backlog when configured."""
-    if _maybe_defer_to_backlog(payload):
+def process(payload: dict[str, Any], config_dict: dict[str, Any]) -> None:
+    """Main RQ handler: defer stale jobs to backlog when configured."""
+    config = WorkerConfig.model_validate(config_dict)
+    if _maybe_defer_to_backlog(payload, config):
         return
-    task = _task_from_payload(payload)
-    if isinstance(task, StripTask):
-        _run_lsm_deployment(task)
-    else:
-        _run_oct_deployment(task)
+    _run_deployment(payload, config.deployment_name)
 
 
-def process_backlog(payload: dict[str, Any]) -> None:
-    """Backlog queue handler: always run deployment (no time-window check)."""
-    task = _task_from_payload(payload)
-    if isinstance(task, StripTask):
-        _run_lsm_deployment(task)
-    else:
-        _run_oct_deployment(task)
+def process_backlog(payload: dict[str, Any], config_dict: dict[str, Any]) -> None:
+    """Backlog RQ handler: always run deployment (no time-window check)."""
+    config = WorkerConfig.model_validate(config_dict)
+    _run_deployment(payload, config.deployment_name)
