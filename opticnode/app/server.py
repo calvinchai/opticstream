@@ -8,8 +8,8 @@ from collections.abc import Callable, Iterable
 from concurrent import futures
 from typing import Any
 
-from .config import Settings
-from ..generated.opticnode_pb2_grpc import add_OpticNodeServicer_to_server
+from opticnode.app.config import Settings
+from opticnode.generated.opticnode_pb2_grpc import add_OpticNodeServicer_to_server
 
 logger = logging.getLogger(__name__)
 

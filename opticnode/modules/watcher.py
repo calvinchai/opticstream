@@ -13,8 +13,8 @@ from rq import Queue
 
 from opticstream.utils.polling_watcher import PollingStableWatcher
 
-from .base import ModuleConfig, NodeModule
-from .worker import JOB_KIND_LSM_STRIP, JOB_KIND_OCT_BATCH, OctBatchTask, StripTask
+from opticnode.modules.base import ModuleConfig, NodeModule
+from opticnode.modules.worker import JOB_KIND_LSM_STRIP, JOB_KIND_OCT_BATCH, OctBatchTask, StripTask
 
 logger = logging.getLogger(__name__)
 

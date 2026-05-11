@@ -14,8 +14,8 @@ from typing import Any, Callable
 
 from pydantic import BaseModel
 
-from ..module_log import ModuleLog
-from ..redis_utils import make_redis_client
+from opticnode.app.module_log import ModuleLog
+from opticnode.app.redis_utils import make_redis_client
 
 logger = logging.getLogger(__name__)
 

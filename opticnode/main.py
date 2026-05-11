@@ -9,24 +9,24 @@ import queue
 import signal
 import threading
 
-from .app.config import Settings
-from .app.heartbeat import HeartbeatLoop
-from .modules import ModuleRegistry
-from .modules.command_runner import CommandRunnerModule
-from .modules.prefect_worker import PrefectWorkerModule
-from .modules.primocache_monitor import PrimoCacheMonitorModule
-from .modules.redis_queue_worker import RedisQueueBurstWorkerModule, RedisQueueWorkerModule
-from .modules.watcher import WatcherModule
-from .generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
-from .generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
-from .generated.watcher_pb2_grpc import add_WatcherServicer_to_server
-from .app.server import create_server, serve_blocking
-from .servicer import OpticNodeServicer
-from .servicer.command_runner_rpc import CommandRunnerServicer
-from .servicer.prefect_worker_rpc import PrefectWorkerServicer
-from .servicer.watcher_rpc import WatcherServicer
-from .app.telemetry import TelemetryEngine
-from .utils.network import classify_interfaces
+from opticnode.app.config import Settings
+from opticnode.app.heartbeat import HeartbeatLoop
+from opticnode.app.server import create_server, serve_blocking
+from opticnode.app.telemetry import TelemetryEngine
+from opticnode.generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
+from opticnode.generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
+from opticnode.generated.watcher_pb2_grpc import add_WatcherServicer_to_server
+from opticnode.modules import ModuleRegistry
+from opticnode.modules.command_runner import CommandRunnerModule
+from opticnode.modules.prefect_worker import PrefectWorkerModule
+from opticnode.modules.primocache_monitor import PrimoCacheMonitorModule
+from opticnode.modules.redis_queue_worker import RedisQueueBurstWorkerModule, RedisQueueWorkerModule
+from opticnode.modules.watcher import WatcherModule
+from opticnode.servicer import OpticNodeServicer
+from opticnode.servicer.command_runner_rpc import CommandRunnerServicer
+from opticnode.servicer.prefect_worker_rpc import PrefectWorkerServicer
+from opticnode.servicer.watcher_rpc import WatcherServicer
+from opticnode.utils.network import classify_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def main() -> None:
     settings = Settings.from_env()
 
     if args.check_update:
-        from .updater import check_update_once
+        from opticnode.updater import check_update_once
         print(check_update_once(settings))
         return
 
@@ -112,7 +112,7 @@ def main() -> None:
     hb_thread.start()
 
     if settings.auto_update and settings.github_repo.strip():
-        from .updater import UpdateChecker
+        from opticnode.updater import UpdateChecker
         uc = UpdateChecker(settings, stop)
         threading.Thread(target=uc.run, name="updater", daemon=True).start()
 
@@ -129,7 +129,7 @@ def main() -> None:
 
     try:
         if gui_mode and core_queue is not None:
-            from .gui import launch_gui
+            from opticnode.gui import launch_gui
 
             all_queues = {**registry.gui_queues, "core": core_queue}
 

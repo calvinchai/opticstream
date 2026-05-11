@@ -10,8 +10,8 @@ from typing import Any
 
 import grpc  # type: ignore[reportMissingModuleSource]
 
-from ..generated import telemetry_pb2 as tpb2
-from ..telemetry import TelemetryEngine, TelemetrySnapshot
+from opticnode.generated import telemetry_pb2 as tpb2
+from opticnode.app.telemetry import TelemetryEngine, TelemetrySnapshot
 
 logger = logging.getLogger(__name__)
 

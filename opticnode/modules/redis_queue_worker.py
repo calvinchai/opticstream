@@ -9,8 +9,8 @@ import subprocess
 import threading
 from pydantic import Field
 
-from .base import ModuleConfig, ModuleRegistry, NodeModule
-from .worker import (
+from opticnode.modules.base import ModuleConfig, ModuleRegistry, NodeModule
+from opticnode.modules.worker import (
     ENV_ALLOWED_WINDOW_MINUTES,
     ENV_BACKLOG_QUEUE,
     ENV_PREFECT_DEPLOYMENT,

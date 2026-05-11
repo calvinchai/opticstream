@@ -9,7 +9,7 @@ import threading
 
 from pydantic import Field
 
-from .base import ModuleConfig, NodeModule
+from opticnode.modules.base import ModuleConfig, NodeModule
 
 # Use the module-specific logger so output goes to prefect_worker.log via ModuleLog.
 logger = logging.getLogger(__name__)

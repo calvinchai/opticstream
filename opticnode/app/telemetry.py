@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 
 import psutil
 
-from .config import Settings
-from ..utils.network import NetworkPlanes
+from opticnode.app.config import Settings
+from opticnode.utils.network import NetworkPlanes
 
 logger = logging.getLogger(__name__)
 

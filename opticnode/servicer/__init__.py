@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..generated.opticnode_pb2_grpc import OpticNodeServicer as _BaseServicer
-from ..modules.base import ModuleRegistry
-from ..telemetry import TelemetryEngine
-from .core import CoreMixin
-from .modules_rpc import ModulesMixin
+from opticnode.generated.opticnode_pb2_grpc import OpticNodeServicer as _BaseServicer
+from opticnode.modules.base import ModuleRegistry
+from opticnode.app.telemetry import TelemetryEngine
+from opticnode.servicer.core import CoreMixin
+from opticnode.servicer.modules_rpc import ModulesMixin
 
 
 class OpticNodeServicer(CoreMixin, ModulesMixin, _BaseServicer):

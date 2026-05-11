@@ -13,9 +13,9 @@ from typing import Any
 
 from pydantic import Field
 
-from ..redis_utils import make_redis_client
-from ..utils.cli_parsers import PrimoCacheStats, parse_rxpcc_stats
-from .base import ModuleConfig, LoopModule
+from opticnode.app.redis_utils import make_redis_client
+from opticnode.utils.cli_parsers import PrimoCacheStats, parse_rxpcc_stats
+from opticnode.modules.base import ModuleConfig, LoopModule
 
 logger = logging.getLogger(__name__)
 

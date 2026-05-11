@@ -13,8 +13,8 @@ from pydantic import BaseModel, Field
 from redis import Redis
 from rq import Queue
 
-from opticstream.state.lsm_project_state import LSMStripId
-from opticstream.state.oct_project_state import OCTBatchId
+from opticstream.state.lsm_models import LSMStripId
+from opticstream.state.oct_models import OCTBatchId
 
 logger = logging.getLogger(__name__)
 

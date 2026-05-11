@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import Field, model_validator
 
-from .base import ModuleConfig, ModuleState, LoopModule
+from opticnode.modules.base import ModuleConfig, ModuleState, LoopModule
 
 logger = logging.getLogger(__name__)
 

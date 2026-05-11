@@ -8,11 +8,11 @@ import threading
 import time
 from typing import Any
 
-from .config import Settings
-from .telemetry import TelemetryEngine, snapshot_to_flat_dict
-from ..redis_utils import make_redis_client
-from ..utils.network import NetworkPlanes, get_primary_ipv4
-from .. import __version__
+from opticnode.app.config import Settings
+from opticnode.app.telemetry import TelemetryEngine, snapshot_to_flat_dict
+from opticnode.app.redis_utils import make_redis_client
+from opticnode.utils.network import NetworkPlanes, get_primary_ipv4
+from opticnode import __version__
 
 logger = logging.getLogger(__name__)
 
