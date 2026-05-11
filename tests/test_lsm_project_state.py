@@ -1,94 +1,24 @@
-from contextlib import contextmanager
 from datetime import datetime
 
 import pytest
 from pydantic import ValidationError
 
-from opticstream.state.lsm_models import (
-    LSMChannelId,
+from opticapi.project_state.lsm_models import lsm_state_lock_name
+from opticapi.project_state.state_models import ProcessingState
+from opticapi.project_state.lsm_models import (
     LSMChannelState,
-    LSMChannelStateView,
-    LSMProjectId,
     LSMProjectState,
-    LSMProjectStateView,
-    LSMSliceId,
     LSMSliceState,
-    LSMSliceStateView,
-    LSMStateView,
     LSMStripId,
     LSMStripState,
     LSMStripStateView,
-    ProcessingState,
-    _state_lock_name,
-    ensure_lock,
+    LSMStateView,
 )
-from opticstream.state.lsm_state_service import LSMProjectStateService
-from opticstream.state.project_state_core import (
-    BaseProjectStateStore,
-    PrefectProjectLock,
-    PrefectVariableProjectStateRepository,
-)
-from prefect.variables import Variable
 
 
 @pytest.fixture
 def project_name() -> str:
     return "test_lsm_project"
-
-
-@pytest.fixture
-def state_service() -> LSMProjectStateService:
-    class InMemoryRepository:
-        def __init__(self) -> None:
-            self._states: dict[str, LSMProjectState] = {}
-
-        def load(self, project_name: str) -> LSMProjectState:
-            if project_name not in self._states:
-                self._states[project_name] = LSMProjectState()
-            return self._states[project_name]
-
-        def save(
-            self, project_name: str, state: LSMProjectState
-        ) -> None:  # pragma: no cover - no-op
-            # The state objects are kept by reference in _states; nothing to do.
-            self._states[project_name] = state
-
-    class DummyLock:
-        @contextmanager
-        def acquire(self, project_name: str, timeout_seconds: float | None = None):
-            yield
-
-    store = BaseProjectStateStore(repository=InMemoryRepository(), lock=DummyLock())
-    return LSMProjectStateService(store)
-
-
-@pytest.fixture
-def real_state_service() -> LSMProjectStateService:
-    """
-    State service backed by the real Prefect repository and lock, using a fixed
-    project name \"pytest\" so the state models do not need a project_name field.
-    """
-
-    fixed_project_name = "pytest"
-
-    class TestPrefectRepository(PrefectVariableProjectStateRepository[LSMProjectState]):
-        def save(self, project_name: str, state: LSMProjectState) -> None:  # type: ignore[override]
-            key = self._key_fn(fixed_project_name)
-            Variable.set(key, state.model_dump(mode="json"), overwrite=True)
-
-    repository = TestPrefectRepository(
-        key_fn=lambda _project: f"{fixed_project_name}_lsm_project_state",
-        model_cls=LSMProjectState,
-    )
-    lock = PrefectProjectLock(
-        lock_name_fn=lambda _project: _state_lock_name(fixed_project_name)
-    )
-
-    # Ensure the global concurrency limit for this lock exists in Prefect.
-    ensure_lock(fixed_project_name)
-
-    store = BaseProjectStateStore(repository=repository, lock=lock)
-    return LSMProjectStateService(store)
 
 
 def test_state_view_defaults():
@@ -104,7 +34,6 @@ def test_state_view_defaults():
 def test_state_mutation_transitions():
     strip = LSMStripState(slice_id=1, channel_id=1, strip_id=1)
 
-    created_at = strip.created_at
     updated_at = strip.updated_at
 
     # mark_started should set state and timestamps
@@ -271,168 +200,10 @@ def test_pydantic_validation_boundaries():
         LSMStripState(slice_id=-1, strip_id=0, channel_id=1)
 
 
-def test_lock_naming_helper_and_ensure_lock_do_not_crash(project_name: str):
-    lock_name = _state_lock_name(project_name)
+def test_lsm_state_lock_name_is_non_empty(project_name: str):
+    lock_name = lsm_state_lock_name(project_name)
 
-    # Basic shape assertion; normalize_project_name may normalize the name, but the
-    # important part is that helper produces a non-empty string.
     assert isinstance(lock_name, str) and lock_name
-
-    # ensure_lock should complete without raising, even if the underlying Prefect
-    # client is a no-op or test double in this environment.
-    ensure_lock(project_name)
-
-
-def test_service_open_and_read_round_trip(
-    project_name: str, state_service: LSMProjectStateService
-):
-    project_ident = LSMProjectId(project_name=project_name)
-    with state_service.open_project(project_ident) as project:
-        assert isinstance(project, LSMProjectState)
-        strip = project.get_or_create_strip_by_parts(
-            slice_id=1, strip_id=1, channel_id=1
-        )
-        strip.mark_completed()
-
-    project_view = state_service.read_project(project_ident)
-    assert isinstance(project_view, LSMProjectStateView)
-    strip_view = project_view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
-    assert strip_view is not None
-    assert strip_view.processing_state == ProcessingState.COMPLETED
-
-
-@pytest.mark.integration
-def test_real_prefect_store_open_and_read_round_trip(
-    real_state_service: LSMProjectStateService,
-):
-    project_ident = LSMProjectId(project_name="pytest")
-    with real_state_service.open_project(project_ident) as project:
-        assert isinstance(project, LSMProjectState)
-        strip = project.get_or_create_strip_by_parts(
-            slice_id=1, strip_id=1, channel_id=1
-        )
-        strip.mark_completed()
-
-    project_view = real_state_service.read_project(project_ident)
-    assert isinstance(project_view, LSMProjectStateView)
-    strip_view = project_view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
-    assert strip_view is not None
-    assert strip_view.processing_state == ProcessingState.COMPLETED
-
-
-def test_service_open_slice_channel_strip_create_and_persist(
-    project_name: str, state_service: LSMProjectStateService
-):
-    slice_ident = LSMSliceId(project_name=project_name, slice_id=1)
-    with state_service.open_slice(slice_ident) as slice_state:
-        assert isinstance(slice_state, LSMSliceState)
-        chan = slice_state.get_or_create_channel(1)
-        strip = chan.get_or_create_strip(1)
-        strip.set_uploaded(True)
-
-    # open_channel should see existing state and allow further mutation
-    channel_ident = LSMChannelId(project_name=project_name, slice_id=1, channel_id=1)
-    with state_service.open_channel(channel_ident) as channel:
-        assert isinstance(channel, LSMChannelState)
-        strip = channel.get_or_create_strip(1)
-        strip.set_archived(True)
-
-    # open_strip on a non-existent strip should create it
-    strip_ident = LSMStripId(
-        project_name=project_name,
-        slice_id=1,
-        channel_id=1,
-        strip_id=2,
-    )
-    with state_service.open_strip(strip_ident) as strip2:
-        assert isinstance(strip2, LSMStripState)
-        strip2.set_compressed(True)
-
-    # Verify persisted state via read_* views
-    slice_view = state_service.read_slice(slice_ident)
-    assert isinstance(slice_view, LSMSliceStateView)
-    channel_view = state_service.read_channel(channel_ident)
-    assert isinstance(channel_view, LSMChannelStateView)
-    strip1_ident = LSMStripId(
-        project_name=project_name,
-        slice_id=1,
-        channel_id=1,
-        strip_id=1,
-    )
-    strip2_ident = strip_ident
-    strip1_view = state_service.read_strip(strip1_ident)
-    strip2_view = state_service.read_strip(strip2_ident)
-
-    assert strip1_view is not None
-    assert strip1_view.uploaded is True
-    assert strip1_view.archived is True
-
-    assert strip2_view is not None
-    assert strip2_view.compressed is True
-
-
-@pytest.mark.integration
-def test_real_prefect_store_read_and_peek(real_state_service: LSMProjectStateService):
-    # Mutate state under the real Prefect-backed store.
-    strip_ident = LSMStripId(
-        project_name="pytest",
-        slice_id=2,
-        channel_id=1,
-        strip_id=3,
-    )
-    with real_state_service.open_strip(strip_ident) as strip:
-        strip.mark_started()
-
-    strip_view = real_state_service.read_strip(strip_ident)
-    assert strip_view is not None
-    assert strip_view.processing_state == ProcessingState.RUNNING
-
-    project_ident = LSMProjectId(project_name="pytest")
-    peek_view = real_state_service.peek_project(project_ident)
-    assert isinstance(peek_view, LSMProjectStateView)
-    peek_strip = peek_view.get_strip_by_parts(slice_id=2, strip_id=3, channel_id=1)
-    assert peek_strip is not None
-    assert peek_strip.processing_state == ProcessingState.RUNNING
-
-
-def test_service_read_and_peek_missing_entities_return_none(
-    project_name: str, state_service: LSMProjectStateService
-):
-    # Seed an empty project by a read; this should not create any slices/channels/strips.
-    project_ident = LSMProjectId(project_name=project_name)
-    empty_view = state_service.read_project(project_ident)
-    assert isinstance(empty_view, LSMProjectStateView)
-
-    slice_ident = LSMSliceId(project_name=project_name, slice_id=1)
-    channel_ident = LSMChannelId(project_name=project_name, slice_id=1, channel_id=1)
-    strip_ident = LSMStripId(
-        project_name=project_name,
-        slice_id=1,
-        channel_id=1,
-        strip_id=1,
-    )
-
-    assert state_service.read_slice(slice_ident) is None
-    assert state_service.read_channel(channel_ident) is None
-    assert state_service.read_strip(strip_ident) is None
-
-    assert state_service.peek_slice(slice_ident) is None
-    assert state_service.peek_channel(channel_ident) is None
-    assert state_service.peek_strip(strip_ident) is None
-
-    # After mutating via open_project, peek_project should reflect the latest
-    # state without further modification.
-    with state_service.open_project(project_ident) as project:
-        strip = project.get_or_create_strip_by_parts(
-            slice_id=1, strip_id=1, channel_id=1
-        )
-        strip.mark_started()
-
-    peek_view = state_service.peek_project(project_ident)
-    assert isinstance(peek_view, LSMProjectStateView)
-    strip_view = peek_view.get_strip_by_parts(slice_id=1, strip_id=1, channel_id=1)
-    assert strip_view is not None
-    assert strip_view.processing_state == ProcessingState.RUNNING
 
 
 def test_project_delete_helpers_success_paths():

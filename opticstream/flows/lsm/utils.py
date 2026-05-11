@@ -13,7 +13,7 @@ from opticstream.config.lsm_scan_config import (
     LSMScanConfigModel,
     get_lsm_scan_config,
 )
-from opticstream.state.lsm_models import LSMChannelId, LSMStripId
+from opticapi.project_state.lsm_models import LSMChannelId, LSMStripId
 
 T = TypeVar("T")
 

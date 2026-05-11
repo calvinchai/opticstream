@@ -31,7 +31,7 @@ from opticstream.flows.lsm.utils import (
     lsm_output_root,
     strip_mip_output_path,
 )
-from opticstream.state.lsm_models import (
+from opticapi.project_state.lsm_models import (
     LSMChannelId,
     LSMStripId,
 )

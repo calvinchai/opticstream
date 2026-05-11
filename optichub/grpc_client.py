@@ -39,8 +39,8 @@ def ping_node(host: str, port: int, *, timeout_ms: int) -> float | None:
         return None
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
-    from opticnode.generated.telemetry_pb2 import PingRequest
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.telemetry_pb2 import PingRequest
 
     target = f"{host}:{port}"
     deadline = timeout_ms / 1000.0
@@ -82,8 +82,8 @@ def execute_command(
         )
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
-    from opticnode.generated.telemetry_pb2 import ExecuteCommandRequest
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.telemetry_pb2 import ExecuteCommandRequest
 
     deadline_s = float(rpc_timeout_s if rpc_timeout_s is not None else timeout_s) + 5.0
     target = f"{host}:{port}"
@@ -146,8 +146,8 @@ def get_module_logs(
         return [], "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.modules_pb2 import ModuleLogsRequest
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.modules_pb2 import ModuleLogsRequest
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None
@@ -181,9 +181,9 @@ def list_modules(
         return [], "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.common_pb2 import EmptyRequest
-    from opticnode.generated.modules_pb2 import ModuleState
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.common_pb2 import EmptyRequest
+    from opticapi.generated.modules_pb2 import ModuleState
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
 
     state_names = {value: name.replace("MODULE_STATE_", "").lower() for name, value in ModuleState.items()}
     target = f"{host}:{port}"
@@ -230,8 +230,8 @@ def start_module(
         return False, "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.modules_pb2 import StartModuleRequest
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.modules_pb2 import StartModuleRequest
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None
@@ -264,8 +264,8 @@ def stop_module(
         return False, "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.modules_pb2 import StopModuleRequest
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.modules_pb2 import StopModuleRequest
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None
@@ -296,8 +296,8 @@ def configure_module(
         return False, "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.modules_pb2 import ConfigureModuleRequest
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.modules_pb2 import ConfigureModuleRequest
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None
@@ -331,8 +331,8 @@ def submit_module_job(
         return "", "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.modules_pb2 import SubmitModuleJobRequest
-    from opticnode.generated.opticnode_pb2_grpc import OpticNodeStub
+    from opticapi.generated.modules_pb2 import SubmitModuleJobRequest
+    from opticapi.generated.opticnode_pb2_grpc import OpticNodeStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None
@@ -388,8 +388,8 @@ def submit_command(
         return "", "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.command_runner_pb2 import SubmitCommandRequest
-    from opticnode.generated.command_runner_pb2_grpc import CommandRunnerStub
+    from opticapi.generated.command_runner_pb2 import SubmitCommandRequest
+    from opticapi.generated.command_runner_pb2_grpc import CommandRunnerStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None
@@ -427,8 +427,8 @@ def get_command_result(
         return None, "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.command_runner_pb2 import GetCommandResultRequest
-    from opticnode.generated.command_runner_pb2_grpc import CommandRunnerStub
+    from opticapi.generated.command_runner_pb2 import GetCommandResultRequest
+    from opticapi.generated.command_runner_pb2_grpc import CommandRunnerStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None
@@ -460,8 +460,8 @@ def list_command_results(
         return [], "invalid host or port"
     import grpc  # type: ignore[reportMissingModuleSource]
 
-    from opticnode.generated.command_runner_pb2 import ListCommandResultsRequest
-    from opticnode.generated.command_runner_pb2_grpc import CommandRunnerStub
+    from opticapi.generated.command_runner_pb2 import ListCommandResultsRequest
+    from opticapi.generated.command_runner_pb2_grpc import CommandRunnerStub
 
     target = f"{host}:{port}"
     channel: grpc.Channel | None = None

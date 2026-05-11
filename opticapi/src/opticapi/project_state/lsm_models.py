@@ -1,4 +1,4 @@
-"""LSM-specific project state models."""
+"""LSM project state: IDs, read-only views, and mutable persistence models."""
 
 from __future__ import annotations
 
@@ -7,23 +7,14 @@ from typing import ClassVar, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from opticstream.utils.naming_convention import normalize_project_name
-from opticstream.state.project_state_core import (
-    ProcessingState,
-    ToViewMixin,
-)
-
+from opticapi.naming import normalize_project_name
+from opticapi.project_state.state_models import ProcessingState, ToViewMixin
 
 LSM_PROJECT_TYPE = "lsm"
-STATE_REDIS_BLOCK_NAME = "opticstream-redis"
 
 
-def _state_lock_name(project_name: str) -> str:
+def lsm_state_lock_name(project_name: str) -> str:
     return f"{normalize_project_name(project_name)}_lsm_state_lock"
-
-
-def ensure_lock(project_name: str) -> None:
-    """No-op — Redis locks are created on demand."""
 
 
 class LSMProjectId(BaseModel):
@@ -56,29 +47,6 @@ class LSMStateView(BaseModel):
         return self.processing_finished_at is not None
 
 
-class LSMStateMutationsMixin:
-    def touch(self) -> None:
-        self.updated_at = datetime.now()
-
-    def mark_started(self) -> None:
-        now = datetime.now()
-        self.processing_state = ProcessingState.RUNNING
-        self.processing_started_at = now
-        self.updated_at = now
-
-    def mark_completed(self) -> None:
-        now = datetime.now()
-        self.processing_state = ProcessingState.COMPLETED
-        self.processing_finished_at = now
-        self.updated_at = now
-
-    def mark_failed(self) -> None:
-        now = datetime.now()
-        self.processing_state = ProcessingState.FAILED
-        self.processing_finished_at = now
-        self.updated_at = now
-
-
 class LSMStripStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
     strip_id: int = Field(..., ge=0)
@@ -86,38 +54,6 @@ class LSMStripStateView(LSMStateView):
     archived: bool = False
     compressed: bool = False
     uploaded: bool = False
-
-
-class LSMStripState(
-    LSMStateMutationsMixin, LSMStripStateView, ToViewMixin[LSMStripStateView]
-):
-    model_config = ConfigDict(frozen=False)
-    VIEW_MODEL: ClassVar[type[LSMStripStateView]] = LSMStripStateView
-
-    def set_archived(self, value: bool = True) -> None:
-        self.archived = value
-        self.touch()
-
-    def set_compressed(self, value: bool = True) -> None:
-        self.compressed = value
-        self.touch()
-
-    def set_uploaded(self, value: bool = True) -> None:
-        self.uploaded = value
-        self.touch()
-
-    def reset_compressed(self) -> None:
-        self.compressed = False
-        self.uploaded = False
-        self.touch()
-
-    def reset_uploaded(self) -> None:
-        self.uploaded = False
-        self.touch()
-
-    def reset_archived(self) -> None:
-        self.archived = False
-        self.touch()
 
 
 class LSMChannelStateView(LSMStateView):
@@ -142,52 +78,6 @@ class LSMChannelStateView(LSMStateView):
         )
 
 
-class LSMChannelState(
-    LSMStateMutationsMixin,
-    LSMChannelStateView,
-    ToViewMixin[LSMChannelStateView],
-):
-    model_config = ConfigDict(frozen=False)
-    VIEW_MODEL: ClassVar[type[LSMChannelStateView]] = LSMChannelStateView
-    strips: dict[int, LSMStripState] = Field(default_factory=dict)
-
-    def set_mip_stitched(self, value: bool = True) -> None:
-        self.mip_stitched = value
-        self.touch()
-
-    def set_volume_stitched(self, value: bool = True) -> None:
-        self.volume_stitched = value
-        self.touch()
-
-    def reset_mip_stitched(self) -> None:
-        self.mip_stitched = False
-        self.volume_stitched = False
-        self.volume_uploaded = False
-        self.touch()
-
-    def reset_volume_stitched(self) -> None:
-        self.volume_stitched = False
-        self.volume_uploaded = False
-        self.touch()
-
-    def set_volume_uploaded(self, value: bool = True) -> None:
-        self.volume_uploaded = value
-        self.touch()
-
-    def reset_volume_uploaded(self) -> None:
-        self.volume_uploaded = False
-        self.touch()
-
-    def get_or_create_strip(self, strip_id: int) -> LSMStripState:
-        if strip_id not in self.strips:
-            self.strips[strip_id] = LSMStripState(
-                slice_id=self.slice_id,
-                channel_id=self.channel_id,
-                strip_id=strip_id,
-            )
-        return self.strips[strip_id]
-
-
 class LSMSliceStateView(LSMStateView):
     slice_id: int = Field(..., ge=0)
     channels: dict[int, LSMChannelStateView] = Field(default_factory=dict)
@@ -197,22 +87,6 @@ class LSMSliceStateView(LSMStateView):
             i in self.channels and self.channels[i].finished
             for i in range(1, total_channels + 1)
         )
-
-
-class LSMSliceState(
-    LSMStateMutationsMixin, LSMSliceStateView, ToViewMixin[LSMSliceStateView]
-):
-    model_config = ConfigDict(frozen=False)
-    VIEW_MODEL: ClassVar[type[LSMSliceStateView]] = LSMSliceStateView
-    channels: dict[int, LSMChannelState] = Field(default_factory=dict)
-
-    def get_or_create_channel(self, channel_id: int) -> LSMChannelState:
-        if channel_id not in self.channels:
-            self.channels[channel_id] = LSMChannelState(
-                slice_id=self.slice_id,
-                channel_id=channel_id,
-            )
-        return self.channels[channel_id]
 
 
 class LSMProjectStateView(LSMStateView):
@@ -262,6 +136,123 @@ class LSMProjectStateView(LSMStateView):
         for slice_state in self.slices.values():
             for channel_state in slice_state.channels.values():
                 yield from channel_state.strips.values()
+
+
+class LSMStateMutationsMixin:
+    def touch(self) -> None:
+        self.updated_at = datetime.now()
+
+    def mark_started(self) -> None:
+        now = datetime.now()
+        self.processing_state = ProcessingState.RUNNING
+        self.processing_started_at = now
+        self.updated_at = now
+
+    def mark_completed(self) -> None:
+        now = datetime.now()
+        self.processing_state = ProcessingState.COMPLETED
+        self.processing_finished_at = now
+        self.updated_at = now
+
+    def mark_failed(self) -> None:
+        now = datetime.now()
+        self.processing_state = ProcessingState.FAILED
+        self.processing_finished_at = now
+        self.updated_at = now
+
+
+class LSMStripState(
+    LSMStateMutationsMixin, LSMStripStateView, ToViewMixin[LSMStripStateView]
+):
+    model_config = ConfigDict(frozen=False)
+    VIEW_MODEL: ClassVar[type[LSMStripStateView]] = LSMStripStateView
+
+    def set_archived(self, value: bool = True) -> None:
+        self.archived = value
+        self.touch()
+
+    def set_compressed(self, value: bool = True) -> None:
+        self.compressed = value
+        self.touch()
+
+    def set_uploaded(self, value: bool = True) -> None:
+        self.uploaded = value
+        self.touch()
+
+    def reset_compressed(self) -> None:
+        self.compressed = False
+        self.uploaded = False
+        self.touch()
+
+    def reset_uploaded(self) -> None:
+        self.uploaded = False
+        self.touch()
+
+    def reset_archived(self) -> None:
+        self.archived = False
+        self.touch()
+
+
+class LSMChannelState(
+    LSMStateMutationsMixin,
+    LSMChannelStateView,
+    ToViewMixin[LSMChannelStateView],
+):
+    model_config = ConfigDict(frozen=False)
+    VIEW_MODEL: ClassVar[type[LSMChannelStateView]] = LSMChannelStateView
+    strips: dict[int, LSMStripState] = Field(default_factory=dict)
+
+    def set_mip_stitched(self, value: bool = True) -> None:
+        self.mip_stitched = value
+        self.touch()
+
+    def set_volume_stitched(self, value: bool = True) -> None:
+        self.volume_stitched = value
+        self.touch()
+
+    def reset_mip_stitched(self) -> None:
+        self.mip_stitched = False
+        self.volume_stitched = False
+        self.volume_uploaded = False
+        self.touch()
+
+    def reset_volume_stitched(self) -> None:
+        self.volume_stitched = False
+        self.volume_uploaded = False
+        self.touch()
+
+    def set_volume_uploaded(self, value: bool = True) -> None:
+        self.volume_uploaded = value
+        self.touch()
+
+    def reset_volume_uploaded(self) -> None:
+        self.volume_uploaded = False
+        self.touch()
+
+    def get_or_create_strip(self, strip_id: int) -> LSMStripState:
+        if strip_id not in self.strips:
+            self.strips[strip_id] = LSMStripState(
+                slice_id=self.slice_id,
+                channel_id=self.channel_id,
+                strip_id=strip_id,
+            )
+        return self.strips[strip_id]
+
+
+class LSMSliceState(
+    LSMStateMutationsMixin, LSMSliceStateView, ToViewMixin[LSMSliceStateView]
+):
+    model_config = ConfigDict(frozen=False)
+    VIEW_MODEL: ClassVar[type[LSMSliceStateView]] = LSMSliceStateView
+    channels: dict[int, LSMChannelState] = Field(default_factory=dict)
+
+    def get_or_create_channel(self, channel_id: int) -> LSMChannelState:
+        if channel_id not in self.channels:
+            self.channels[channel_id] = LSMChannelState(
+                slice_id=self.slice_id,
+                channel_id=channel_id,
+            )
+        return self.channels[channel_id]
 
 
 class LSMProjectState(

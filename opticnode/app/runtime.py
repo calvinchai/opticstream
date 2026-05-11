@@ -13,9 +13,9 @@ from opticnode.app.config import Settings
 from opticnode.app.heartbeat import HeartbeatLoop
 from opticnode.app.server import create_server
 from opticnode.app.telemetry import TelemetryEngine
-from opticnode.generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
-from opticnode.generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
-from opticnode.generated.watcher_pb2_grpc import add_WatcherServicer_to_server
+from opticapi.generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
+from opticapi.generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
+from opticapi.generated.watcher_pb2_grpc import add_WatcherServicer_to_server
 from opticnode.modules import ModuleRegistry
 from opticnode.modules.command_runner import CommandRunnerModule
 from opticnode.modules.prefect_worker import PrefectWorkerModule

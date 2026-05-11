@@ -13,6 +13,7 @@ from typing import Any
 
 from pydantic import Field
 
+from opticapi.node_contract import node_primocache_stats_key
 from opticnode.app.redis_utils import make_redis_client
 from opticnode.utils.cli_parsers import PrimoCacheStats, parse_rxpcc_stats
 from opticnode.modules.base import ModuleConfig, LoopModule
@@ -70,7 +71,7 @@ class PrimoCacheMonitorModule(LoopModule):
         redis_client: Any = make_redis_client(self._redis_url)
         if redis_client is None:
             logger.warning("PrimoCacheMonitor: Redis unavailable; stats will not be published.")
-        stats_key = f"opticnode:{self._node_id}:primocache_stats"
+        stats_key = node_primocache_stats_key(self._node_id)
 
         while not self._stop_event.is_set():
             self._poll(redis_client, stats_key)

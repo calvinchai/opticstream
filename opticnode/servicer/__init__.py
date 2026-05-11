@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from opticnode.generated.opticnode_pb2_grpc import OpticNodeServicer as _BaseServicer
+from opticapi.generated.opticnode_pb2_grpc import OpticNodeServicer as _BaseServicer
 from opticnode.modules.base import ModuleRegistry
 from opticnode.app.telemetry import TelemetryEngine
 from opticnode.servicer.core import CoreMixin

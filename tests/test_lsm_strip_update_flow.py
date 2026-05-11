@@ -2,13 +2,13 @@ from opticstream.artifacts.lsm import (
     build_project_strip_summary_rows,
     build_slice_strip_matrix_rows,
 )
-from opticstream.state.lsm_models import (
+from opticapi.project_state.lsm_models import (
     LSMChannelStateView,
     LSMProjectStateView,
     LSMSliceStateView,
     LSMStripStateView,
 )
-from opticstream.state.project_state_core import ProcessingState
+from opticapi.project_state.state_models import ProcessingState
 
 
 def test_build_project_strip_summary_rows_counts_by_slice_and_channel():

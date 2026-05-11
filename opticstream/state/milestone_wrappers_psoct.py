@@ -9,7 +9,7 @@ from opticstream.events.psoct_event_emitters import (
     emit_mosaic_psoct_event,
     emit_slice_psoct_event,
 )
-from opticstream.state.oct_models import (
+from opticapi.project_state.oct_models import (
     OCTBatchId,
     OCTMosaicId,
     OCTSliceId,

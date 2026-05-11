@@ -9,7 +9,7 @@ from prefect.logging.loggers import flow_run_logger
 from opticstream.config.lsm_scan_config import get_lsm_scan_config
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.events.lsm_events import CHANNEL_READY
-from opticstream.state.lsm_models import LSMChannelId
+from opticapi.project_state.lsm_models import LSMChannelId
 from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 from opticstream.utils.flow_run_name_parse import (
     missing_required_fields,

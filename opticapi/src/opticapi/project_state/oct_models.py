@@ -1,4 +1,4 @@
-"""OCT-specific project state models."""
+"""OCT project state: IDs, read-only views, and mutable persistence models."""
 
 from __future__ import annotations
 
@@ -7,27 +7,9 @@ from typing import ClassVar, Iterator
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from opticstream.utils.naming_convention import normalize_project_name
-from opticstream.state.project_state_core import (
-    ProcessingState,
-    ToViewMixin,
-)
-
+from opticapi.project_state.state_models import ProcessingState, ToViewMixin
 
 OCT_PROJECT_TYPE = "oct"
-STATE_REDIS_BLOCK_NAME = "opticstream-redis"
-
-
-def _state_lock_name(project_name: str) -> str:
-    return f"{normalize_project_name(project_name)}_oct_state_lock"
-
-
-def ensure_lock(project_name: str) -> None:
-    """No-op — Redis locks are created on demand."""
-
-
-def _derive_slice_id_from_mosaic_id(mosaic_id: int) -> int:
-    return mosaic_id // 2
 
 
 class OCTProjectId(BaseModel):
@@ -61,6 +43,87 @@ class OCTStateView(BaseModel):
         return self.processing_finished_at is not None
 
 
+class OCTBatchStateView(OCTStateView):
+    slice_id: int = Field(..., ge=0)
+    mosaic_id: int = Field(..., ge=0)
+    batch_id: int = Field(..., ge=0)
+    complexed: bool = False
+    volume_processed: bool = False
+    enface_processed: bool = False
+    uploaded: bool = False
+    archived: bool = False
+
+
+class OCTMosaicStateView(OCTStateView):
+    slice_id: int = Field(..., ge=0)
+    mosaic_id: int = Field(..., ge=0)
+    enface_stitched: bool = False
+    volume_stitched: bool = False
+    enface_uploaded: bool = False
+    volume_uploaded: bool = False
+    batches: dict[int, OCTBatchStateView] = Field(default_factory=dict)
+
+    def iter_batches(self) -> Iterator[OCTBatchStateView]:
+        return iter(self.batches.values())
+
+    def all_batches_done(self, total_batches: int) -> bool:
+        if not self.batches:
+            return False
+
+        return all(
+            i in self.batches and self.batches[i].finished
+            for i in range(1, total_batches + 1)
+        )
+
+
+class OCTSliceStateView(OCTStateView):
+    slice_id: int = Field(..., ge=0)
+    mosaics: dict[int, OCTMosaicStateView] = Field(default_factory=dict)
+    registered: bool = False
+    uploaded: bool = False
+
+    def iter_mosaics(self) -> Iterator[OCTMosaicStateView]:
+        return iter(self.mosaics.values())
+
+    def all_mosaics_done(self, total_mosaics: int | None = None) -> bool:
+        target = total_mosaics or 2
+        if len(self.mosaics) < target:
+            return False
+        return all(mosaic.finished for mosaic in self.mosaics.values())
+
+    def all_mosaics_enface_stitched(self, total_mosaics: int | None = None) -> bool:
+        target = total_mosaics or 2
+        if len(self.mosaics) < target:
+            return False
+        return all(mosaic.enface_stitched for mosaic in self.mosaics.values())
+
+
+class OCTProjectStateView(OCTStateView):
+    slices: dict[int, OCTSliceStateView] = Field(default_factory=dict)
+
+    def get_batch(
+        self,
+        slice_id: int,
+        mosaic_id: int,
+        batch_id: int,
+    ) -> OCTBatchStateView | None:
+        slice_state = self.slices.get(slice_id)
+        if slice_state is None:
+            return None
+        mosaic_state = slice_state.mosaics.get(mosaic_id)
+        if mosaic_state is None:
+            return None
+        return mosaic_state.batches.get(batch_id)
+
+    def iter_mosaics(self) -> Iterator[OCTMosaicStateView]:
+        for slice_state in self.slices.values():
+            yield from slice_state.iter_mosaics()
+
+    def iter_batches(self) -> Iterator[OCTBatchStateView]:
+        for mosaic_state in self.iter_mosaics():
+            yield from mosaic_state.iter_batches()
+
+
 class OCTStateMutationsMixin:
     def touch(self) -> None:
         self.updated_at = datetime.now()
@@ -82,17 +145,6 @@ class OCTStateMutationsMixin:
         self.processing_state = ProcessingState.FAILED
         self.processing_finished_at = now
         self.updated_at = now
-
-
-class OCTBatchStateView(OCTStateView):
-    slice_id: int = Field(..., ge=0)
-    mosaic_id: int = Field(..., ge=0)
-    batch_id: int = Field(..., ge=0)
-    complexed: bool = False
-    volume_processed: bool = False
-    enface_processed: bool = False
-    uploaded: bool = False
-    archived: bool = False
 
 
 class OCTBatchState(
@@ -143,28 +195,6 @@ class OCTBatchState(
     def reset_uploaded(self) -> None:
         self.uploaded = False
         self.touch()
-
-
-class OCTMosaicStateView(OCTStateView):
-    slice_id: int = Field(..., ge=0)
-    mosaic_id: int = Field(..., ge=0)
-    enface_stitched: bool = False
-    volume_stitched: bool = False
-    enface_uploaded: bool = False
-    volume_uploaded: bool = False
-    batches: dict[int, OCTBatchStateView] = Field(default_factory=dict)
-
-    def iter_batches(self) -> Iterator[OCTBatchStateView]:
-        return iter(self.batches.values())
-
-    def all_batches_done(self, total_batches: int) -> bool:
-        if not self.batches:
-            return False
-
-        return all(
-            i in self.batches and self.batches[i].finished
-            for i in range(1, total_batches + 1)
-        )
 
 
 class OCTMosaicState(
@@ -223,28 +253,6 @@ class OCTMosaicState(
         self.touch()
 
 
-class OCTSliceStateView(OCTStateView):
-    slice_id: int = Field(..., ge=0)
-    mosaics: dict[int, OCTMosaicStateView] = Field(default_factory=dict)
-    registered: bool = False
-    uploaded: bool = False
-
-    def iter_mosaics(self) -> Iterator[OCTMosaicStateView]:
-        return iter(self.mosaics.values())
-
-    def all_mosaics_done(self, total_mosaics: int | None = None) -> bool:
-        target = total_mosaics or 2
-        if len(self.mosaics) < target:
-            return False
-        return all(mosaic.finished for mosaic in self.mosaics.values())
-
-    def all_mosaics_enface_stitched(self, total_mosaics: int | None = None) -> bool:
-        target = total_mosaics or 2
-        if len(self.mosaics) < target:
-            return False
-        return all(mosaic.enface_stitched for mosaic in self.mosaics.values())
-
-
 class OCTSliceState(
     OCTStateMutationsMixin,
     OCTSliceStateView,
@@ -281,32 +289,6 @@ class OCTSliceState(
     def reset_uploaded(self) -> None:
         self.uploaded = False
         self.touch()
-
-
-class OCTProjectStateView(OCTStateView):
-    slices: dict[int, OCTSliceStateView] = Field(default_factory=dict)
-
-    def get_batch(
-        self,
-        slice_id: int,
-        mosaic_id: int,
-        batch_id: int,
-    ) -> OCTBatchStateView | None:
-        slice_state = self.slices.get(slice_id)
-        if slice_state is None:
-            return None
-        mosaic_state = slice_state.mosaics.get(mosaic_id)
-        if mosaic_state is None:
-            return None
-        return mosaic_state.batches.get(batch_id)
-
-    def iter_mosaics(self) -> Iterator[OCTMosaicStateView]:
-        for slice_state in self.slices.values():
-            yield from slice_state.iter_mosaics()
-
-    def iter_batches(self) -> Iterator[OCTBatchStateView]:
-        for mosaic_state in self.iter_mosaics():
-            yield from mosaic_state.iter_batches()
 
 
 class OCTProjectState(

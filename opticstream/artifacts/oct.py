@@ -16,14 +16,14 @@ from opticstream.artifacts.common import (
     publish_table_artifact,
     timestamp_str,
 )
-from opticstream.state.oct_models import (
+from opticapi.project_state.oct_models import (
     OCTBatchStateView,
     OCTMosaicId,
     OCTMosaicStateView,
     OCTProjectId,
 )
 from opticstream.state.oct_state_service import OCT_STATE_SERVICE
-from opticstream.state.project_state_core import ProcessingState
+from opticapi.project_state.state_models import ProcessingState
 from opticstream.utils.naming_convention import normalize_project_name
 
 

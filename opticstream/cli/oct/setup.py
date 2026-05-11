@@ -12,7 +12,6 @@ from opticstream.cli.oct import oct_cli
 from opticstream.cli.setup_common import default_zarr_config
 from opticstream.config.psoct_scan_config import get_psoct_scan_config_block_name
 from opticstream.config.psoct_scan_config import PSOCTScanConfig
-from opticstream.state.oct_models import ensure_lock
 
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -39,16 +38,6 @@ def update_block() -> None:
 
 
 @oct_cli.command
-def create_lock(
-    project_name: str,
-) -> None:
-    """
-    Create the OCT project state lock.
-    """
-    ensure_lock(project_name)
-
-
-@oct_cli.command
 def setup(
     project_name: str,
     *,
@@ -66,7 +55,6 @@ def setup(
     Defaults keep CLI input minimal: grid sizes are ``1``.
     """
     update_block()
-    ensure_lock(project_name)
 
     block_name = get_psoct_scan_config_block_name(project_name)
 

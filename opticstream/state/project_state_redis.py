@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar
 
 from pydantic import BaseModel
 
-from opticstream.state.project_state_core import TState
+TState = TypeVar("TState", bound=BaseModel)
 
 if TYPE_CHECKING:
     from redis import Redis

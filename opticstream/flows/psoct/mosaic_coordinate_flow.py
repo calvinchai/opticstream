@@ -25,7 +25,7 @@ from opticstream.flows.psoct.utils import (
     get_mosaic_tile_coords_export_path,
     get_slice_paths,
 )
-from opticstream.state.oct_models import OCTMosaicId
+from opticapi.project_state.oct_models import OCTMosaicId
 
 
 @task(task_run_name="generate-tile-info-{modality}")

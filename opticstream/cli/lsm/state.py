@@ -10,7 +10,7 @@ from opticstream.cli.state_common import (
     validate_mark_field_and_value,
 )
 from opticstream.cli.lsm.cli import lsm_cli
-from opticstream.state.lsm_models import (
+from opticapi.project_state.lsm_models import (
     LSMChannelState,
     LSMSliceState,
     LSMStripState,

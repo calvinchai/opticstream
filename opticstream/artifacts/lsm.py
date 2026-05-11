@@ -16,7 +16,7 @@ from opticstream.artifacts.common import (
     timestamp_str,
 )
 from opticstream.config.lsm_scan_config import get_lsm_scan_config
-from opticstream.state.lsm_models import (
+from opticapi.project_state.lsm_models import (
     LSMProjectId,
     LSMProjectStateView,
     LSMSliceId,
@@ -24,7 +24,7 @@ from opticstream.state.lsm_models import (
     LSMStripStateView,
 )
 from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
-from opticstream.state.project_state_core import ProcessingState
+from opticapi.project_state.state_models import ProcessingState
 from opticstream.utils.naming_convention import normalize_project_name
 
 

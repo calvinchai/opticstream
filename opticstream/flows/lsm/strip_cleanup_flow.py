@@ -7,7 +7,7 @@ from prefect import get_run_logger, task
 from prefect.futures import PrefectFuture
 
 from opticstream.config.lsm_scan_config import StripCleanupAction
-from opticstream.state.lsm_models import LSMStripId
+from opticapi.project_state.lsm_models import LSMStripId
 
 
 @task(task_run_name="rename-strip-{strip_ident}")

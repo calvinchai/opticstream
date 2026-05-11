@@ -6,7 +6,6 @@ from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
 from opticstream.cli.setup_common import default_zarr_config
 from opticstream.config.lsm_scan_config import get_lsm_scan_config_block_name
-from opticstream.state.lsm_models import ensure_lock
 
 if not logging.getLogger().handlers:
     logging.basicConfig(
@@ -36,16 +35,6 @@ def update_block(
 
 
 @lsm_cli.command
-def create_lock(
-    project_name: str,
-) -> None:
-    """
-    Create the LSM project state lock.
-    """
-    ensure_lock(project_name)
-
-
-@lsm_cli.command
 def setup(
     project_name: str,
     *,
@@ -54,7 +43,6 @@ def setup(
     output_path: Path | None = None,
 ) -> None:
     update_block()
-    ensure_lock(project_name)
 
     block_name = get_lsm_scan_config_block_name(project_name)
 

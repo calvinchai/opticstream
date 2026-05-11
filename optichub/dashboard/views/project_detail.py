@@ -6,19 +6,9 @@ from datetime import datetime
 
 import streamlit as st
 
-from opticstream.state.project_state_core import ProcessingState
-from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
-from opticstream.state.lsm_models import (
-    LSMProjectStateView,
-    LSMSliceStateView,
-    LSMChannelStateView,
-)
-from opticstream.state.oct_models import (
-    OCTProjectStateView,
-    OCTSliceStateView,
-    OCTMosaicStateView,
-)
+from opticapi.project_state.state_reader import LSMStateReader, OCTStateReader
+
+from optichub.dashboard.hub_ui import hub_settings
 
 
 def _status_icon(status: str) -> str:
@@ -47,9 +37,9 @@ def _state_metrics(state) -> None:
     c4.write(f"**Started:** {started}  \n**Finished:** {finished}")
 
 
-def _render_lsm_project(name: str) -> None:
+def _render_lsm_project(name: str, lsm_reader: LSMStateReader) -> None:
     try:
-        view = LSM_STATE_SERVICE.peek_project_by_parts(name)
+        view = lsm_reader.peek_project_by_parts(name)
     except Exception as e:
         st.error(f"Failed to load project: {e}")
         return
@@ -103,9 +93,9 @@ def _render_lsm_project(name: str) -> None:
                     st.dataframe(strip_rows, use_container_width=True, hide_index=True)
 
 
-def _render_oct_project(name: str) -> None:
+def _render_oct_project(name: str, oct_reader: OCTStateReader) -> None:
     try:
-        view = OCT_STATE_SERVICE.peek_project_by_parts(name)
+        view = oct_reader.peek_project_by_parts(name)
     except Exception as e:
         st.error(f"Failed to load project: {e}")
         return
@@ -188,9 +178,13 @@ def main() -> None:
 
     st.header(f"{project_type.upper()} project: `{project_name}`")
 
+    settings = hub_settings()
+    lsm_reader = LSMStateReader(settings.redis_url)
+    oct_reader = OCTStateReader(settings.redis_url)
+
     if project_type == "lsm":
-        _render_lsm_project(project_name)
+        _render_lsm_project(project_name, lsm_reader)
     elif project_type == "oct":
-        _render_oct_project(project_name)
+        _render_oct_project(project_name, oct_reader)
     else:
         st.error(f"Unknown project type: {project_type}")

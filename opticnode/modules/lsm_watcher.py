@@ -15,7 +15,7 @@ from rq import Queue
 from opticstream.cli.lsm.watch import LSMWatcherService
 from opticstream.config.lsm_scan_config import LSMScanConfig, get_lsm_scan_config
 from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
-from opticstream.state.lsm_models import LSMStripId
+from opticapi.project_state.lsm_models import LSMStripId
 from opticstream.utils.polling_watcher import PollingStableWatcher
 
 from opticnode.modules.base import ModuleConfig, NodeModule

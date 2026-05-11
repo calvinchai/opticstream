@@ -15,8 +15,8 @@ from opticstream.artifacts.oct import (
     publish_oct_mosaic_artifact,
     publish_oct_project_artifact,
 )
-from opticstream.state.lsm_models import LSMProjectId, LSMSliceId
-from opticstream.state.oct_models import OCTMosaicId, OCTProjectId
+from opticapi.project_state.lsm_models import LSMProjectId, LSMSliceId
+from opticapi.project_state.oct_models import OCTMosaicId, OCTProjectId
 from opticstream.utils.flow_run_name_parse import (
     missing_required_fields,
     parse_flow_run_name_fields,

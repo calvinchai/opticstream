@@ -30,7 +30,7 @@ from opticstream.flows.psoct.utils import (
     path_list_from_payload,
 )
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
-from opticstream.state.oct_models import OCTBatchId
+from opticapi.project_state.oct_models import OCTBatchId
 from opticstream.state.oct_state_service import OCT_STATE_SERVICE
 from opticstream.state.state_guards import (
     enter_flow_stage,

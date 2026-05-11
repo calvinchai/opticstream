@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 import requests
 from packaging.version import InvalidVersion, Version
 
+from opticapi.node_contract import node_update_key
+
 from . import __version__
 from .app.redis_utils import make_redis_client
 from .app.config import Settings
@@ -79,7 +81,7 @@ def _persist_update_status(settings: Settings, mapping: dict[str, str]) -> None:
     r = make_redis_client(settings.redis_url)
     if r is None:
         return
-    key = f"opticnode:{settings.node_id}:update"
+    key = node_update_key(settings.node_id)
     try:
         r.hset(key, mapping=mapping)
     except Exception:

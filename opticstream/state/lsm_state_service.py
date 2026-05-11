@@ -6,10 +6,10 @@ import json
 from contextlib import AbstractContextManager, contextmanager
 from typing import Iterator
 
+from opticstream.config.constants import STATE_REDIS_BLOCK_NAME
 from opticstream.state.project_state_redis import RedisStateBackend
-from opticstream.state.lsm_models import (
+from opticapi.project_state.lsm_models import (
     LSM_PROJECT_TYPE,
-    STATE_REDIS_BLOCK_NAME,
     LSMProjectId,
     LSMSliceId,
     LSMChannelId,

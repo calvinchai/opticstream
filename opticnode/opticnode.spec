@@ -39,6 +39,7 @@ hiddenimports = list(grpc_hidden) + [
 ]
 
 hiddenimports += collect_submodules("opticnode")
+hiddenimports += collect_submodules("opticapi")
 
 a = Analysis(
     [str(OPTIC / "bootstrap_exe.py")],

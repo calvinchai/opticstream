@@ -30,7 +30,7 @@ from optichub.redis_client import (
     get_node_module_logs_redis,
     list_manage_node_ids,
 )
-from opticnode.logging_buffer import LOG_MODULE_IDS
+from opticapi.node_contract import LOG_MODULE_IDS
 
 _HISTORY_CAP = 10
 

@@ -25,7 +25,7 @@ from opticstream.flows.lsm.utils import (
     channel_ident_from_strip,
     strip_ident_from_payload,
 )
-from opticstream.state.lsm_models import LSMChannelId, LSMStripId
+from opticapi.project_state.lsm_models import LSMChannelId, LSMStripId
 
 
 def _minimal_cfg(**kwargs) -> LSMScanConfigModel:

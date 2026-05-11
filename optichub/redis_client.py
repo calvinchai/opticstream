@@ -5,8 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from opticnode.heartbeat import NODES_SET_KEY
-from opticnode.logging_buffer import LOG_MODULE_IDS
+from opticapi.node_contract import (
+    LOG_MODULE_IDS,
+    NODES_SET_KEY,
+    node_last_seen_key,
+    node_logs_key,
+    node_meta_key,
+    node_stats_key,
+)
 
 
 @dataclass(frozen=True)
@@ -44,9 +50,8 @@ def list_manage_node_ids(redis_url: str) -> list[str]:
 
 def get_node(redis_url: str, node_id: str, *, online_grace_s: float, now: float) -> NodeRecord:
     r = _client(redis_url)
-    prefix = f"opticnode:{node_id}"
-    meta = r.hgetall(f"{prefix}:meta") or {}
-    last_raw = r.get(f"{prefix}:last_seen")
+    meta = r.hgetall(node_meta_key(node_id)) or {}
+    last_raw = r.get(node_last_seen_key(node_id))
     last_ts: float | None = None
     if last_raw is not None:
         try:
@@ -77,7 +82,7 @@ def get_node_module_logs_redis(redis_url: str, node_id: str, module_id: str, lim
     if module_id not in LOG_MODULE_IDS:
         return []
     r = _client(redis_url)
-    key = f"opticnode:{node_id}:logs:{module_id}"
+    key = node_logs_key(node_id, module_id)
     n = max(1, min(limit, 10_000))
     raw = r.lrange(key, 0, n - 1) or []
     return list(reversed(raw))
@@ -86,10 +91,13 @@ def get_node_module_logs_redis(redis_url: str, node_id: str, module_id: str, lim
 def purge_node(redis_url: str, node_id: str) -> None:
     """Delete hub-side node keys and remove `node_id` from `opticnode:nodes`."""
     r = _client(redis_url)
-    prefix = f"opticnode:{node_id}"
-    keys_to_del = [f"{prefix}:meta", f"{prefix}:last_seen", f"{prefix}:stats", f"{prefix}:logs"]
+    keys_to_del = [
+        node_meta_key(node_id),
+        node_last_seen_key(node_id),
+        node_stats_key(node_id),
+    ]
     for mid in LOG_MODULE_IDS:
-        keys_to_del.append(f"{prefix}:logs:{mid}")
+        keys_to_del.append(node_logs_key(node_id, mid))
     pipe = r.pipeline()
     pipe.delete(*keys_to_del)
     pipe.srem(NODES_SET_KEY, node_id)

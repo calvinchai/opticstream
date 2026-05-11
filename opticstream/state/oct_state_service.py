@@ -6,11 +6,11 @@ import json
 from contextlib import AbstractContextManager, contextmanager
 from typing import Iterator
 
+
+from opticstream.config.constants import STATE_REDIS_BLOCK_NAME
 from opticstream.state.project_state_redis import RedisStateBackend
-from opticstream.state.oct_models import (
+from opticapi.project_state.oct_models import (
     OCT_PROJECT_TYPE,
-    STATE_REDIS_BLOCK_NAME,
-    _derive_slice_id_from_mosaic_id,
     OCTProjectId,
     OCTSliceId,
     OCTMosaicId,
@@ -246,19 +246,16 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_id: int | None = None,
+        slice_id: int,
         mosaic_id: int,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTMosaicState]:
-        resolved_slice_id = (
-            _derive_slice_id_from_mosaic_id(mosaic_id) if slice_id is None else slice_id
-        )
         return self._backend.open_key(
-            key=self._mosaic_key(project_name, resolved_slice_id, mosaic_id),
+            key=self._mosaic_key(project_name, slice_id, mosaic_id),
             model_cls=OCTMosaicState,
-            lock_key=self._lock(project_name, "mosaic", resolved_slice_id, mosaic_id),
+            lock_key=self._lock(project_name, "mosaic", slice_id, mosaic_id),
             default_factory=lambda: OCTMosaicState(
-                slice_id=resolved_slice_id, mosaic_id=mosaic_id,
+                slice_id=slice_id, mosaic_id=mosaic_id,
             ),
             exclude_on_save={"batches"},
             timeout_seconds=timeout_seconds,
@@ -282,22 +279,19 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_id: int | None = None,
+        slice_id: int,
         mosaic_id: int,
         batch_id: int,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTBatchState]:
-        resolved_slice_id = (
-            _derive_slice_id_from_mosaic_id(mosaic_id) if slice_id is None else slice_id
-        )
-        field = self._batch_field(resolved_slice_id, mosaic_id, batch_id)
+        field = self._batch_field(slice_id, mosaic_id, batch_id)
         return self._backend.open_hash_field(
             hash_key=self._batches_hash(project_name),
             field=field,
             model_cls=OCTBatchState,
             lock_key=self._lock(project_name, "batch", field),
             default_factory=lambda: OCTBatchState(
-                slice_id=resolved_slice_id, mosaic_id=mosaic_id, batch_id=batch_id,
+                slice_id=slice_id, mosaic_id=mosaic_id, batch_id=batch_id,
             ),
             timeout_seconds=timeout_seconds,
         )
@@ -357,7 +351,7 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_id: int | None = None,
+        slice_id: int,
         mosaic_id: int,
         timeout_seconds: float | None = None,
     ) -> OCTMosaicStateView | None:
@@ -382,7 +376,7 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_id: int | None = None,
+        slice_id: int,
         mosaic_id: int,
         batch_id: int,
         timeout_seconds: float | None = None,
@@ -432,13 +426,10 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_id: int | None = None,
+        slice_id: int,
         mosaic_id: int,
     ) -> OCTMosaicStateView | None:
-        resolved_slice_id = (
-            _derive_slice_id_from_mosaic_id(mosaic_id) if slice_id is None else slice_id
-        )
-        return self._load_mosaic_view(project_name, resolved_slice_id, mosaic_id)
+        return self._load_mosaic_view(project_name, slice_id, mosaic_id)
 
     def peek_batch(
         self,
@@ -455,16 +446,13 @@ class OCTProjectStateService:
         self,
         project_name: str,
         *,
-        slice_id: int | None = None,
+        slice_id: int,
         mosaic_id: int,
         batch_id: int,
     ) -> OCTBatchStateView | None:
-        resolved_slice_id = (
-            _derive_slice_id_from_mosaic_id(mosaic_id) if slice_id is None else slice_id
-        )
         return self._backend.load_hash_field(
             self._batches_hash(project_name),
-            self._batch_field(resolved_slice_id, mosaic_id, batch_id),
+            self._batch_field(slice_id, mosaic_id, batch_id),
             OCTBatchStateView,
         )
 

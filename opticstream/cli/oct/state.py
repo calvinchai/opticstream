@@ -9,7 +9,7 @@ from opticstream.cli.state_common import (
     apply_mark_status,
     validate_mark_field_and_value,
 )
-from opticstream.state.oct_models import (
+from opticapi.project_state.oct_models import (
     OCTBatchState,
     OCTMosaicState,
     OCTSliceState,

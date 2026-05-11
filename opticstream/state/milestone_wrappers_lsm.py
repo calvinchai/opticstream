@@ -8,7 +8,7 @@ from opticstream.events.lsm_event_emitters import (
     emit_channel_lsm_event,
     emit_strip_lsm_event,
 )
-from opticstream.state.lsm_models import (
+from opticapi.project_state.lsm_models import (
     LSMChannelId,
     LSMStripId,
 )

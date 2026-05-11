@@ -9,7 +9,7 @@ from opticstream.state.state_guards import (
     force_rerun_from_payload,
     enter_milestone_stage,
 )
-from opticstream.state.project_state_core import ProcessingState
+from opticapi.project_state.state_models import ProcessingState
 
 
 @pytest.mark.parametrize(

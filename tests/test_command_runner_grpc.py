@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import grpc
 import pytest
 
-from opticnode.generated import command_runner_pb2 as crpb2
-from opticnode.generated.command_runner_pb2_grpc import (
+from opticapi.generated import command_runner_pb2 as crpb2
+from opticapi.generated.command_runner_pb2_grpc import (
     CommandRunnerStub,
     add_CommandRunnerServicer_to_server,
 )

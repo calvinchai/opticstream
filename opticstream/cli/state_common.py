@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from opticstream.state.project_state_core import ProcessingState
+from opticapi.project_state.state_models import ProcessingState
 
 MarkStatus = Literal["pending", "running", "completed", "failed"]
 MARK_STATUS_FIELDS: set[str] = {"pending", "running", "completed", "failed"}

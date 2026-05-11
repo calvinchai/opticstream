@@ -9,7 +9,7 @@ from concurrent import futures
 from typing import Any
 
 from opticnode.app.config import Settings
-from opticnode.generated.opticnode_pb2_grpc import add_OpticNodeServicer_to_server
+from opticapi.generated.opticnode_pb2_grpc import add_OpticNodeServicer_to_server
 
 logger = logging.getLogger(__name__)
 

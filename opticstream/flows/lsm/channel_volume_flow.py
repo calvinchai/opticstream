@@ -31,7 +31,7 @@ from opticstream.flows.lsm.utils import (
     channel_ident_from_payload,
     load_scan_config_for_payload,
 )
-from opticstream.state.lsm_models import LSMChannelId
+from opticapi.project_state.lsm_models import LSMChannelId
 from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 
 

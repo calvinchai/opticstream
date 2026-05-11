@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import streamlit as st
 
-from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticapi.project_state.state_reader import LSMStateReader, OCTStateReader
+
+from optichub.dashboard.hub_ui import hub_settings
 
 
 def _status_icon(status: str) -> str:
@@ -69,22 +70,26 @@ def main() -> None:
     st.subheader("Projects")
     st.caption("LSM and OCT project states from Redis.")
 
+    settings = hub_settings()
+    lsm_reader = LSMStateReader(settings.redis_url)
+    oct_reader = OCTStateReader(settings.redis_url)
+
     tab_lsm, tab_oct = st.tabs(["LSM", "OCT"])
 
     with tab_lsm:
         with st.spinner("Loading LSM projects…"):
             try:
-                lsm_names = LSM_STATE_SERVICE.list_project_names()
+                lsm_names = lsm_reader.list_project_names()
             except Exception as e:
                 st.error(f"Failed to connect to state service: {e}")
                 lsm_names = []
-        _render_project_table("lsm", lsm_names, LSM_STATE_SERVICE.peek_project_by_parts)
+        _render_project_table("lsm", lsm_names, lsm_reader.peek_project_by_parts)
 
     with tab_oct:
         with st.spinner("Loading OCT projects…"):
             try:
-                oct_names = OCT_STATE_SERVICE.list_project_names()
+                oct_names = oct_reader.list_project_names()
             except Exception as e:
                 st.error(f"Failed to connect to state service: {e}")
                 oct_names = []
-        _render_project_table("oct", oct_names, OCT_STATE_SERVICE.peek_project_by_parts)
+        _render_project_table("oct", oct_names, oct_reader.peek_project_by_parts)

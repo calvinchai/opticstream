@@ -9,6 +9,8 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from opticapi.node_contract import node_logs_key
+
 _fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
@@ -24,6 +26,7 @@ class ModuleLog:
         self,
         module_name: str,
         log_dir: Path,
+        node_id: str,
         tail: int = 200,
         redis_tail: int = 100,
         gui_queue: "queue.Queue[logging.LogRecord] | None" = None,
@@ -42,7 +45,7 @@ class ModuleLog:
                 backupCount=3,
                 encoding="utf-8",
             ),
-            _RedisHandler(self._get_redis, f"opticnode:logs:{module_name}", redis_tail),
+            _RedisHandler(self._get_redis, node_logs_key(node_id, module_name), redis_tail),
         ]
         if gui_queue is not None:
             handlers.append(logging.handlers.QueueHandler(gui_queue))

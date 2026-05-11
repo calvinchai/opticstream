@@ -7,8 +7,8 @@ from typing import Any
 
 import grpc  # type: ignore[reportMissingModuleSource]
 
-from ..generated import command_runner_pb2 as crpb2
-from ..generated.command_runner_pb2_grpc import CommandRunnerServicer as _BaseServicer
+from opticapi.generated import command_runner_pb2 as crpb2
+from opticapi.generated.command_runner_pb2_grpc import CommandRunnerServicer as _BaseServicer
 from ..modules.base import ModuleRegistry
 
 logger = logging.getLogger(__name__)

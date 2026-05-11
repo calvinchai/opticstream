@@ -13,7 +13,7 @@ from opticstream.flows.psoct.utils import (
     nifti_paths_from_enface_outputs,
 )
 from opticstream.state.milestone_wrappers_psoct import oct_mosaic_processing_milestone
-from opticstream.state.oct_models import OCTMosaicId
+from opticapi.project_state.oct_models import OCTMosaicId
 from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.tasks.dandi_upload import upload_to_dandi_batch
 from opticstream.hooks.slack_notification_hook import slack_notification_hook

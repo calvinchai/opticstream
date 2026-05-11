@@ -8,8 +8,8 @@ from typing import Any
 
 import grpc
 
-from ..generated import common_pb2 as cpb2
-from ..generated import modules_pb2 as mpb2
+from opticapi.generated import common_pb2 as cpb2
+from opticapi.generated import modules_pb2 as mpb2
 from ..modules.base import ModuleRegistry, ModuleState
 
 logger = logging.getLogger(__name__)

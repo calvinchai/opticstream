@@ -12,22 +12,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from rq import Queue
 
-from opticstream.state.lsm_models import LSMStripId
-from opticstream.state.oct_models import OCTBatchId
-from opticstream.utils.naming_convention import normalize_project_name
+from opticapi.project_state.lsm_models import LSMStripId
+from opticapi.naming import backlog_queue_name_for_project, queue_name_for_project
+from opticapi.project_state.oct_models import OCTBatchId
 
 logger = logging.getLogger(__name__)
 
 _PROCESS_FN = "opticnode.modules.worker.process"
 _PROCESS_BACKLOG_FN = "opticnode.modules.worker.process_backlog"
-
-
-def queue_name_for_project(project_name: str) -> str:
-    return f"{normalize_project_name(project_name)}:realtime"
-
-
-def backlog_queue_name_for_project(project_name: str) -> str:
-    return f"{normalize_project_name(project_name)}:backlog"
 
 
 class WorkerConfig(BaseModel):

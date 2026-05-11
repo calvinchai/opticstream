@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from pydantic import BaseModel
 
+from opticapi.node_contract import node_module_config_key
 from opticnode.app.module_log import ModuleLog
 from opticnode.app.redis_utils import make_redis_client
 
@@ -275,6 +276,7 @@ class ModuleRegistry:
 
     def __init__(self, settings: Any, *, gui_mode: bool = False) -> None:
         self._settings = settings
+        self._node_id: str = settings.node_id
         self._log_dir = Path(getattr(settings, "log_dir", "logs"))
         self._redis_tail = getattr(settings, "redis_log_tail", 100)
         self._gui_mode = gui_mode
@@ -294,7 +296,7 @@ class ModuleRegistry:
             self._redis = None
 
     def _config_key(self) -> str:
-        return f"opticnode:{self._settings.node_id}:module_config"
+        return node_module_config_key(self._settings.node_id)
 
     def _persist_config(self, name: str, config: dict, enabled: bool) -> None:
         if self._redis is None:
@@ -322,6 +324,7 @@ class ModuleRegistry:
             self._module_logs[name] = ModuleLog(
                 name,
                 self._log_dir,
+                node_id=self._node_id,
                 redis_tail=self._redis_tail,
                 gui_queue=gui_q,
             )

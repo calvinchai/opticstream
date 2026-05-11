@@ -7,8 +7,8 @@ from typing import Any
 
 import grpc  # type: ignore[reportMissingModuleSource]
 
-from ..generated import common_pb2 as cpb2
-from ..generated.watcher_pb2_grpc import WatcherServicer as _BaseServicer
+from opticapi.generated import common_pb2 as cpb2
+from opticapi.generated.watcher_pb2_grpc import WatcherServicer as _BaseServicer
 from ..modules.base import ModuleRegistry
 
 logger = logging.getLogger(__name__)

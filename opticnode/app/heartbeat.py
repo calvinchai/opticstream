@@ -8,6 +8,12 @@ import threading
 import time
 from typing import Any
 
+from opticapi.node_contract import (
+    NODES_SET_KEY,
+    node_last_seen_key,
+    node_meta_key,
+    node_stats_key,
+)
 from opticnode.app.config import Settings
 from opticnode.app.telemetry import TelemetryEngine, snapshot_to_flat_dict
 from opticnode.app.redis_utils import make_redis_client
@@ -15,8 +21,6 @@ from opticnode.utils.network import NetworkPlanes, get_primary_ipv4
 from opticnode import __version__
 
 logger = logging.getLogger(__name__)
-
-NODES_SET_KEY = "opticnode:nodes"
 
 # When Redis is down or drops connections, avoid flooding logs every tick.
 _REDIS_WARN_MIN_INTERVAL_S = 30.0
@@ -67,10 +71,9 @@ class HeartbeatLoop:
         node_id = self._settings.node_id
         interval = self._settings.heartbeat_interval_s
         ttl = self._settings.heartbeat_ttl_s
-        key_prefix = f"opticnode:{node_id}"
-        last_seen_key = f"{key_prefix}:last_seen"
-        stats_key = f"{key_prefix}:stats"
-        meta_key = f"{key_prefix}:meta"
+        last_seen_key = node_last_seen_key(node_id)
+        stats_key = node_stats_key(node_id)
+        meta_key = node_meta_key(node_id)
 
         started_at = str(time.time())
         hostname = socket.gethostname()
