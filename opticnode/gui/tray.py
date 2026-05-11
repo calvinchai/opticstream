@@ -6,7 +6,10 @@ import logging
 import queue
 import threading
 import tkinter as tk
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from opticnode.app.runtime import NodeRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +22,7 @@ def _make_icon_image() -> Any:
 
 def run_gui_blocking(
     module_queues: dict[str, queue.Queue[logging.LogRecord]],
-    stop_event: Any,
-    server: Any,
+    runtime: "NodeRuntime",
 ) -> None:
     """Run Tk on the main thread; pystray icon in a background thread."""
     import pystray
@@ -29,16 +31,12 @@ def run_gui_blocking(
     root = tk.Tk()
     root.withdraw()
 
-    from .log_viewer import LogViewerWindow
+    from opticnode.gui.log_viewer import LogViewerWindow
 
     viewer = LogViewerWindow(root, module_queues)
 
     def on_quit(icon: Any, _item: Any) -> None:
-        stop_event.set()
-        try:
-            server.stop(5)
-        except Exception:
-            logger.exception("gRPC server stop failed")
+        runtime.stop()
         icon.stop()
         root.after(0, root.quit)
 

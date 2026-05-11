@@ -1,37 +1,29 @@
-"""Load `.env` and environment variables into a single settings object."""
+"""Settings model with JSON file persistence."""
 
 from __future__ import annotations
 
-import os
+import json
+import logging
 from pathlib import Path
 
+from platformdirs import user_config_dir
 from pydantic import BaseModel, Field
 
+logger = logging.getLogger(__name__)
 
-def load_dotenv(path: Path | None = None) -> None:
-    """Merge key=value lines from a `.env` file into `os.environ` (no override)."""
-    env_path = path or Path(__file__).resolve().parent.parent / ".env"
-    if not env_path.is_file():
-        return
-    for raw in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        if not key:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        os.environ.setdefault(key, value)
+_CONFIG_DIR = Path(user_config_dir("opticstream"))
+_DEFAULT_PATH = _CONFIG_DIR / "opticnode.json"
+
+
+def default_settings_path() -> Path:
+    return _DEFAULT_PATH
 
 
 class Settings(BaseModel):
     """Runtime configuration for the optic node."""
 
     node_id: str = Field(default="opticnode-1", description="Unique node identity for registration")
-    redis_url: str
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0")
     grpc_host: str = Field(default="[::]")
     grpc_port: int = Field(default=50051, ge=1, le=65535)
     heartbeat_interval_s: float = Field(default=1.0, gt=0)
@@ -56,40 +48,28 @@ class Settings(BaseModel):
         default="opticnode*.exe",
         description="Glob-style match for release asset name (fnmatch)",
     )
-    env_file: Path | None = Field(default=None, description="Optional override path for `.env`")
 
     @classmethod
-    def from_env(cls, *, env_file: Path | None = None) -> "Settings":
-        load_dotenv(env_file)
-        adv = os.environ.get("ADVERTISED_HOST", "").strip()
-        mgmt = os.environ.get("MGMT_IFACE", "").strip()
-        data = os.environ.get("DATA_IFACE", "").strip()
-        gui_raw = os.environ.get("GUI_MODE", "false").strip().lower()
-        gui_mode = gui_raw in ("1", "true", "yes", "on")
-        auto_raw = os.environ.get("AUTO_UPDATE", "true").strip().lower()
-        auto_update = auto_raw in ("1", "true", "yes", "on")
-        pat = os.environ.get("UPDATER_ASSET_PATTERN", "opticnode*.exe").strip() or "opticnode*.exe"
-        return cls(
-            node_id=os.environ.get("NODE_ID", "opticnode-1"),
-            redis_url=os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0"),
-            grpc_host=os.environ.get("GRPC_HOST", "[::]"),
-            grpc_port=int(os.environ.get("GRPC_PORT", "50051")),
-            heartbeat_interval_s=float(os.environ.get("HEARTBEAT_INTERVAL_S", "1.0")),
-            heartbeat_ttl_s=int(os.environ.get("HEARTBEAT_TTL_S", "10")),
-            redis_log_tail=int(os.environ.get("REDIS_LOG_TAIL", "100")),
-            log_dir=Path(os.environ.get("LOG_DIR", "logs")),
-            primocache_exe=os.environ.get("PRIMOCACHE_EXE", "rxpcc.exe").strip() or "rxpcc.exe",
-            gui_mode=gui_mode,
-            mgmt_iface=mgmt or None,
-            data_iface=data or None,
-            advertised_host=adv or None,
-            github_repo=os.environ.get("GITHUB_REPO", "").strip(),
-            auto_update=auto_update,
-            update_check_interval_s=int(os.environ.get("UPDATE_CHECK_INTERVAL_S", "3600")),
-            updater_asset_pattern=pat,
-            env_file=env_file,
+    def load(cls, path: Path | None = None) -> Settings:
+        """Load settings from a JSON file, falling back to model defaults."""
+        p = path or _DEFAULT_PATH
+        if p.is_file():
+            logger.info("Loading settings from %s", p)
+            raw = p.read_text(encoding="utf-8")
+            return cls.model_validate_json(raw)
+        logger.info("No settings file at %s; using defaults.", p)
+        return cls()
+
+    def save(self, path: Path | None = None) -> Path:
+        """Persist settings to a JSON file, creating parent dirs as needed."""
+        p = path or _DEFAULT_PATH
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            json.dumps(self.model_dump(mode="json"), indent=2) + "\n",
+            encoding="utf-8",
         )
+        logger.info("Settings saved to %s", p)
+        return p
 
 
-__all__ = ["Settings", "load_dotenv"]
-
+__all__ = ["Settings", "default_settings_path"]

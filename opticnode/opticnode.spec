@@ -17,10 +17,7 @@ OPTIC = REPO_ROOT / "opticnode"
 
 grpc_datas, grpc_binaries, grpc_hidden = collect_all("grpc")
 
-datas = (
-    grpc_datas
-    + [(str(OPTIC / ".env.example"), "opticnode")]
-)
+datas = list(grpc_datas)
 binaries = list(grpc_binaries)
 
 hiddenimports = list(grpc_hidden) + [

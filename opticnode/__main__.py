@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .main import main
+from opticnode.cli.main import main
 
 if __name__ == "__main__":
     main()
