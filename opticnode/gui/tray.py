@@ -17,7 +17,11 @@ def _make_icon_image() -> Any:
     return Image.new("RGB", (64, 64), color=(32, 110, 85))
 
 
-def run_gui_blocking(log_queue: queue.Queue[logging.LogRecord], stop_event: Any, server: Any) -> None:
+def run_gui_blocking(
+    module_queues: dict[str, queue.Queue[logging.LogRecord]],
+    stop_event: Any,
+    server: Any,
+) -> None:
     """Run Tk on the main thread; pystray icon in a background thread."""
     import pystray
     from pystray import Menu, MenuItem
@@ -27,7 +31,7 @@ def run_gui_blocking(log_queue: queue.Queue[logging.LogRecord], stop_event: Any,
 
     from .log_viewer import LogViewerWindow
 
-    viewer = LogViewerWindow(root, log_queue)
+    viewer = LogViewerWindow(root, module_queues)
 
     def on_quit(icon: Any, _item: Any) -> None:
         stop_event.set()

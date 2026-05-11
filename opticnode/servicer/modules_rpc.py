@@ -6,6 +6,8 @@ import json
 import logging
 from typing import Any
 
+import grpc
+
 from ..generated import common_pb2 as cpb2
 from ..generated import modules_pb2 as mpb2
 from ..modules.base import ModuleRegistry, ModuleState
@@ -44,8 +46,6 @@ class ModulesMixin:
         return mpb2.ModuleListResponse(modules=[_status_to_pb(s) for s in statuses])
 
     def StartModule(self, request: Any, context: Any) -> cpb2.RoleTaskResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         name = (request.name or "").strip()
         if not name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -67,8 +67,6 @@ class ModulesMixin:
             return cpb2.RoleTaskResponse(ok=False, message=str(exc))
 
     def StopModule(self, request: Any, context: Any) -> cpb2.RoleTaskResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         name = (request.name or "").strip()
         if not name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -85,8 +83,6 @@ class ModulesMixin:
             return cpb2.RoleTaskResponse(ok=False, message=str(exc))
 
     def ConfigureModule(self, request: Any, context: Any) -> cpb2.RoleTaskResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         name = (request.name or "").strip()
         if not name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -108,16 +104,14 @@ class ModulesMixin:
             return cpb2.RoleTaskResponse(ok=False, message=str(exc))
 
     def GetModuleLogs(self, request: Any, context: Any) -> mpb2.ModuleLogsResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         name = (request.name or "").strip()
-        tail_lines = int(request.tail_lines) if request.tail_lines > 0 else 100
-        entire = bool(request.entire_buffer)
+        # tail=0 means "return all available lines from the in-memory deque"
+        tail = 0 if request.entire_buffer else (int(request.tail_lines) if request.tail_lines > 0 else 100)
         if not name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
             return mpb2.ModuleLogsResponse(lines=[])
         try:
-            lines = self._registry.get_logs(name, tail=tail_lines, full=entire)
+            lines = self._registry.get_logs(name, tail=tail)
             return mpb2.ModuleLogsResponse(lines=lines)
         except KeyError:
             context.set_code(grpc.StatusCode.NOT_FOUND)
@@ -128,8 +122,6 @@ class ModulesMixin:
             return mpb2.ModuleLogsResponse(lines=[])
 
     def SubmitModuleJob(self, request: Any, context: Any) -> mpb2.SubmitModuleJobResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         name = (request.module_name or "").strip()
         if not name:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)

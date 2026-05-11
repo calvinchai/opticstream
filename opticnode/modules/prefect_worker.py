@@ -7,12 +7,12 @@ import shlex
 import subprocess
 import threading
 import time
-from typing import Any
 
 from pydantic import Field
 
 from .base import ModuleConfig, ModuleState, ModuleStatus, NodeModule
 
+# Use the module-specific logger so output goes to prefect_worker.log via ModuleLog.
 logger = logging.getLogger(__name__)
 
 _RESTART_RESET_AFTER_S = 30.0
@@ -31,8 +31,7 @@ class PrefectWorkerModule(NodeModule):
     name = "prefect_worker"
     Config = PrefectWorkerConfig
 
-    def __init__(self, log_buffer: Any) -> None:
-        self._log_buffer = log_buffer
+    def __init__(self) -> None:
         self._config: PrefectWorkerConfig = PrefectWorkerConfig()
         self._state = ModuleState.STOPPED
         self._started_at: float | None = None
@@ -77,7 +76,7 @@ class PrefectWorkerModule(NodeModule):
     def _read_logs(self, proc: subprocess.Popen[str]) -> None:
         assert proc.stdout is not None
         for line in proc.stdout:
-            self._log_buffer.append("prefect_worker", line.rstrip())
+            logger.info("%s", line.rstrip())
 
     def _supervise(self, proc: subprocess.Popen[str], config: PrefectWorkerConfig) -> None:
         start_time = time.time()

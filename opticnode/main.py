@@ -11,7 +11,6 @@ import threading
 
 from .config import Settings
 from .heartbeat import HeartbeatLoop
-from .logging_buffer import NodeLogBuffer, NodeLogHandler
 from .modules import ModuleRegistry
 from .modules.command_runner import CommandRunnerModule
 from .modules.copy_queue import CopyQueueModule
@@ -53,11 +52,6 @@ def main() -> None:
 
     gui_mode = bool(settings.gui_mode or args.gui)
 
-    log_queue: queue.Queue[logging.LogRecord] | None = None
-    if gui_mode:
-        log_queue = queue.Queue(maxsize=500)
-        logging.getLogger().addHandler(logging.handlers.QueueHandler(log_queue))
-
     stop = threading.Event()
 
     def _handle_sig(_signum: int, _frame: object | None) -> None:
@@ -80,25 +74,28 @@ def main() -> None:
 
     telemetry = TelemetryEngine(settings, planes)
 
-    log_buffer = NodeLogBuffer(settings)
-    log_fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    node_log_handler = NodeLogHandler(log_buffer)
-    node_log_handler.setFormatter(log_fmt)
-    logging.getLogger().addHandler(node_log_handler)
-
-    registry = ModuleRegistry(settings, log_buffer=log_buffer)
+    # Each module gets its own named logger routed to a rotating file + in-memory
+    # deque (for RPC) + Redis tail (for post-mortem).  The registry creates a
+    # ModuleLog per registered module; gui_mode also creates a per-module queue.
+    registry = ModuleRegistry(settings, gui_mode=gui_mode)
     registry.register_factory("command_runner", CommandRunnerModule)
-    registry.register_factory("prefect_worker", lambda: PrefectWorkerModule(log_buffer))
+    registry.register_factory("prefect_worker", PrefectWorkerModule)
     registry.register_factory("copy_queue", lambda: CopyQueueModule(settings))
     registry.register_factory("watcher", WatcherModule)
     registry.restore_from_redis()
+
+    # Core (non-module) logs go to the root logger.  In GUI mode we capture them
+    # on a separate queue so the viewer can show them alongside module logs.
+    core_queue: queue.Queue[logging.LogRecord] | None = None
+    if gui_mode:
+        core_queue = queue.Queue(maxsize=500)
+        logging.getLogger().addHandler(logging.handlers.QueueHandler(core_queue))
 
     hb = HeartbeatLoop(
         settings,
         stop,
         telemetry,
         planes,
-        log_buffer=log_buffer,
         module_registry=registry,
     )
     hb_thread = threading.Thread(target=hb.run, name="heartbeat", daemon=True)
@@ -122,20 +119,21 @@ def main() -> None:
     )
 
     try:
-        if gui_mode and log_queue is not None:
+        if gui_mode and core_queue is not None:
             from .gui import launch_gui
+
+            all_queues = {**registry.gui_queues, "core": core_queue}
 
             def _grpc_serve() -> None:
                 server.start()
                 server.wait_for_termination()
 
             threading.Thread(target=_grpc_serve, name="grpc-server", daemon=True).start()
-            launch_gui(log_queue, stop, server)
+            launch_gui(all_queues, stop, server)
         else:
             serve_blocking(server)
     finally:
         stop.set()
-        logging.getLogger().removeHandler(node_log_handler)
         registry.shutdown_all()
 
 
