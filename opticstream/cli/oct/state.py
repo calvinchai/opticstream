@@ -14,7 +14,7 @@ from opticapi.project_state.oct_models import (
     OCTMosaicState,
     OCTSliceState,
 )
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 
 oct_state_cli = oct_cli.command(App(name="state"))
 

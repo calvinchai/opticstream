@@ -6,7 +6,10 @@ from datetime import datetime
 
 import streamlit as st
 
-from opticapi.project_state.state_reader import LSMStateReader, OCTStateReader
+from opticapi.project_state.redis_backend import RedisStateBackend
+from opticapi.project_state.lsm_state_service import LSMProjectStateService
+from opticapi.project_state.oct_state_service import OCTProjectStateService
+from redis import Redis
 
 from optichub.dashboard.hub_ui import hub_settings
 
@@ -37,9 +40,9 @@ def _state_metrics(state) -> None:
     c4.write(f"**Started:** {started}  \n**Finished:** {finished}")
 
 
-def _render_lsm_project(name: str, lsm_reader: LSMStateReader) -> None:
+def _render_lsm_project(name: str, lsm_svc: LSMProjectStateService) -> None:
     try:
-        view = lsm_reader.peek_project_by_parts(name)
+        view = lsm_svc.peek_project_by_parts(name)
     except Exception as e:
         st.error(f"Failed to load project: {e}")
         return
@@ -93,9 +96,9 @@ def _render_lsm_project(name: str, lsm_reader: LSMStateReader) -> None:
                     st.dataframe(strip_rows, use_container_width=True, hide_index=True)
 
 
-def _render_oct_project(name: str, oct_reader: OCTStateReader) -> None:
+def _render_oct_project(name: str, oct_svc: OCTProjectStateService) -> None:
     try:
-        view = oct_reader.peek_project_by_parts(name)
+        view = oct_svc.peek_project_by_parts(name)
     except Exception as e:
         st.error(f"Failed to load project: {e}")
         return
@@ -163,6 +166,10 @@ def _render_oct_project(name: str, oct_reader: OCTStateReader) -> None:
                     st.dataframe(batch_rows, use_container_width=True, hide_index=True)
 
 
+def _make_backend(redis_url: str) -> RedisStateBackend:
+    return RedisStateBackend(Redis.from_url(redis_url, decode_responses=True))
+
+
 def main() -> None:
     project_name = st.session_state.get("_hub_open_project")
     project_type = st.session_state.get("_hub_open_project_type")
@@ -179,12 +186,11 @@ def main() -> None:
     st.header(f"{project_type.upper()} project: `{project_name}`")
 
     settings = hub_settings()
-    lsm_reader = LSMStateReader(settings.redis_url)
-    oct_reader = OCTStateReader(settings.redis_url)
+    backend = _make_backend(settings.redis_url)
 
     if project_type == "lsm":
-        _render_lsm_project(project_name, lsm_reader)
+        _render_lsm_project(project_name, LSMProjectStateService(backend))
     elif project_type == "oct":
-        _render_oct_project(project_name, oct_reader)
+        _render_oct_project(project_name, OCTProjectStateService(backend))
     else:
         st.error(f"Unknown project type: {project_type}")

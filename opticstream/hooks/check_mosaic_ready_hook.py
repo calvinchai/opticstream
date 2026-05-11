@@ -11,7 +11,7 @@ from opticstream.events.psoct_event_emitters import emit_mosaic_psoct_event
 from opticstream.events.psoct_events import MOSAIC_READY
 from opticstream.flows.psoct.utils import mosaic_context_from_ident
 from opticapi.project_state.oct_models import OCTMosaicId
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticstream.utils.flow_run_name_parse import (
     missing_required_fields,
     parse_flow_run_name_fields,

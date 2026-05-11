@@ -6,9 +6,7 @@ import json
 from contextlib import AbstractContextManager, contextmanager
 from typing import Iterator
 
-
-from opticstream.config.constants import STATE_REDIS_BLOCK_NAME
-from opticstream.state.project_state_redis import RedisStateBackend
+from opticapi.project_state.redis_backend import RedisStateBackend
 from opticapi.project_state.oct_models import (
     OCT_PROJECT_TYPE,
     OCTProjectId,
@@ -32,8 +30,8 @@ _PREFIX = f"{OCT_PROJECT_TYPE}:project"
 class OCTProjectStateService:
     """OCT-specific state service with granular per-resource locking."""
 
-    def __init__(self, backend: RedisStateBackend | None = None) -> None:
-        self._backend = backend or RedisStateBackend(STATE_REDIS_BLOCK_NAME)
+    def __init__(self, backend: RedisStateBackend) -> None:
+        self._backend = backend
 
     # -- discovery ----------------------------------------------------------
 
@@ -60,12 +58,12 @@ class OCTProjectStateService:
     def _mosaic_key(self, name: str, sid: int, mid: int) -> str:
         return f"{_PREFIX}:{name}:mosaic:{sid}:{mid}:meta"
 
-    def _batches_hash(self, name: str) -> str:
-        return f"{_PREFIX}:{name}:batches"
+    def _batches_hash(self, name: str, sid: int, mid: int) -> str:
+        return f"{_PREFIX}:{name}:batches:{sid}:{mid}"
 
     @staticmethod
-    def _batch_field(sid: int, mid: int, bid: int) -> str:
-        return f"{sid}:{mid}:{bid}"
+    def _batch_field(bid: int) -> str:
+        return str(bid)
 
     def _lock(self, name: str, *parts: str | int) -> str:
         suffix = ":".join(str(p) for p in parts) if parts else ""
@@ -95,10 +93,13 @@ class OCTProjectStateService:
                 sl = project.get_or_create_slice(int(sid_s))
                 sl.mosaics[int(mid_s)] = mo
 
-        for field, batch in b.scan_hash_fields(f"{prefix}:batches", OCTBatchState).items():
-            sid_s, mid_s, bid_s = field.split(":")
-            mo = project.get_or_create_mosaic(int(sid_s), int(mid_s))
-            mo.batches[int(bid_s)] = batch
+        for key in client.scan_iter(f"{prefix}:batches:*"):
+            rest = key.removeprefix(f"{prefix}:batches:")
+            sid_s, mid_s = rest.split(":")
+            sid, mid = int(sid_s), int(mid_s)
+            mo = project.get_or_create_mosaic(sid, mid)
+            for field, batch in b.load_all_hash_fields(key, OCTBatchState).items():
+                mo.batches[int(field)] = batch
 
         return project
 
@@ -125,8 +126,8 @@ class OCTProjectStateService:
                 )
                 for bid, batch in mo.batches.items():
                     pipe.hset(
-                        f"{prefix}:batches",
-                        f"{sid}:{mid}:{bid}",
+                        f"{prefix}:batches:{sid}:{mid}",
+                        str(bid),
                         json.dumps(batch.model_dump(mode="json")),
                     )
 
@@ -138,10 +139,10 @@ class OCTProjectStateService:
         mo = self._backend.load_key(self._mosaic_key(project_name, sid, mid), OCTMosaicState)
         if mo is None:
             return None
-        for field, batch in self._backend.scan_hash_fields(
-            self._batches_hash(project_name), OCTBatchState, match=f"{sid}:{mid}:*",
+        for field, batch in self._backend.load_all_hash_fields(
+            self._batches_hash(project_name, sid, mid), OCTBatchState,
         ).items():
-            mo.batches[int(field.split(":")[2])] = batch
+            mo.batches[int(field)] = batch
         return mo.to_view()
 
     def _load_slice_view(
@@ -150,19 +151,19 @@ class OCTProjectStateService:
         sl = self._backend.load_key(self._slice_key(project_name, sid), OCTSliceState)
         if sl is None:
             return None
-        client = self._backend.client
+        b = self._backend
+        client = b.client
         prefix = f"{_PREFIX}:{project_name}"
         for key in client.scan_iter(f"{prefix}:mosaic:{sid}:*:meta"):
             mid = int(key.removeprefix(f"{prefix}:mosaic:{sid}:").removesuffix(":meta"))
-            mo = self._backend.load_key(key, OCTMosaicState)
+            mo = b.load_key(key, OCTMosaicState)
             if mo:
                 sl.mosaics[mid] = mo
-        for field, batch in self._backend.scan_hash_fields(
-            self._batches_hash(project_name), OCTBatchState, match=f"{sid}:*",
-        ).items():
-            parts = field.split(":")
-            mo = sl.get_or_create_mosaic(int(parts[1]))
-            mo.batches[int(parts[2])] = batch
+        for key in client.scan_iter(f"{prefix}:batches:{sid}:*"):
+            mid = int(key.removeprefix(f"{prefix}:batches:{sid}:"))
+            mo = sl.get_or_create_mosaic(mid)
+            for field, batch in b.load_all_hash_fields(key, OCTBatchState).items():
+                mo.batches[int(field)] = batch
         return sl.to_view()
 
     # ------------------------------------------------------------------
@@ -284,12 +285,12 @@ class OCTProjectStateService:
         batch_id: int,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[OCTBatchState]:
-        field = self._batch_field(slice_id, mosaic_id, batch_id)
+        field = self._batch_field(batch_id)
         return self._backend.open_hash_field(
-            hash_key=self._batches_hash(project_name),
+            hash_key=self._batches_hash(project_name, slice_id, mosaic_id),
             field=field,
             model_cls=OCTBatchState,
-            lock_key=self._lock(project_name, "batch", field),
+            lock_key=self._lock(project_name, "batch", slice_id, mosaic_id, batch_id),
             default_factory=lambda: OCTBatchState(
                 slice_id=slice_id, mosaic_id=mosaic_id, batch_id=batch_id,
             ),
@@ -451,10 +452,7 @@ class OCTProjectStateService:
         batch_id: int,
     ) -> OCTBatchStateView | None:
         return self._backend.load_hash_field(
-            self._batches_hash(project_name),
-            self._batch_field(slice_id, mosaic_id, batch_id),
+            self._batches_hash(project_name, slice_id, mosaic_id),
+            self._batch_field(batch_id),
             OCTBatchStateView,
         )
-
-
-OCT_STATE_SERVICE = OCTProjectStateService()

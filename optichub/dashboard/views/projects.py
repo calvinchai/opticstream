@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import streamlit as st
 
-from opticapi.project_state.state_reader import LSMStateReader, OCTStateReader
+from opticapi.project_state.redis_backend import RedisStateBackend
+from opticapi.project_state.lsm_state_service import LSMProjectStateService
+from opticapi.project_state.oct_state_service import OCTProjectStateService
+from redis import Redis
 
 from optichub.dashboard.hub_ui import hub_settings
 
@@ -66,30 +69,35 @@ def _render_project_table(
             st.rerun()
 
 
+def _make_backend(redis_url: str) -> RedisStateBackend:
+    return RedisStateBackend(Redis.from_url(redis_url, decode_responses=True))
+
+
 def main() -> None:
     st.subheader("Projects")
     st.caption("LSM and OCT project states from Redis.")
 
     settings = hub_settings()
-    lsm_reader = LSMStateReader(settings.redis_url)
-    oct_reader = OCTStateReader(settings.redis_url)
+    backend = _make_backend(settings.redis_url)
+    lsm_svc = LSMProjectStateService(backend)
+    oct_svc = OCTProjectStateService(backend)
 
     tab_lsm, tab_oct = st.tabs(["LSM", "OCT"])
 
     with tab_lsm:
         with st.spinner("Loading LSM projects…"):
             try:
-                lsm_names = lsm_reader.list_project_names()
+                lsm_names = lsm_svc.list_project_names()
             except Exception as e:
                 st.error(f"Failed to connect to state service: {e}")
                 lsm_names = []
-        _render_project_table("lsm", lsm_names, lsm_reader.peek_project_by_parts)
+        _render_project_table("lsm", lsm_names, lsm_svc.peek_project_by_parts)
 
     with tab_oct:
         with st.spinner("Loading OCT projects…"):
             try:
-                oct_names = oct_reader.list_project_names()
+                oct_names = oct_svc.list_project_names()
             except Exception as e:
                 st.error(f"Failed to connect to state service: {e}")
                 oct_names = []
-        _render_project_table("oct", oct_names, oct_reader.peek_project_by_parts)
+        _render_project_table("oct", oct_names, oct_svc.peek_project_by_parts)

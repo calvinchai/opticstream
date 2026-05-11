@@ -39,7 +39,7 @@ from opticstream.state.state_guards import (
     should_skip_run,
 )
 from opticapi.project_state.oct_models import OCTMosaicId
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticstream.data_processing.qc import (
     generate_mask,
 )

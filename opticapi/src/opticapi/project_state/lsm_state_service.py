@@ -6,8 +6,7 @@ import json
 from contextlib import AbstractContextManager, contextmanager
 from typing import Iterator
 
-from opticstream.config.constants import STATE_REDIS_BLOCK_NAME
-from opticstream.state.project_state_redis import RedisStateBackend
+from opticapi.project_state.redis_backend import RedisStateBackend
 from opticapi.project_state.lsm_models import (
     LSM_PROJECT_TYPE,
     LSMProjectId,
@@ -31,8 +30,8 @@ _PREFIX = f"{LSM_PROJECT_TYPE}:project"
 class LSMProjectStateService:
     """LSM-specific state service with granular per-resource locking."""
 
-    def __init__(self, backend: RedisStateBackend | None = None) -> None:
-        self._backend = backend or RedisStateBackend(STATE_REDIS_BLOCK_NAME)
+    def __init__(self, backend: RedisStateBackend) -> None:
+        self._backend = backend
 
     # -- discovery ----------------------------------------------------------
 
@@ -59,12 +58,12 @@ class LSMProjectStateService:
     def _channel_key(self, name: str, sid: int, cid: int) -> str:
         return f"{_PREFIX}:{name}:channel:{sid}:{cid}:meta"
 
-    def _strips_hash(self, name: str) -> str:
-        return f"{_PREFIX}:{name}:strips"
+    def _strips_hash(self, name: str, sid: int, cid: int) -> str:
+        return f"{_PREFIX}:{name}:strips:{sid}:{cid}"
 
     @staticmethod
-    def _strip_field(sid: int, cid: int, stid: int) -> str:
-        return f"{sid}:{cid}:{stid}"
+    def _strip_field(stid: int) -> str:
+        return str(stid)
 
     def _lock(self, name: str, *parts: str | int) -> str:
         suffix = ":".join(str(p) for p in parts) if parts else ""
@@ -89,15 +88,19 @@ class LSMProjectStateService:
         for key in client.scan_iter(f"{prefix}:channel:*:meta"):
             rest = key.removeprefix(f"{prefix}:channel:").removesuffix(":meta")
             sid_s, cid_s = rest.split(":")
+            sid, cid = int(sid_s), int(cid_s)
             ch = b.load_key(key, LSMChannelState)
             if ch:
-                sl = project.get_or_create_slice(int(sid_s))
-                sl.channels[int(cid_s)] = ch
+                sl = project.get_or_create_slice(sid)
+                sl.channels[cid] = ch
 
-        for field, strip in b.scan_hash_fields(f"{prefix}:strips", LSMStripState).items():
-            sid_s, cid_s, stid_s = field.split(":")
-            ch = project.get_or_create_channel(int(sid_s), int(cid_s))
-            ch.strips[int(stid_s)] = strip
+        for key in client.scan_iter(f"{prefix}:strips:*"):
+            rest = key.removeprefix(f"{prefix}:strips:")
+            sid_s, cid_s = rest.split(":")
+            sid, cid = int(sid_s), int(cid_s)
+            ch = project.get_or_create_channel(sid, cid)
+            for field, strip in b.load_all_hash_fields(key, LSMStripState).items():
+                ch.strips[int(field)] = strip
 
         return project
 
@@ -124,8 +127,8 @@ class LSMProjectStateService:
                 )
                 for stid, strip in ch.strips.items():
                     pipe.hset(
-                        f"{prefix}:strips",
-                        f"{sid}:{cid}:{stid}",
+                        f"{prefix}:strips:{sid}:{cid}",
+                        str(stid),
                         json.dumps(strip.model_dump(mode="json")),
                     )
 
@@ -137,10 +140,10 @@ class LSMProjectStateService:
         ch = self._backend.load_key(self._channel_key(project_name, sid, cid), LSMChannelState)
         if ch is None:
             return None
-        for field, strip in self._backend.scan_hash_fields(
-            self._strips_hash(project_name), LSMStripState, match=f"{sid}:{cid}:*",
+        for field, strip in self._backend.load_all_hash_fields(
+            self._strips_hash(project_name, sid, cid), LSMStripState,
         ).items():
-            ch.strips[int(field.split(":")[2])] = strip
+            ch.strips[int(field)] = strip
         return ch.to_view()
 
     def _load_slice_view(
@@ -149,19 +152,19 @@ class LSMProjectStateService:
         sl = self._backend.load_key(self._slice_key(project_name, sid), LSMSliceState)
         if sl is None:
             return None
-        client = self._backend.client
+        b = self._backend
+        client = b.client
         prefix = f"{_PREFIX}:{project_name}"
         for key in client.scan_iter(f"{prefix}:channel:{sid}:*:meta"):
             cid = int(key.removeprefix(f"{prefix}:channel:{sid}:").removesuffix(":meta"))
-            ch = self._backend.load_key(key, LSMChannelState)
+            ch = b.load_key(key, LSMChannelState)
             if ch:
                 sl.channels[cid] = ch
-        for field, strip in self._backend.scan_hash_fields(
-            self._strips_hash(project_name), LSMStripState, match=f"{sid}:*",
-        ).items():
-            parts = field.split(":")
-            ch = sl.get_or_create_channel(int(parts[1]))
-            ch.strips[int(parts[2])] = strip
+        for key in client.scan_iter(f"{prefix}:strips:{sid}:*"):
+            cid = int(key.removeprefix(f"{prefix}:strips:{sid}:"))
+            ch = sl.get_or_create_channel(cid)
+            for field, strip in b.load_all_hash_fields(key, LSMStripState).items():
+                ch.strips[int(field)] = strip
         return sl.to_view()
 
     # ------------------------------------------------------------------
@@ -281,12 +284,12 @@ class LSMProjectStateService:
         channel_id: int = 1,
         timeout_seconds: float | None = None,
     ) -> AbstractContextManager[LSMStripState]:
-        field = self._strip_field(slice_id, channel_id, strip_id)
+        field = self._strip_field(strip_id)
         return self._backend.open_hash_field(
-            hash_key=self._strips_hash(project_name),
+            hash_key=self._strips_hash(project_name, slice_id, channel_id),
             field=field,
             model_cls=LSMStripState,
-            lock_key=self._lock(project_name, "strip", field),
+            lock_key=self._lock(project_name, "strip", slice_id, channel_id, strip_id),
             default_factory=lambda: LSMStripState(
                 slice_id=slice_id, channel_id=channel_id, strip_id=strip_id,
             ),
@@ -448,10 +451,7 @@ class LSMProjectStateService:
         channel_id: int = 1,
     ) -> LSMStripStateView | None:
         return self._backend.load_hash_field(
-            self._strips_hash(project_name),
-            self._strip_field(slice_id, channel_id, strip_id),
+            self._strips_hash(project_name, slice_id, channel_id),
+            self._strip_field(strip_id),
             LSMStripStateView,
         )
-
-
-LSM_STATE_SERVICE = LSMProjectStateService()

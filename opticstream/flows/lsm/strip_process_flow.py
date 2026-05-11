@@ -33,7 +33,7 @@ from opticstream.flows.lsm.utils import (
     strip_zarr_output_path,
 )
 from opticapi.project_state.lsm_models import LSMStripId
-from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
+from opticstream.state import LSM_STATE_SERVICE
 from opticstream.tasks.slack_notification import (
     send_slack_message,
     upload_multiple_files_to_slack,

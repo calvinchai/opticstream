@@ -8,9 +8,9 @@ from opticapi.project_state.lsm_models import (
     LSMChannelId,
     LSMStripId,
 )
-from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
+from opticstream.state import LSM_STATE_SERVICE
 from opticapi.project_state.oct_models import OCTBatchId, OCTMosaicId
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticapi.project_state.state_models import ProcessingState
 
 

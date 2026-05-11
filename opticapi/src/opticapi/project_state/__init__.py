@@ -1,1 +1,1 @@
-"""Project-state schemas (LSM/OCT) and read-only Redis state readers."""
+"""Project-state schemas (LSM/OCT), Redis backend, and state services."""

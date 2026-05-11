@@ -14,7 +14,7 @@ from opticapi.project_state.oct_models import (
     OCTMosaicId,
     OCTSliceId,
 )
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticstream.state.milestone_runtime import MilestoneAdapter, guarded_milestone
 
 

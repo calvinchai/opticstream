@@ -48,7 +48,7 @@ from opticstream.flows.psoct.utils import (
     normalize_float_sequence,
 )
 from opticapi.project_state.oct_models import OCTMosaicId
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticstream.hooks.slack_notification_hook import slack_notification_hook
 from opticstream.utils.zarr_validation import validate_zarr
 

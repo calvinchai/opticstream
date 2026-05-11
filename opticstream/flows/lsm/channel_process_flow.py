@@ -35,7 +35,7 @@ from opticapi.project_state.lsm_models import (
     LSMChannelId,
     LSMStripId,
 )
-from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
+from opticstream.state import LSM_STATE_SERVICE
 from opticstream.tasks.slack_notification import send_slack_message, upload_multiple_files_to_slack
 from opticstream.hooks import (
     publish_lsm_project_hook,

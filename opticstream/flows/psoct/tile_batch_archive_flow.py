@@ -12,7 +12,7 @@ from opticstream.events.psoct_events import BATCH_ARCHIVED
 from opticstream.flows.psoct.tile_file_reference import TileFileReference
 from opticstream.state.milestone_wrappers_psoct import oct_batch_processing_milestone
 from opticapi.project_state.oct_models import OCTBatchId
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticstream.tasks.archive_file import archive_file
 from opticstream.hooks.slack_notification_hook import slack_notification_hook
 

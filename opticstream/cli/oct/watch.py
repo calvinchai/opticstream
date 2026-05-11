@@ -22,7 +22,7 @@ from opticstream.flows.psoct.utils import (
     logical_mosaic_from_source_mosaic,
     slice_from_mosaic,
 )
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticstream.utils.filename_utils import (
     extract_processed_index_from_filename,
     extract_spectral_index_from_filename,

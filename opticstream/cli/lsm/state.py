@@ -15,7 +15,7 @@ from opticapi.project_state.lsm_models import (
     LSMSliceState,
     LSMStripState,
 )
-from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
+from opticstream.state import LSM_STATE_SERVICE
 
 lsm_state_cli = lsm_cli.command(App(name="state"))
 

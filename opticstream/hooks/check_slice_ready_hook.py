@@ -10,7 +10,7 @@ from opticstream.config.psoct_scan_config import get_psoct_scan_config
 from opticstream.events.psoct_event_emitters import emit_slice_psoct_event
 from opticstream.events.psoct_events import SLICE_READY
 from opticapi.project_state.oct_models import OCTSliceId
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticstream.utils.flow_run_name_parse import (
     missing_required_fields,
     parse_flow_run_name_fields,

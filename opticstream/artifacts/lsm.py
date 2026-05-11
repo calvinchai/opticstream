@@ -23,7 +23,7 @@ from opticapi.project_state.lsm_models import (
     LSMSliceStateView,
     LSMStripStateView,
 )
-from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
+from opticstream.state import LSM_STATE_SERVICE
 from opticapi.project_state.state_models import ProcessingState
 from opticstream.utils.naming_convention import normalize_project_name
 

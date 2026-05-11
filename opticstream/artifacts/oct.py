@@ -22,7 +22,7 @@ from opticapi.project_state.oct_models import (
     OCTMosaicStateView,
     OCTProjectId,
 )
-from opticstream.state.oct_state_service import OCT_STATE_SERVICE
+from opticstream.state import OCT_STATE_SERVICE
 from opticapi.project_state.state_models import ProcessingState
 from opticstream.utils.naming_convention import normalize_project_name
 
