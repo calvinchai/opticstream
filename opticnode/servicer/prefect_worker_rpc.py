@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import grpc  # type: ignore[reportMissingModuleSource]
+
 from ..generated import common_pb2 as cpb2
 from ..generated.prefect_worker_pb2_grpc import PrefectWorkerServicer as _BaseServicer
 from ..modules.base import ModuleRegistry
@@ -21,8 +23,6 @@ class PrefectWorkerServicer(_BaseServicer):
         self._registry = registry
 
     def Start(self, request: Any, context: Any) -> cpb2.RoleTaskResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         config: dict[str, Any] = {"auto_restart": bool(request.auto_restart)}
         if request.work_pool:
             config["work_pool"] = request.work_pool.strip()

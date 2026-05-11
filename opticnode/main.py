@@ -14,17 +14,16 @@ from .heartbeat import HeartbeatLoop
 from .logging_buffer import NodeLogBuffer, NodeLogHandler
 from .modules import ModuleRegistry
 from .modules.command_runner import CommandRunnerModule
-from .modules.copy_queue import CopyQueueModule
 from .modules.prefect_worker import PrefectWorkerModule
+from .modules.primocache_monitor import PrimoCacheMonitorModule
+from .modules.redis_queue_worker import RedisQueueBurstWorkerModule, RedisQueueWorkerModule
 from .modules.watcher import WatcherModule
 from .generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
-from .generated.copy_queue_pb2_grpc import add_CopyQueueServicer_to_server
 from .generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
 from .generated.watcher_pb2_grpc import add_WatcherServicer_to_server
 from .server import create_server, serve_blocking
 from .servicer import OpticNodeServicer
 from .servicer.command_runner_rpc import CommandRunnerServicer
-from .servicer.copy_queue_rpc import CopyQueueServicer
 from .servicer.prefect_worker_rpc import PrefectWorkerServicer
 from .servicer.watcher_rpc import WatcherServicer
 from .telemetry import TelemetryEngine
@@ -89,8 +88,19 @@ def main() -> None:
     registry = ModuleRegistry(settings, log_buffer=log_buffer)
     registry.register_factory("command_runner", CommandRunnerModule)
     registry.register_factory("prefect_worker", lambda: PrefectWorkerModule(log_buffer))
-    registry.register_factory("copy_queue", lambda: CopyQueueModule(settings))
-    registry.register_factory("watcher", WatcherModule)
+    registry.register_factory(
+        "redis_queue_worker",
+        lambda: RedisQueueWorkerModule(settings.redis_url, log_buffer),
+    )
+    registry.register_factory(
+        "redis_queue_burst_worker",
+        lambda: RedisQueueBurstWorkerModule(settings.redis_url, log_buffer, registry),
+    )
+    registry.register_factory("watcher", lambda: WatcherModule(settings.redis_url))
+    registry.register_factory(
+        "primocache_monitor",
+        lambda: PrimoCacheMonitorModule(settings.redis_url, settings.node_id, settings.primocache_exe),
+    )
     registry.restore_from_redis()
 
     hb = HeartbeatLoop(
@@ -115,7 +125,6 @@ def main() -> None:
         servicer,
         extra_services=[
             (add_CommandRunnerServicer_to_server, CommandRunnerServicer(registry)),
-            (add_CopyQueueServicer_to_server, CopyQueueServicer(registry)),
             (add_WatcherServicer_to_server, WatcherServicer(registry)),
             (add_PrefectWorkerServicer_to_server, PrefectWorkerServicer(registry)),
         ],
@@ -132,7 +141,7 @@ def main() -> None:
             threading.Thread(target=_grpc_serve, name="grpc-server", daemon=True).start()
             launch_gui(log_queue, stop, server)
         else:
-            serve_blocking(server)
+            serve_blocking(server, stop)
     finally:
         stop.set()
         logging.getLogger().removeHandler(node_log_handler)

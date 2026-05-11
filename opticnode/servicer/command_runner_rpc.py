@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import grpc  # type: ignore[reportMissingModuleSource]
+
 from ..generated import command_runner_pb2 as crpb2
 from ..generated.command_runner_pb2_grpc import CommandRunnerServicer as _BaseServicer
 from ..modules.base import ModuleRegistry
@@ -40,8 +42,6 @@ class CommandRunnerServicer(_BaseServicer):
         self._registry = registry
 
     def SubmitCommand(self, request: Any, context: Any) -> crpb2.SubmitCommandResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         command = (request.command or "").strip()
         if not command:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -70,8 +70,6 @@ class CommandRunnerServicer(_BaseServicer):
             return crpb2.SubmitCommandResponse(job_id="", ok=False, error=str(exc))
 
     def GetCommandResult(self, request: Any, context: Any) -> crpb2.GetCommandResultResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         job_id = (request.job_id or "").strip()
         if not job_id:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
@@ -93,8 +91,6 @@ class CommandRunnerServicer(_BaseServicer):
         return crpb2.GetCommandResultResponse(ok=True, error="", result=_result_to_pb(result))
 
     def ListCommandResults(self, request: Any, context: Any) -> crpb2.ListCommandResultsResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         limit = int(request.limit) if request.limit > 0 else None
         try:
             results = self._registry.list_job_results(_MODULE_NAME, limit=limit)

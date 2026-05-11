@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import grpc  # type: ignore[reportMissingModuleSource]
+
 from ..generated import common_pb2 as cpb2
 from ..generated.watcher_pb2_grpc import WatcherServicer as _BaseServicer
 from ..modules.base import ModuleRegistry
@@ -21,8 +23,6 @@ class WatcherServicer(_BaseServicer):
         self._registry = registry
 
     def Start(self, request: Any, context: Any) -> cpb2.RoleTaskResponse:
-        import grpc  # type: ignore[reportMissingModuleSource]
-
         watch_path = (request.watch_path or "").strip()
         if not watch_path:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)

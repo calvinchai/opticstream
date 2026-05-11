@@ -18,6 +18,7 @@ import requests
 from packaging.version import InvalidVersion, Version
 
 from . import __version__
+from .redis_utils import make_redis_client
 from .config import Settings
 
 logger = logging.getLogger(__name__)
@@ -74,19 +75,8 @@ def _pick_asset(assets: list[dict[str, Any]], pattern: str) -> dict[str, Any] | 
     return None
 
 
-def _redis_client(settings: Settings) -> Any | None:
-    try:
-        from redis import Redis
-    except ImportError:
-        return None
-    try:
-        return Redis.from_url(settings.redis_url, decode_responses=True)
-    except Exception:
-        return None
-
-
 def _persist_update_status(settings: Settings, mapping: dict[str, str]) -> None:
-    r = _redis_client(settings)
+    r = make_redis_client(settings.redis_url)
     if r is None:
         return
     key = f"opticnode:{settings.node_id}:update"

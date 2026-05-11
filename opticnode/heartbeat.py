@@ -10,6 +10,7 @@ from typing import Any
 
 from . import __version__
 from .config import Settings
+from .redis_utils import make_redis_client
 from .telemetry import TelemetryEngine, snapshot_to_flat_dict
 from .utils.network import NetworkPlanes, get_primary_ipv4
 
@@ -17,16 +18,6 @@ logger = logging.getLogger(__name__)
 
 NODES_SET_KEY = "opticnode:nodes"
 TOMBSTONES_SET_KEY = "opticnode:tombstones"
-
-
-def _redis_client(settings: Settings) -> Any:
-    try:
-        from redis import Redis
-    except ImportError as e:
-        raise RuntimeError(
-            "Install the `redis` package to use heartbeat Redis publishing."
-        ) from e
-    return Redis.from_url(settings.redis_url, decode_responses=True)
 
 
 class HeartbeatLoop:
@@ -55,7 +46,7 @@ class HeartbeatLoop:
 
     def run(self) -> None:
         try:
-            _redis_client(self._settings)
+            make_redis_client(self._settings.redis_url, require=True)
         except RuntimeError as e:
             logger.warning("%s — heartbeat disabled.", e)
             self._stop.wait()
@@ -76,7 +67,7 @@ class HeartbeatLoop:
         while not self._stop.is_set():
             if client is None:
                 try:
-                    client = _redis_client(self._settings)
+                    client = make_redis_client(self._settings.redis_url, require=True)
                     if self._log_buffer is not None:
                         self._log_buffer.set_redis_client(client)
                     client.srem(TOMBSTONES_SET_KEY, node_id)
@@ -115,6 +106,8 @@ class HeartbeatLoop:
                         "version": __version__,
                     },
                 )
+                if self._log_buffer is not None:
+                    self._log_buffer.flush_to_redis()
             except Exception:
                 logger.exception("Heartbeat Redis publish failed")
                 try:

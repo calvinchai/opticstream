@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Iterable
 from concurrent import futures
 from typing import Any
@@ -45,7 +46,16 @@ def create_server(
     return server
 
 
-def serve_blocking(server: Any) -> None:
-    """Start the server and block until termination."""
+def serve_blocking(server: Any, stop_event: threading.Event, *, grace: float = 5.0) -> None:
+    """Start the server and block until stop_event is set or the server terminates."""
     server.start()
+
+    def _watch() -> None:
+        stop_event.wait()
+        try:
+            server.stop(grace)
+        except Exception:
+            logger.exception("gRPC server stop failed")
+
+    threading.Thread(target=_watch, name="grpc-stop-watcher", daemon=True).start()
     server.wait_for_termination()

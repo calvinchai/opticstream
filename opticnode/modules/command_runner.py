@@ -1,4 +1,4 @@
-"""CommandRunnerModule: runs command jobs and stores recent results in memory."""
+"""CommandRunnerModule: runs queued commands sequentially, recording results."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ import subprocess
 import threading
 import time
 import uuid
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from typing import Any
 
 from pydantic import Field, model_validator
 
-from .base import ModuleConfig, ModuleState, ModuleStatus, NodeModule
+from .base import ModuleConfig, ModuleState, LoopModule
 
 logger = logging.getLogger(__name__)
 
@@ -31,83 +31,46 @@ class CommandRunnerConfig(ModuleConfig):
         return self
 
 
-class CommandRunnerModule(NodeModule):
-    """Runs submitted shell or argv commands asynchronously."""
+class CommandRunnerModule(LoopModule):
+    """Drains a command queue in a background loop, recording each result."""
 
     name = "command_runner"
     Config = CommandRunnerConfig
+    _thread_join_timeout = 5.0
 
     def __init__(self) -> None:
-        self._config: CommandRunnerConfig = CommandRunnerConfig()
-        self._state = ModuleState.STOPPED
-        self._started_at: float | None = None
-        self._error = ""
+        super().__init__()
+        self._queue: deque[dict[str, Any]] = deque()
         self._results: OrderedDict[str, dict[str, Any]] = OrderedDict()
-        self._procs: dict[str, subprocess.Popen[str]] = {}
-        self._lock = threading.Lock()
+        self._job_lock = threading.Lock()
 
-    def start(self, config: CommandRunnerConfig) -> None:
-        with self._lock:
-            if self._state == ModuleState.RUNNING:
-                raise RuntimeError("CommandRunnerModule is already running.")
-            self._config = config
-            self._state = ModuleState.RUNNING
-            self._started_at = time.time()
-            self._error = ""
-            self._trim_locked()
-        logger.info("CommandRunnerModule: started with config %s.", config)
-
-    def stop(self) -> None:
-        with self._lock:
-            self._state = ModuleState.STOPPING
-            procs = dict(self._procs)
-        for job_id, proc in procs.items():
-            if proc.poll() is None:
-                logger.info("CommandRunnerModule: terminating running job %s.", job_id)
-                proc.terminate()
-        with self._lock:
-            self._state = ModuleState.STOPPED
-            self._started_at = None
-        logger.info("CommandRunnerModule: stopped.")
-
-    def reconfigure(self, patch: dict) -> None:
-        new_config = CommandRunnerConfig.model_validate({**self._config.model_dump(), **patch})
-        with self._lock:
-            self._config = new_config
-            self._trim_locked()
+    # ---------- public job API ----------
 
     def submit_job(self, payload: dict) -> str:
+        """Append a command to the queue and return its job_id."""
         command = (payload.get("command") or "").strip()
         if not command:
             raise ValueError("payload must include non-empty 'command'")
 
-        raw_args = payload.get("args") or []
-        if not isinstance(raw_args, list) or not all(isinstance(arg, str) for arg in raw_args):
-            raise ValueError("payload 'args' must be a list of strings")
-        args = list(raw_args)
-
-        shell_mode = bool(payload.get("shell", False))
         with self._lock:
             if self._state != ModuleState.RUNNING:
                 raise RuntimeError("CommandRunnerModule is not running.")
-            config = self._config
 
-        timeout_s = float(payload.get("timeout_s") or config.default_timeout_s)
+        cfg: CommandRunnerConfig = self._config  # type: ignore[assignment]
+        timeout_s = float(payload.get("timeout_s") or cfg.default_timeout_s)
         if timeout_s <= 0:
             raise ValueError("payload 'timeout_s' must be > 0")
-        if timeout_s > config.max_timeout_s:
-            raise ValueError(f"payload 'timeout_s' exceeds max_timeout_s ({config.max_timeout_s})")
+        if timeout_s > cfg.max_timeout_s:
+            raise ValueError(f"payload 'timeout_s' exceeds max_timeout_s ({cfg.max_timeout_s})")
 
         job_id = uuid.uuid4().hex
-        now = time.time()
-        result = {
+        job: dict[str, Any] = {
             "job_id": job_id,
-            "status": "queued",
             "command": command,
-            "args": args,
-            "shell": shell_mode,
+            "shell": bool(payload.get("shell", True)),
             "timeout_s": timeout_s,
-            "submitted_at_unix": now,
+            "submitted_at_unix": time.time(),
+            "status": "queued",
             "started_at_unix": 0.0,
             "finished_at_unix": 0.0,
             "exit_code": 0,
@@ -116,52 +79,56 @@ class CommandRunnerModule(NodeModule):
             "timed_out": False,
             "error": "",
         }
-        with self._lock:
-            self._results[job_id] = result
-            self._trim_locked()
 
-        thread = threading.Thread(target=self._run_job, args=(job_id,), daemon=True)
-        thread.start()
+        with self._job_lock:
+            self._results[job_id] = job
+            self._trim_locked()
+            self._queue.append(job_id)
+
         return job_id
 
     def get_job_result(self, job_id: str) -> dict | None:
-        with self._lock:
-            result = self._results.get(job_id)
-            return dict(result) if result is not None else None
+        with self._job_lock:
+            r = self._results.get(job_id)
+            return dict(r) if r is not None else None
 
     def list_job_results(self, limit: int | None = None) -> list[dict]:
-        with self._lock:
+        with self._job_lock:
             results = [dict(r) for r in reversed(self._results.values())]
         if limit is not None and limit > 0:
             return results[:limit]
         return results
 
-    def status(self) -> ModuleStatus:
-        with self._lock:
-            return ModuleStatus(
-                name=self.name,
-                state=self._state,
-                config=self._config.model_dump(),
-                started_at=self._started_at,
-                error=self._error,
-            )
+    # ---------- loop ----------
+
+    def _run_loop(self) -> None:
+        logger.info("CommandRunnerModule: ready (config=%s).", self._config)
+        while not self._stop_event.is_set():
+            with self._job_lock:
+                job_id = self._queue.popleft() if self._queue else None
+            if job_id is None:
+                time.sleep(0.1)
+                continue
+            self._run_job(job_id)
+
+    # ---------- internal ----------
 
     def _run_job(self, job_id: str) -> None:
-        with self._lock:
-            result = self._results.get(job_id)
-            if result is None:
-                return
-            command = result["command"]
-            args = list(result["args"])
-            shell_mode = bool(result["shell"])
-            timeout_s = float(result["timeout_s"])
-            max_output_chars = self._config.max_output_chars
-            result["status"] = "running"
-            result["started_at_unix"] = time.time()
+        cfg: CommandRunnerConfig = self._config  # type: ignore[assignment]
 
-        cmd: str | list[str] = command if shell_mode else [command, *args]
-        logger.info("CommandRunnerModule: running job %s: %s", job_id, cmd if shell_mode else shlex.join(cmd))
-        proc: subprocess.Popen[str] | None = None
+        with self._job_lock:
+            r = self._results.get(job_id)
+            if r is None:
+                return
+            command = r["command"]
+            shell_mode = r["shell"]
+            timeout_s = r["timeout_s"]
+            r["status"] = "running"
+            r["started_at_unix"] = time.time()
+
+        cmd: str | list[str] = command if shell_mode else shlex.split(command)
+        logger.info("CommandRunnerModule: running job %s: %s", job_id, command)
+
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -170,85 +137,47 @@ class CommandRunnerModule(NodeModule):
                 text=True,
                 shell=shell_mode,
             )
-            with self._lock:
-                self._procs[job_id] = proc
             stdout, stderr = proc.communicate(timeout=timeout_s)
-            self._finish_job(
-                job_id,
-                status="finished",
-                exit_code=proc.returncode,
-                stdout=stdout,
-                stderr=stderr,
-                max_output_chars=max_output_chars,
-            )
-        except subprocess.TimeoutExpired as exc:
-            if proc is not None:
-                proc.kill()
-                stdout, stderr = proc.communicate()
-            else:
-                stdout = exc.stdout or ""
-                stderr = exc.stderr or ""
-            self._finish_job(
-                job_id,
-                status="timed_out",
-                exit_code=0,
-                stdout=stdout,
-                stderr=stderr,
-                timed_out=True,
-                error=f"Command timed out after {timeout_s} seconds.",
-                max_output_chars=max_output_chars,
-            )
+            self._record(job_id, status="finished", exit_code=proc.returncode,
+                         stdout=stdout, stderr=stderr, cfg=cfg)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            stdout, stderr = proc.communicate()
+            self._record(job_id, status="timed_out", exit_code=0,
+                         stdout=stdout or "", stderr=stderr or "",
+                         timed_out=True, error=f"Command timed out after {timeout_s}s.", cfg=cfg)
         except Exception as exc:
-            self._finish_job(
-                job_id,
-                status="failed",
-                exit_code=0,
-                error=str(exc),
-                max_output_chars=max_output_chars,
-            )
-        finally:
-            with self._lock:
-                self._procs.pop(job_id, None)
+            self._record(job_id, status="failed", exit_code=0, error=str(exc), cfg=cfg)
 
-    def _finish_job(
-        self,
-        job_id: str,
-        *,
-        status: str,
-        exit_code: int,
-        stdout: str = "",
-        stderr: str = "",
-        timed_out: bool = False,
-        error: str = "",
-        max_output_chars: int,
-    ) -> None:
-        with self._lock:
-            result = self._results.get(job_id)
-            if result is None:
+    def _record(self, job_id: str, *, status: str, exit_code: int,
+                stdout: str = "", stderr: str = "", timed_out: bool = False,
+                error: str = "", cfg: CommandRunnerConfig) -> None:
+        with self._job_lock:
+            r = self._results.get(job_id)
+            if r is None:
                 return
-            result.update(
-                {
-                    "status": status,
-                    "finished_at_unix": time.time(),
-                    "exit_code": int(exit_code),
-                    "stdout": self._truncate(stdout, max_output_chars),
-                    "stderr": self._truncate(stderr, max_output_chars),
-                    "timed_out": timed_out,
-                    "error": error,
-                }
-            )
+            r.update({
+                "status": status,
+                "finished_at_unix": time.time(),
+                "exit_code": exit_code,
+                "stdout": _truncate(stdout, cfg.max_output_chars),
+                "stderr": _truncate(stderr, cfg.max_output_chars),
+                "timed_out": timed_out,
+                "error": error,
+            })
 
     def _trim_locked(self) -> None:
-        while len(self._results) > self._config.max_results:
+        cfg: CommandRunnerConfig = self._config  # type: ignore[assignment]
+        while len(self._results) > cfg.max_results:
             self._results.popitem(last=False)
 
-    @staticmethod
-    def _truncate(value: str | bytes | None, max_chars: int) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, bytes):
-            value = value.decode(errors="replace")
-        if len(value) <= max_chars:
-            return value
-        omitted = len(value) - max_chars
-        return f"{value[:max_chars]}\n... truncated {omitted} chars ..."
+
+def _truncate(value: str | bytes | None, max_chars: int) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        value = value.decode(errors="replace")
+    if len(value) <= max_chars:
+        return value
+    omitted = len(value) - max_chars
+    return f"{value[:max_chars]}\n... truncated {omitted} chars ..."
