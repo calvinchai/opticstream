@@ -17,7 +17,6 @@ from .utils.network import NetworkPlanes, get_primary_ipv4
 logger = logging.getLogger(__name__)
 
 NODES_SET_KEY = "opticnode:nodes"
-TOMBSTONES_SET_KEY = "opticnode:tombstones"
 
 
 class HeartbeatLoop:
@@ -68,7 +67,6 @@ class HeartbeatLoop:
                     client = make_redis_client(self._settings.redis_url, require=True)
                     if self._module_registry is not None:
                         self._module_registry.set_redis_all(client)
-                    client.srem(TOMBSTONES_SET_KEY, node_id)
                     client.sadd(NODES_SET_KEY, node_id)
                     logger.info("Heartbeat connected to Redis.")
                 except Exception as exc:
@@ -87,6 +85,7 @@ class HeartbeatLoop:
                 mapping = snapshot_to_flat_dict(snap)
                 mapping["uptime_s"] = str(time.monotonic())
 
+                client.sadd(NODES_SET_KEY, node_id)
                 client.setex(last_seen_key, ttl, str(time.time()))
                 client.hset(stats_key, mapping=mapping)
                 client.hset(
