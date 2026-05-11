@@ -1,4 +1,4 @@
-"""WatcherServicer: typed gRPC service for the watcher module."""
+"""WatcherServicer: typed gRPC service; Start targets the lsm_watcher node module."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from ..modules.base import ModuleRegistry
 
 logger = logging.getLogger(__name__)
 
-_MODULE_NAME = "watcher"
+_MODULE_NAME = "lsm_watcher"
 
 
 class WatcherServicer(_BaseServicer):
@@ -33,7 +33,7 @@ class WatcherServicer(_BaseServicer):
                 _MODULE_NAME,
                 {"watch_path": watch_path, "recursive": bool(request.recursive)},
             )
-            return cpb2.RoleTaskResponse(ok=True, message=f"watcher started on {watch_path!r}")
+            return cpb2.RoleTaskResponse(ok=True, message=f"lsm_watcher started on {watch_path!r}")
         except KeyError as exc:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             return cpb2.RoleTaskResponse(ok=False, message=str(exc))

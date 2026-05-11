@@ -6,7 +6,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from prefect.deployments import run_deployment
 from pydantic import BaseModel, Field
@@ -17,9 +17,6 @@ from opticstream.state.lsm_models import LSMStripId
 from opticstream.state.oct_models import OCTBatchId
 
 logger = logging.getLogger(__name__)
-
-JOB_KIND_LSM_STRIP = "lsm_strip"
-JOB_KIND_OCT_BATCH = "oct_batch"
 
 ENV_REDIS_URL = "OPTICNODE_RQ_REDIS_URL"
 ENV_BACKLOG_QUEUE = "OPTICNODE_RQ_BACKLOG_QUEUE"
@@ -32,7 +29,6 @@ _PROCESS_BACKLOG = "opticnode.modules.worker.process_backlog"
 
 
 class StripTask(BaseModel):
-    job_kind: Literal["lsm_strip"] = JOB_KIND_LSM_STRIP
     lsm_strip_id: LSMStripId
     timestamp: datetime = Field(default_factory=datetime.now)
     strip_path: str
@@ -40,7 +36,6 @@ class StripTask(BaseModel):
 
 
 class OctBatchTask(BaseModel):
-    job_kind: Literal["oct_batch"] = JOB_KIND_OCT_BATCH
     batch_id: OCTBatchId
     file_list: list[str]
     timestamp: datetime = Field(default_factory=datetime.now)
@@ -73,11 +68,15 @@ def _allowed_window() -> timedelta:
     return timedelta(minutes=mins)
 
 
-def _deployment_name_for(kind: str) -> str:
-    if kind == JOB_KIND_LSM_STRIP:
-        specific = os.environ.get(ENV_PREFECT_DEPLOYMENT_LSM, "").strip()
-    else:
-        specific = os.environ.get(ENV_PREFECT_DEPLOYMENT_OCT, "").strip()
+def _lsm_deployment_name() -> str:
+    specific = os.environ.get(ENV_PREFECT_DEPLOYMENT_LSM, "").strip()
+    if specific:
+        return specific
+    return os.environ.get(ENV_PREFECT_DEPLOYMENT, "").strip()
+
+
+def _oct_deployment_name() -> str:
+    specific = os.environ.get(ENV_PREFECT_DEPLOYMENT_OCT, "").strip()
     if specific:
         return specific
     return os.environ.get(ENV_PREFECT_DEPLOYMENT, "").strip()
@@ -99,7 +98,7 @@ def _send_to_backlog(payload: dict[str, Any]) -> None:
 def _run_lsm_deployment(task: StripTask) -> None:
     from opticstream.config.lsm_scan_config import LSMScanConfigModel, get_lsm_scan_config
 
-    name = _deployment_name_for(JOB_KIND_LSM_STRIP)
+    name = _lsm_deployment_name()
     if not name:
         raise RuntimeError(
             f"Set {ENV_PREFECT_DEPLOYMENT} or {ENV_PREFECT_DEPLOYMENT_LSM} for LSM jobs"
@@ -121,7 +120,7 @@ def _run_lsm_deployment(task: StripTask) -> None:
 def _run_oct_deployment(task: OctBatchTask) -> None:
     from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, get_psoct_scan_config
 
-    name = _deployment_name_for(JOB_KIND_OCT_BATCH)
+    name = _oct_deployment_name()
     if not name:
         raise RuntimeError(
             f"Set {ENV_PREFECT_DEPLOYMENT} or {ENV_PREFECT_DEPLOYMENT_OCT} for OCT jobs"
@@ -147,39 +146,49 @@ def _coerce_timestamp(val: object) -> datetime:
     return datetime.fromisoformat(s)
 
 
+def _task_from_payload(payload: dict[str, Any]) -> StripTask | OctBatchTask:
+    if "lsm_strip_id" in payload:
+        return StripTask.model_validate(payload)
+    if "batch_id" in payload:
+        return OctBatchTask.model_validate(payload)
+    raise ValueError(
+        "Payload must include lsm_strip_id (LSM strip) or batch_id (OCT batch)"
+    )
+
+
+def _maybe_defer_to_backlog(payload: dict[str, Any]) -> bool:
+    """Return True if the job was re-queued to backlog and should not run now."""
+    window = _allowed_window()
+    if window <= timedelta(0):
+        return False
+    ts_raw = payload.get("timestamp")
+    if ts_raw is None:
+        return False
+    ts = _coerce_timestamp(ts_raw)
+    if ts.tzinfo is not None:
+        ts = ts.astimezone().replace(tzinfo=None)
+    if ts < datetime.now() - window:
+        logger.info("Job timestamp outside allowed window; sending to backlog")
+        _send_to_backlog(payload)
+        return True
+    return False
+
+
 def process(payload: dict[str, Any]) -> None:
     """Main queue handler: defer stale jobs to backlog when configured."""
-    kind = payload.get("job_kind", JOB_KIND_LSM_STRIP)
-    window = _allowed_window()
-    if window > timedelta(0):
-        ts_raw = payload.get("timestamp")
-        if ts_raw is not None:
-            ts = _coerce_timestamp(ts_raw)
-            if ts.tzinfo is not None:
-                ts = ts.astimezone().replace(tzinfo=None)
-            if ts < datetime.now() - window:
-                logger.info("Job timestamp outside allowed window; sending to backlog")
-                _send_to_backlog(payload)
-                return
-
-    if kind == JOB_KIND_LSM_STRIP:
-        task = StripTask.model_validate(payload)
+    if _maybe_defer_to_backlog(payload):
+        return
+    task = _task_from_payload(payload)
+    if isinstance(task, StripTask):
         _run_lsm_deployment(task)
-    elif kind == JOB_KIND_OCT_BATCH:
-        task = OctBatchTask.model_validate(payload)
-        _run_oct_deployment(task)
     else:
-        raise ValueError(f"Unknown job_kind: {kind!r}")
+        _run_oct_deployment(task)
 
 
 def process_backlog(payload: dict[str, Any]) -> None:
     """Backlog queue handler: always run deployment (no time-window check)."""
-    kind = payload.get("job_kind", JOB_KIND_LSM_STRIP)
-    if kind == JOB_KIND_LSM_STRIP:
-        task = StripTask.model_validate(payload)
+    task = _task_from_payload(payload)
+    if isinstance(task, StripTask):
         _run_lsm_deployment(task)
-    elif kind == JOB_KIND_OCT_BATCH:
-        task = OctBatchTask.model_validate(payload)
-        _run_oct_deployment(task)
     else:
-        raise ValueError(f"Unknown job_kind: {kind!r}")
+        _run_oct_deployment(task)

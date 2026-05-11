@@ -21,7 +21,10 @@ from opticnode.modules.command_runner import CommandRunnerModule
 from opticnode.modules.prefect_worker import PrefectWorkerModule
 from opticnode.modules.primocache_monitor import PrimoCacheMonitorModule
 from opticnode.modules.redis_queue_worker import RedisQueueBurstWorkerModule, RedisQueueWorkerModule
-from opticnode.modules.watcher import WatcherModule
+from opticnode.modules.lsm_process_server import LSMProcessServerModule
+from opticnode.modules.lsm_watcher import LSMWatcherModule
+from opticnode.modules.oct_process_server import OCTProcessServerModule
+from opticnode.modules.oct_watcher import OCTWatcherModule
 from opticnode.servicer import OpticNodeServicer
 from opticnode.servicer.command_runner_rpc import CommandRunnerServicer
 from opticnode.servicer.prefect_worker_rpc import PrefectWorkerServicer
@@ -84,7 +87,14 @@ class NodeRuntime:
             "redis_queue_burst_worker",
             lambda: RedisQueueBurstWorkerModule(settings.redis_url, registry),
         )
-        registry.register_factory("watcher", lambda: WatcherModule(settings.redis_url))
+        registry.register_factory("lsm_process_server", LSMProcessServerModule)
+        registry.register_factory("oct_process_server", OCTProcessServerModule)
+        registry.register_factory(
+            "lsm_watcher", lambda: LSMWatcherModule(settings.redis_url)
+        )
+        registry.register_factory(
+            "oct_watcher", lambda: OCTWatcherModule(settings.redis_url)
+        )
         registry.register_factory(
             "primocache_monitor",
             lambda: PrimoCacheMonitorModule(

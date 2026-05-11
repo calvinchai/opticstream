@@ -1,34 +1,21 @@
-"""RedisQueueWorkerModule: runs an RQ worker subprocess for a named queue."""
+"""RedisQueueWorkerModule: runs RQ worker subprocess(es) for a named queue."""
 
 from __future__ import annotations
 
 import logging
-import os
 import shlex
 import subprocess
 import threading
 from pydantic import Field
 
 from opticnode.modules.base import ModuleConfig, ModuleRegistry, NodeModule
-from opticnode.modules.worker import (
-    ENV_ALLOWED_WINDOW_MINUTES,
-    ENV_BACKLOG_QUEUE,
-    ENV_PREFECT_DEPLOYMENT,
-    ENV_PREFECT_DEPLOYMENT_LSM,
-    ENV_PREFECT_DEPLOYMENT_OCT,
-    ENV_REDIS_URL,
-)
 
 logger = logging.getLogger(__name__)
 
 
 class RedisQueueWorkerConfig(ModuleConfig):
     queue_name: str = Field(default="")
-    prefect_deployment: str = Field(default="")
-    prefect_deployment_lsm: str = Field(default="")
-    prefect_deployment_oct: str = Field(default="")
-    allowed_window_minutes: float = Field(default=10.0)
-    backlog_queue_name: str = Field(default="")
+    num_workers: int = Field(default=1, ge=1)
 
 
 class RedisQueueWorkerModule(NodeModule):
@@ -40,7 +27,7 @@ class RedisQueueWorkerModule(NodeModule):
     def __init__(self, redis_url: str) -> None:
         super().__init__()
         self._redis_url = redis_url
-        self._proc: subprocess.Popen[str] | None = None
+        self._procs: list[subprocess.Popen[str]] = []
         self._proc_lock = threading.Lock()
 
     def _rq_command(self, config: RedisQueueWorkerConfig) -> list[str]:
@@ -49,71 +36,64 @@ class RedisQueueWorkerModule(NodeModule):
             raise ValueError("RedisQueueWorkerModule requires a non-empty 'queue_name'.")
         return ["rq", "worker", "-u", self._redis_url, qn]
 
-    def _rq_worker_env(self, config: RedisQueueWorkerConfig) -> dict[str, str]:
-        env: dict[str, str] = {ENV_REDIS_URL: self._redis_url}
-        if config.prefect_deployment.strip():
-            env[ENV_PREFECT_DEPLOYMENT] = config.prefect_deployment.strip()
-        if config.prefect_deployment_lsm.strip():
-            env[ENV_PREFECT_DEPLOYMENT_LSM] = config.prefect_deployment_lsm.strip()
-        if config.prefect_deployment_oct.strip():
-            env[ENV_PREFECT_DEPLOYMENT_OCT] = config.prefect_deployment_oct.strip()
-        env[ENV_ALLOWED_WINDOW_MINUTES] = str(config.allowed_window_minutes)
-        if config.backlog_queue_name.strip():
-            env[ENV_BACKLOG_QUEUE] = config.backlog_queue_name.strip()
-        return env
+    def _worker_count(self, config: RedisQueueWorkerConfig) -> int:
+        return config.num_workers
+
+    def _on_workers_started(self) -> None:
+        pass
 
     def _launch(self, config: RedisQueueWorkerConfig) -> None:
         cmd = self._rq_command(config)
-        logger.info("RedisQueueWorkerModule: starting %s", shlex.join(cmd))
-        self._start_subprocess(cmd, extra_env=self._rq_worker_env(config))
+        n = self._worker_count(config)
+        logger.info(
+            "%s: starting %d x %s",
+            type(self).__name__,
+            n,
+            shlex.join(cmd),
+        )
+        for _ in range(n):
+            self._start_subprocess(cmd)
+        self._on_workers_started()
 
-    def _start_subprocess(
-        self,
-        cmd: list[str],
-        *,
-        extra_env: dict[str, str] | None = None,
-    ) -> subprocess.Popen[str]:
-        env = os.environ.copy()
-        if extra_env:
-            env.update(extra_env)
+    def _start_subprocess(self, cmd: list[str]) -> subprocess.Popen[str]:
         try:
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                env=env,
             )
         except FileNotFoundError:
             raise RuntimeError("rq CLI not found on PATH")
 
         with self._proc_lock:
-            self._proc = proc
+            self._procs.append(proc)
 
         threading.Thread(
             target=self._read_logs,
             args=(proc,),
             daemon=True,
-            name="rq-worker-logs",
+            name=f"rq-worker-logs-{proc.pid}",
         ).start()
         logger.info("%s: subprocess started (pid=%d).", type(self).__name__, proc.pid)
         return proc
 
     def _teardown(self) -> None:
         with self._proc_lock:
-            proc, self._proc = self._proc, None
-        if proc is None or proc.poll() is not None:
-            return
-        proc.terminate()
-        try:
-            proc.wait(timeout=15.0)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            procs, self._procs = list(self._procs), []
+        for proc in procs:
+            if proc.poll() is not None:
+                continue
+            proc.terminate()
+            try:
+                proc.wait(timeout=15.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
     def _is_alive(self) -> bool:
         with self._proc_lock:
-            proc = self._proc
-        return proc is not None and proc.poll() is None
+            procs = list(self._procs)
+        return len(procs) > 0 and all(p.poll() is None for p in procs)
 
     def _read_logs(self, proc: subprocess.Popen[str]) -> None:
         assert proc.stdout is not None
@@ -122,8 +102,6 @@ class RedisQueueWorkerModule(NodeModule):
 
 
 class RedisQueueBurstWorkerModule(RedisQueueWorkerModule):
-    """Runs `rq worker --burst`: drains the queue then stops (disables persisted config)."""
-
     name = "redis_queue_burst_worker"
 
     def __init__(self, redis_url: str, registry: ModuleRegistry) -> None:
@@ -134,28 +112,26 @@ class RedisQueueBurstWorkerModule(RedisQueueWorkerModule):
         cmd = super()._rq_command(config)
         return cmd[:-1] + ["--burst", cmd[-1]]
 
-    def _launch(self, config: RedisQueueWorkerConfig) -> None:
-        cmd = self._rq_command(config)
-        logger.info("RedisQueueBurstWorkerModule: starting %s", shlex.join(cmd))
-        proc = self._start_subprocess(cmd, extra_env=self._rq_worker_env(config))
+    def _on_workers_started(self) -> None:
+        with self._proc_lock:
+            procs = list(self._procs)
         threading.Thread(
-            target=self._after_worker_exit,
-            args=(proc,),
+            target=self._after_all_burst_exit,
+            args=(procs,),
             daemon=True,
             name="rq-burst-exit",
         ).start()
 
     def stop(self) -> None:
-        # Base class skips _teardown when state is already ERROR (supervisor race). Always reap
-        # the subprocess handle so _proc is cleared after burst exit or manual stop.
         self._teardown()
         super().stop()
 
-    def _after_worker_exit(self, proc: subprocess.Popen[str]) -> None:
-        try:
-            proc.wait()
-        except Exception:
-            logger.exception("RedisQueueBurstWorkerModule: waiting for worker process failed.")
+    def _after_all_burst_exit(self, procs: list[subprocess.Popen[str]]) -> None:
+        for proc in procs:
+            try:
+                proc.wait()
+            except Exception:
+                logger.exception("RedisQueueBurstWorkerModule: waiting for worker process failed.")
         with self._lock:
             if self._stop_event.is_set():
                 return
