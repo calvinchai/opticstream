@@ -15,7 +15,7 @@ from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events import MOSAIC_ENFACE_STITCHED
 from opticstream.events.utils import get_event_trigger
 from opticstream.flows.psoct.utils import mosaic_ident_from_payload
-from opticstream.state.oct_project_state import OCTMosaicId
+from opticstream.state.oct_models import OCTMosaicId
 from opticstream.tasks.slack_notification import (
     send_slack_message,
     upload_multiple_files_to_slack,

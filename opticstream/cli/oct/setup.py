@@ -12,7 +12,7 @@ from opticstream.cli.oct import oct_cli
 from opticstream.cli.setup_common import default_zarr_config
 from opticstream.config.psoct_scan_config import get_psoct_scan_config_block_name
 from opticstream.config.psoct_scan_config import PSOCTScanConfig
-from opticstream.state.oct_project_state import ensure_lock
+from opticstream.state.oct_models import ensure_lock
 
 if not logging.getLogger().handlers:
     logging.basicConfig(

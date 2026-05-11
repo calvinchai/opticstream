@@ -27,10 +27,8 @@ from opticstream.flows.lsm.utils import (
     host_lsm_fs_path,
     load_scan_config_for_payload,
 )
-from opticstream.state.lsm_project_state import (
-    LSMChannelId,
-    LSM_STATE_SERVICE,
-)
+from opticstream.state.lsm_models import LSMChannelId
+from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 from opticstream.hooks import (
     publish_lsm_project_hook,
     publish_lsm_slice_hook,

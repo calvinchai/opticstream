@@ -7,7 +7,7 @@ from opticstream.config.psoct_scan_config import (
     PSOCTScanConfigModel,
     get_psoct_scan_config,
 )
-from opticstream.state.oct_project_state import (
+from opticstream.state.oct_models import (
     OCTBatchId,
     OCTMosaicId,
     OCTSliceId,

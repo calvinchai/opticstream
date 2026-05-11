@@ -10,7 +10,7 @@ from opticstream.events.event_emitter_core import (
     ScopedEventAdapter,
     emit_scoped_ident_event,
 )
-from opticstream.state.lsm_project_state import LSMChannelId, LSMStripId
+from opticstream.state.lsm_models import LSMChannelId, LSMStripId
 
 
 LSM_CHANNEL_EVENT_ADAPTER = ScopedEventAdapter[LSMChannelId](

@@ -31,11 +31,11 @@ from opticstream.flows.lsm.utils import (
     lsm_output_root,
     strip_mip_output_path,
 )
-from opticstream.state.lsm_project_state import (
+from opticstream.state.lsm_models import (
     LSMChannelId,
     LSMStripId,
-    LSM_STATE_SERVICE,
 )
+from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 from opticstream.tasks.slack_notification import send_slack_message, upload_multiple_files_to_slack
 from opticstream.hooks import (
     publish_lsm_project_hook,

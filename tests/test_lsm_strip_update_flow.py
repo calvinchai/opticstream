@@ -2,7 +2,7 @@ from opticstream.artifacts.lsm import (
     build_project_strip_summary_rows,
     build_slice_strip_matrix_rows,
 )
-from opticstream.state.lsm_project_state import (
+from opticstream.state.lsm_models import (
     LSMChannelStateView,
     LSMProjectStateView,
     LSMSliceStateView,

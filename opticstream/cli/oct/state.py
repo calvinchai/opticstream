@@ -9,12 +9,12 @@ from opticstream.cli.state_common import (
     apply_mark_status,
     validate_mark_field_and_value,
 )
-from opticstream.state.oct_project_state import (
+from opticstream.state.oct_models import (
     OCTBatchState,
     OCTMosaicState,
     OCTSliceState,
-    OCT_STATE_SERVICE,
 )
+from opticstream.state.oct_state_service import OCT_STATE_SERVICE
 
 oct_state_cli = oct_cli.command(App(name="state"))
 

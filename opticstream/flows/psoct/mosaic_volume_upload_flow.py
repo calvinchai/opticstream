@@ -17,7 +17,7 @@ from opticstream.flows.psoct.utils import (
     non_empty_paths_from_mapping,
 )
 from opticstream.state.milestone_wrappers_psoct import oct_mosaic_processing_milestone
-from opticstream.state.oct_project_state import OCTMosaicId
+from opticstream.state.oct_models import OCTMosaicId
 from opticstream.state.state_guards import force_rerun_from_payload
 from opticstream.tasks.dandi_upload import upload_to_dandi_batch
 from opticstream.hooks.slack_notification_hook import slack_notification_hook

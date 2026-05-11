@@ -15,7 +15,8 @@ from opticstream.config.lsm_scan_config import get_lsm_scan_config
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticstream.events.lsm_events import STRIP_READY
 from opticstream.flows.lsm.strip_process_flow import process_strip
-from opticstream.state.lsm_project_state import LSMStripId, LSM_STATE_SERVICE
+from opticstream.state.lsm_models import LSMStripId
+from opticstream.state.lsm_state_service import LSM_STATE_SERVICE
 from opticstream.utils.filename_utils import (
     parse_lsm_run_folder_name
 )
