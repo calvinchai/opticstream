@@ -1,3 +1,5 @@
+x-min-compose-version: "2.30"
+
 services:
   ### Prefect Database
   database:
@@ -9,7 +11,7 @@ services:
       - POSTGRES_DB=prefect
     expose:
       - 5432
-    volumes: 
+    volumes:
       - ./db:/var/lib/postgresql
     profiles: ["server"]
 
@@ -20,8 +22,8 @@ services:
     volumes:
       - "minio:/data"
     ports:
-      - 9000:9000
-      - 9001:9001
+      - "9000:9000"
+      - "9001:9001"
     profiles: ["minio"]
 
   ### Prefect Server API and UI
@@ -45,7 +47,7 @@ services:
       # Uncomment the following line if you want to use the 'S3 Bucket' storage block instead of the older 'S3' storage
       - EXTRA_PIP_PACKAGES=prefect-slack prefect-shell
     ports:
-      - 4200:4200
+      - "4200:4200"
     depends_on:
       - database
     profiles: ["server"]
@@ -74,10 +76,72 @@ services:
 #     - PREFECT_API_KEY=YOUR_API_KEY
     profiles: ["cli"]
 
+  hub:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+      - hub_venv:/app/.venv          # persist the virtualenv across restarts
+      - hub_uv_cache:/root/.cache/uv # persist download cache
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - GRPC_PING_TIMEOUT_MS=500
+      - ONLINE_GRACE_S=5
+      - DASHBOARD_REFRESH_S=2
+      - UV_LINK_MODE=copy
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
+    command:
+      - sh
+      - -c
+      - >-
+        apt-get update && apt-get install -y git &&
+        uv sync --frozen &&
+        uv run streamlit run optichub/dashboard/Dashboard.py
+        --server.address=0.0.0.0 --server.port=8501
+    restart: unless-stopped
+    profiles: ["server"]
+
+  redis:
+    image: redis:7-alpine
+    container_name: opticstream-redis
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "127.0.0.1:6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    post_start:
+      - command: redis-cli BGREWRITEAOF
+        user: root
+    deploy:
+      resources:
+        limits:
+          memory: 16gb
+        reservations:
+          memory: 1gb
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles: ["server"]
+
 volumes:
   prefect:
   minio:
+  hub_venv:
+  hub_uv_cache:
 networks:
   default:
     name: prefect-network
- 
