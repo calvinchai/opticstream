@@ -94,11 +94,11 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     scan_config = LSMScanConfigModel.model_validate(block.model_dump())
     run_deployment(
         name=deployment_name,
-        parameters={
+        parameters={"payload":{
             "strip_ident": task.lsm_strip_id.model_dump(),
             "strip_path": task.strip_path,
             "scan_config": scan_config.model_dump(mode="json"),
-            "force_rerun": task.force_rerun,
+            "force_rerun": task.force_rerun,}
         },
     )
 
