@@ -95,14 +95,20 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     project_name = task.lsm_strip_id.project_name
     block = get_lsm_scan_config(project_name)
     scan_config = LSMScanConfigModel.model_validate(block.model_dump())
-    run_deployment(
-        name=deployment_name,
-        parameters={"payload":{
+    param = {"payload":{
             "strip_ident": task.lsm_strip_id.model_dump(),
             "strip_path": task.strip_path,
             "scan_config": scan_config.model_dump(mode="json"),
             "force_rerun": task.force_rerun,}
-        },
+        }
+    print(param)
+    run_deployment(
+        name=deployment_name,
+        parameters=param,
+    )
+    run_deployment(
+        name="archive-strip-event-flow/local",
+        parameters=param,
     )
 
 
