@@ -12,6 +12,7 @@ from opticapi.node_contract import (
     node_logs_key,
     node_meta_key,
     node_stats_key,
+    node_stats_ts_key,
 )
 
 
@@ -88,6 +89,26 @@ def get_node_module_logs_redis(redis_url: str, node_id: str, module_id: str, lim
     return list(reversed(raw))
 
 
+def get_node_stats(redis_url: str, node_id: str) -> dict[str, str]:
+    r = _client(redis_url)
+    return r.hgetall(node_stats_key(node_id)) or {}
+
+
+def get_node_stats_history(redis_url: str, node_id: str, limit: int = 360) -> list[dict[str, str]]:
+    """Return recent telemetry snapshots (newest first) from the time-series list."""
+    import json
+
+    r = _client(redis_url)
+    raw = r.lrange(node_stats_ts_key(node_id), 0, limit - 1) or []
+    out: list[dict[str, str]] = []
+    for entry in raw:
+        try:
+            out.append(json.loads(entry))
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return out
+
+
 def purge_node(redis_url: str, node_id: str) -> None:
     """Delete hub-side node keys and remove `node_id` from `opticnode:nodes`."""
     r = _client(redis_url)
@@ -95,6 +116,7 @@ def purge_node(redis_url: str, node_id: str) -> None:
         node_meta_key(node_id),
         node_last_seen_key(node_id),
         node_stats_key(node_id),
+        node_stats_ts_key(node_id),
     ]
     for mid in LOG_MODULE_IDS:
         keys_to_del.append(node_logs_key(node_id, mid))

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from optichub.config import HubSettings
@@ -28,6 +31,8 @@ from optichub.redis_client import (
     NodeRecord,
     get_node,
     get_node_module_logs_redis,
+    get_node_stats,
+    get_node_stats_history,
     list_manage_node_ids,
 )
 from opticapi.node_contract import LOG_MODULE_IDS
@@ -235,6 +240,80 @@ def _render_execute_section(
                 st.json(entry)
 
 
+def _render_stats_section(
+    settings: Any,
+    node_id: str,
+    *,
+    key_fn: Callable[[str], str],
+) -> None:
+    st.subheader("System stats")
+
+    current = get_node_stats(settings.redis_url, node_id)
+    if not current:
+        st.info("No telemetry data available yet.")
+        return
+
+    cpu = float(current.get("cpu_pct", 0))
+    ram = float(current.get("ram_used_pct", 0))
+    c1, c2 = st.columns(2)
+    c1.metric("CPU", f"{cpu:.1f}%")
+    c2.metric("RAM", f"{ram:.1f}%")
+
+    # net_raw = current.get("net_throughput_json", "[]")
+    # try:
+    #     net_ifaces = json.loads(net_raw)
+    # except (json.JSONDecodeError, TypeError):
+    #     net_ifaces = []
+    # if net_ifaces:
+    #     cols = st.columns(len(net_ifaces))
+    #     for col, iface in zip(cols, net_ifaces):
+    #         sent_mb = iface.get("bytes_sent", 0) / 1_048_576
+    #         recv_mb = iface.get("bytes_recv", 0) / 1_048_576
+    #         col.metric(f"{iface['name']} sent", f"{sent_mb:.2f} MB/s")
+    #         col.metric(f"{iface['name']} recv", f"{recv_mb:.2f} MB/s")
+
+    history = get_node_stats_history(settings.redis_url, node_id, limit=360)
+    if len(history) < 2:
+        return
+
+    rows = []
+    for entry in reversed(history):
+        try:
+            ts = float(entry.get("collected_at_unix", 0))
+            rows.append({
+                "time": datetime.fromtimestamp(ts, tz=timezone.utc),
+                "CPU %": float(entry.get("cpu_pct", 0)),
+                "RAM %": float(entry.get("ram_used_pct", 0)),
+            })
+        except (ValueError, TypeError):
+            continue
+
+    if not rows:
+        return
+
+    df = pd.DataFrame(rows).set_index("time")
+    st.line_chart(df, y=["CPU %", "RAM %"], use_container_width=True)
+
+    # net_rows = []
+    # for entry in reversed(history):
+    #     try:
+    #         ts = float(entry.get("collected_at_unix", 0))
+    #         net_json = entry.get("net_throughput_json", "[]")
+    #         ifaces = json.loads(net_json)
+    #         row: dict[str, Any] = {"time": datetime.fromtimestamp(ts, tz=timezone.utc)}
+    #         for iface in ifaces:
+    #             name = iface["name"]
+    #             row[f"{name} sent MB/s"] = iface.get("bytes_sent", 0) / 1_048_576
+    #             row[f"{name} recv MB/s"] = iface.get("bytes_recv", 0) / 1_048_576
+    #         net_rows.append(row)
+    #     except (ValueError, TypeError, json.JSONDecodeError):
+    #         continue
+    #
+    # if net_rows:
+    #     net_df = pd.DataFrame(net_rows).set_index("time")
+    #     st.line_chart(net_df, use_container_width=True)
+
+
 def main() -> None:
     settings: HubSettings = hub_settings()
 
@@ -289,6 +368,8 @@ def main() -> None:
             st.caption("Current ping latency: **unreachable** (gRPC ping failed)")
     else:
         st.caption("Current ping latency: **n/a** (offline or no address)")
+
+    _render_stats_section(settings, node_id, key_fn=key_fn)
 
     if not rec.ipv4:
         st.error(

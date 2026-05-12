@@ -5,6 +5,7 @@ description = "gRPC and shared wire contract for OpticNode / OpticHub"
 requires-python = ">=3.11"
 dependencies = [
     "grpcio>=1.60.0",
+    "nifti-zarr @ git+https://github.com/calvinchai/nifti-zarr-py.git@12336420beaa023cbdd9d9e5c24e3c115687fe9a",
     "protobuf>=5.26.1",
     "pydantic>=2.0",
     "redis>=5.0.0",

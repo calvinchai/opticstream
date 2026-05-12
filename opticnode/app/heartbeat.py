@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import socket
 import threading
@@ -10,9 +11,11 @@ from typing import Any
 
 from opticapi.node_contract import (
     NODES_SET_KEY,
+    STATS_TS_MAX_LEN,
     node_last_seen_key,
     node_meta_key,
     node_stats_key,
+    node_stats_ts_key,
 )
 from opticnode.app.config import Settings
 from opticnode.app.telemetry import TelemetryEngine, snapshot_to_flat_dict
@@ -73,6 +76,7 @@ class HeartbeatLoop:
         ttl = self._settings.heartbeat_ttl_s
         last_seen_key = node_last_seen_key(node_id)
         stats_key = node_stats_key(node_id)
+        stats_ts_key = node_stats_ts_key(node_id)
         meta_key = node_meta_key(node_id)
 
         started_at = str(time.time())
@@ -118,6 +122,8 @@ class HeartbeatLoop:
                 client.sadd(NODES_SET_KEY, node_id)
                 client.setex(last_seen_key, ttl, str(time.time()))
                 client.hset(stats_key, mapping=mapping)
+                client.lpush(stats_ts_key, json.dumps(mapping))
+                client.ltrim(stats_ts_key, 0, STATS_TS_MAX_LEN - 1)
                 client.hset(
                     meta_key,
                     mapping={

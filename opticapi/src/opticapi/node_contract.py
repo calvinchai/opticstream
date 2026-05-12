@@ -35,6 +35,11 @@ def node_logs_key(node_id: str, module_name: str) -> str:
 def node_module_config_key(node_id: str) -> str:
     return f"opticnode:{node_id}:module_config"
 
+def node_stats_ts_key(node_id: str) -> str:
+    return f"opticnode:{node_id}:stats_ts"
+
+STATS_TS_MAX_LEN = 720
+
 def node_primocache_stats_key(node_id: str) -> str:
     return f"opticnode:{node_id}:primocache_stats"
 
