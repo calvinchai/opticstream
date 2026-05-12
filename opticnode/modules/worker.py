@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from rq import Queue
 
+from events import STRIP_READY
+from events.lsm_event_emitters import emit_strip_lsm_event
 from opticapi.project_state.lsm_models import LSMStripId
 from opticapi.naming import ProjectQueueKind, queue_name_for_project
 from opticapi.project_state.oct_models import OCTBatchId
@@ -89,18 +91,19 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     from opticstream.config.lsm_scan_config import get_lsm_scan_config
 
     task = StripTask.model_validate(payload)
-    project_name = task.lsm_strip_id.project_name
-    block = get_lsm_scan_config(project_name)
-    scan_config = LSMScanConfigModel.model_validate(block.model_dump())
-    run_deployment(
-        name=deployment_name,
-        parameters={"payload":{
-            "strip_ident": task.lsm_strip_id.model_dump(),
-            "strip_path": task.strip_path,
-            "scan_config": scan_config.model_dump(mode="json"),
-            "force_rerun": task.force_rerun,}
-        },
-    )
+    emit_strip_lsm_event(STRIP_READY, task.lsm_strip_id.model_dump(),)
+    # project_name = task.lsm_strip_id.project_name
+    # block = get_lsm_scan_config(project_name)
+    # scan_config = LSMScanConfigModel.model_validate(block.model_dump())
+    # run_deployment(
+    #     name=deployment_name,
+    #     parameters={"payload":{
+    #         "strip_ident": task.lsm_strip_id.model_dump(),
+    #         "strip_path": task.strip_path,
+    #         "scan_config": scan_config.model_dump(mode="json"),
+    #         "force_rerun": task.force_rerun,}
+    #     },
+    # )
 
 
 def _run_oct_deployment(payload: dict[str, Any], deployment_name: str) -> None:
