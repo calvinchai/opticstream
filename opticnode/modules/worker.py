@@ -12,8 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from rq import Queue
 
-from events import STRIP_READY
-from events.lsm_event_emitters import emit_strip_lsm_event
+from opticstream.events.lsm_events import STRIP_READY
+from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticapi.project_state.lsm_models import LSMStripId
 from opticapi.naming import ProjectQueueKind, queue_name_for_project
 from opticapi.project_state.oct_models import OCTBatchId
