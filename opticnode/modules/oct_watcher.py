@@ -13,7 +13,8 @@ from redis import Redis
 from rq import Queue
 
 from opticstream.cli.oct.watch import OCTBatchCandidate, OCTWatcherService
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, get_psoct_scan_config
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel
+from opticstream.config.psoct_scan_config import get_psoct_scan_config
 from opticstream.state import OCT_STATE_SERVICE
 from opticapi.project_state.oct_models import OCTBatchId
 from opticstream.utils.polling_watcher import PollingStableWatcher

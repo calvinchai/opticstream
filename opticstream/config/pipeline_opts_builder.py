@@ -17,7 +17,7 @@ from psoct_toolbox.opts_models import (
     VolumeOpts,
 )
 
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
 
 
 def build_pipeline_opts(

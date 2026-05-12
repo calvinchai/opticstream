@@ -3,25 +3,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 import streamlit as st
+from redis import Redis
+from rq import Queue
 
-from opticapi.project_state.redis_backend import RedisStateBackend
+from opticapi.naming import ProjectQueueKind, queue_name_for_project
 from opticapi.project_state.lsm_state_service import LSMProjectStateService
 from opticapi.project_state.oct_state_service import OCTProjectStateService
-from redis import Redis
 
 from optichub.dashboard.hub_ui import hub_settings
-
-
-def _status_icon(status: str) -> str:
-    if status == "completed":
-        return ":material/check_circle:"
-    if status == "running":
-        return ":material/sync:"
-    if status == "failed":
-        return ":material/error:"
-    return ":material/hourglass_empty:"
+from optichub.dashboard.project_hub import make_state_backend, project_status_icon
 
 
 def _fmt_dt(dt: datetime | None) -> str:
@@ -40,7 +33,77 @@ def _state_metrics(state) -> None:
     c4.write(f"**Started:** {started}  \n**Finished:** {finished}")
 
 
-def _render_lsm_project(name: str, lsm_svc: LSMProjectStateService) -> None:
+def _fmt_any_ts(val: object) -> str:
+    if val is None:
+        return "—"
+    if isinstance(val, datetime):
+        return _fmt_dt(val)
+    return str(val)
+
+
+def _queue_target_label(kind: ProjectQueueKind, payload: dict[str, Any]) -> str:
+    if kind == "lsm":
+        sid = payload.get("lsm_strip_id")
+        if not isinstance(sid, dict):
+            return "?"
+        return (
+            f"slice={sid.get('slice_id', '?')}/ch={sid.get('channel_id', '?')}/strip={sid.get('strip_id', '?')}"
+        )
+    bid = payload.get("batch_id")
+    if not isinstance(bid, dict):
+        return "?"
+    return f"slice={bid.get('slice_id', '?')}/mosaic={bid.get('mosaic_id', '?')}/batch={bid.get('batch_id', '?')}"
+
+
+def _func_short_tag(func_name: str | None) -> str:
+    if not func_name:
+        return "?"
+    return func_name.rsplit(".", maxsplit=1)[-1]
+
+
+def _render_queues(project_name: str, kind: ProjectQueueKind, redis_url: str) -> None:
+    st.subheader("Queues")
+    try:
+        conn = Redis.from_url(redis_url, decode_responses=False)
+    except Exception as e:
+        st.warning(f"Could not connect to Redis for queue view: {e}")
+        return
+
+    for label, backlog in (("Realtime", False), ("Backlog", True)):
+        qname = queue_name_for_project(project_name, kind, backlog=backlog)
+        try:
+            q = Queue(qname, connection=conn)
+            jobs = q.jobs
+        except Exception as e:
+            st.warning(f"Could not read queue `{qname}`: {e}")
+            continue
+
+        st.caption(f"{label} queue: `{qname}` ({len(jobs)} jobs)")
+        if not jobs:
+            st.caption("Empty")
+            continue
+
+        rows: list[dict[str, Any]] = []
+        for job in jobs:
+            payload: dict[str, Any] = {}
+            if job.args and len(job.args) >= 1 and isinstance(job.args[0], dict):
+                payload = job.args[0]
+            jid = job.id or ""
+            short_id = jid[:8] + ("…" if len(jid) > 8 else "")
+            rows.append(
+                {
+                    "Job": short_id,
+                    "Enqueued": _fmt_dt(job.enqueued_at),
+                    "Target": _queue_target_label(kind, payload),
+                    "Event time": _fmt_any_ts(payload.get("timestamp")),
+                    "Force rerun": payload.get("force_rerun", False),
+                    "Handler": _func_short_tag(job.func_name),
+                }
+            )
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+
+
+def _render_lsm_project(name: str, lsm_svc: LSMProjectStateService, redis_url: str) -> None:
     try:
         view = lsm_svc.peek_project_by_parts(name)
     except Exception as e:
@@ -48,6 +111,7 @@ def _render_lsm_project(name: str, lsm_svc: LSMProjectStateService) -> None:
         return
 
     _state_metrics(view)
+    _render_queues(name, "lsm", redis_url)
 
     if not view.slices:
         st.info("No slices in this project.")
@@ -57,7 +121,7 @@ def _render_lsm_project(name: str, lsm_svc: LSMProjectStateService) -> None:
     for sid in sorted(view.slices):
         sl = view.slices[sid]
         label = f"Slice {sid} — {sl.processing_state.value}"
-        with st.expander(f"{_status_icon(sl.processing_state.value)} {label}", expanded=False):
+        with st.expander(f"{project_status_icon(sl.processing_state.value)} {label}", expanded=False):
             _state_metrics(sl)
 
             if not sl.channels:
@@ -67,7 +131,7 @@ def _render_lsm_project(name: str, lsm_svc: LSMProjectStateService) -> None:
             for cid in sorted(sl.channels):
                 ch = sl.channels[cid]
                 ch_label = f"Channel {cid} — {ch.processing_state.value}"
-                st.markdown(f"**{_status_icon(ch.processing_state.value)} {ch_label}**")
+                st.markdown(f"**{project_status_icon(ch.processing_state.value)} {ch_label}**")
 
                 flags = []
                 if ch.mip_stitched:
@@ -96,7 +160,7 @@ def _render_lsm_project(name: str, lsm_svc: LSMProjectStateService) -> None:
                     st.dataframe(strip_rows, use_container_width=True, hide_index=True)
 
 
-def _render_oct_project(name: str, oct_svc: OCTProjectStateService) -> None:
+def _render_oct_project(name: str, oct_svc: OCTProjectStateService, redis_url: str) -> None:
     try:
         view = oct_svc.peek_project_by_parts(name)
     except Exception as e:
@@ -104,6 +168,7 @@ def _render_oct_project(name: str, oct_svc: OCTProjectStateService) -> None:
         return
 
     _state_metrics(view)
+    _render_queues(name, "oct", redis_url)
 
     if not view.slices:
         st.info("No slices in this project.")
@@ -121,7 +186,7 @@ def _render_oct_project(name: str, oct_svc: OCTProjectStateService) -> None:
         extra = f" ({', '.join(slice_flags)})" if slice_flags else ""
 
         with st.expander(
-            f"{_status_icon(sl.processing_state.value)} {label}{extra}",
+            f"{project_status_icon(sl.processing_state.value)} {label}{extra}",
             expanded=False,
         ):
             _state_metrics(sl)
@@ -133,7 +198,7 @@ def _render_oct_project(name: str, oct_svc: OCTProjectStateService) -> None:
             for mid in sorted(sl.mosaics):
                 mo = sl.mosaics[mid]
                 mo_label = f"Mosaic {mid} — {mo.processing_state.value}"
-                st.markdown(f"**{_status_icon(mo.processing_state.value)} {mo_label}**")
+                st.markdown(f"**{project_status_icon(mo.processing_state.value)} {mo_label}**")
 
                 flags = []
                 if mo.enface_stitched:
@@ -166,10 +231,6 @@ def _render_oct_project(name: str, oct_svc: OCTProjectStateService) -> None:
                     st.dataframe(batch_rows, use_container_width=True, hide_index=True)
 
 
-def _make_backend(redis_url: str) -> RedisStateBackend:
-    return RedisStateBackend(Redis.from_url(redis_url, decode_responses=True))
-
-
 def main() -> None:
     project_name = st.session_state.get("_hub_open_project")
     project_type = st.session_state.get("_hub_open_project_type")
@@ -181,16 +242,19 @@ def main() -> None:
     if st.button(":material/arrow_back: Back to projects", key="project_detail_back"):
         st.session_state.pop("_hub_open_project", None)
         st.session_state.pop("_hub_open_project_type", None)
-        st.rerun()
+        st.switch_page("pages/Projects.py")
 
     st.header(f"{project_type.upper()} project: `{project_name}`")
 
     settings = hub_settings()
-    backend = _make_backend(settings.redis_url)
+    backend = make_state_backend(settings.redis_url)
 
     if project_type == "lsm":
-        _render_lsm_project(project_name, LSMProjectStateService(backend))
+        _render_lsm_project(project_name, LSMProjectStateService(backend), settings.redis_url)
     elif project_type == "oct":
-        _render_oct_project(project_name, OCTProjectStateService(backend))
+        _render_oct_project(project_name, OCTProjectStateService(backend), settings.redis_url)
     else:
         st.error(f"Unknown project type: {project_type}")
+
+
+main()

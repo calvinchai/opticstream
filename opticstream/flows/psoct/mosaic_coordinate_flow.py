@@ -14,7 +14,7 @@ import yaml
 from prefect import flow, task
 from prefect.logging import get_run_logger
 
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.data_processing.stitch import fiji, fit_coord_files
 from opticstream.data_processing.stitch.coords import (
     process_tile_coordinate,

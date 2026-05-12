@@ -9,8 +9,8 @@ import warnings
 from pathlib import Path
 
 from opticstream.cli.oct import oct_cli
-from opticstream.cli.setup_common import default_zarr_config
-from opticstream.config.psoct_scan_config import get_psoct_scan_config_block_name
+from opticapi.config.utils import default_zarr_config
+from opticapi.config.psoct_scan_config import get_psoct_scan_config_block_name
 from opticstream.config.psoct_scan_config import PSOCTScanConfig
 
 if not logging.getLogger().handlers:

@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Mapping, Type, TypeVar
 
+from opticapi.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.config.lsm_scan_config import (
     LSMScanConfig,
-    LSMScanConfigModel,
     get_lsm_scan_config,
 )
 from opticapi.project_state.lsm_models import LSMChannelId, LSMStripId

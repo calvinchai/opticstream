@@ -4,8 +4,8 @@ from pathlib import Path
 
 from opticstream.config import LSMScanConfig
 from opticstream.cli.lsm.cli import lsm_cli
-from opticstream.cli.setup_common import default_zarr_config
-from opticstream.config.lsm_scan_config import get_lsm_scan_config_block_name
+from opticapi.config.utils import default_zarr_config
+from opticapi.config.lsm_scan_config import get_lsm_scan_config_block_name
 
 if not logging.getLogger().handlers:
     logging.basicConfig(

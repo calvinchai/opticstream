@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import queue
 import threading
 import tkinter as tk
 from typing import TYPE_CHECKING, Any
@@ -20,10 +19,7 @@ def _make_icon_image() -> Any:
     return Image.new("RGB", (64, 64), color=(32, 110, 85))
 
 
-def run_gui_blocking(
-    module_queues: dict[str, queue.Queue[logging.LogRecord]],
-    runtime: "NodeRuntime",
-) -> None:
+def run_gui_blocking(runtime: "NodeRuntime") -> None:
     """Run Tk on the main thread; pystray icon in a background thread."""
     import pystray
     from pystray import Menu, MenuItem
@@ -31,9 +27,9 @@ def run_gui_blocking(
     root = tk.Tk()
     root.withdraw()
 
-    from opticnode.gui.log_viewer import LogViewerWindow
+    from opticnode.gui.main_window import MainWindow
 
-    viewer = LogViewerWindow(root, module_queues)
+    main = MainWindow(root, runtime)
 
     def on_quit(icon: Any, _item: Any) -> None:
         runtime.stop()
@@ -41,27 +37,22 @@ def run_gui_blocking(
         root.after(0, root.quit)
 
     def on_show(_icon: Any, _item: Any) -> None:
-        root.after(0, viewer.show)
+        root.after(0, main.show)
 
     def on_hide(_icon: Any, _item: Any) -> None:
-        root.after(0, viewer.hide)
+        root.after(0, main.hide)
 
     menu = Menu(
-        MenuItem("Show logs", on_show),
-        MenuItem("Hide logs", on_hide),
+        MenuItem("Open", on_show),
+        MenuItem("Hide", on_hide),
         MenuItem("Quit", on_quit),
     )
     icon = pystray.Icon("opticnode", _make_icon_image(), "OpticNode", menu)
-
-    def poll_logs() -> None:
-        viewer.poll()
-        root.after(150, poll_logs)
 
     def run_tray() -> None:
         icon.run()
 
     threading.Thread(target=run_tray, name="pystray", daemon=True).start()
-    poll_logs()
     root.mainloop()
     try:
         icon.stop()

@@ -6,7 +6,7 @@ import pytest
 from niizarr import ZarrConfig
 
 from opticstream.config.pipeline_opts_builder import build_pipeline_opts
-from opticstream.config.psoct_scan_config import (
+from opticapi.config.psoct_scan_config import (
     PSOCTAcquisitionParams,
     PSOCTProcessingParams,
     PSOCTScanConfigModel,

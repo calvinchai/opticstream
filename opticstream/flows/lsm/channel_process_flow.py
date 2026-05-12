@@ -15,7 +15,7 @@ import numpy as np
 import dask.array as da
 from prefect import flow, get_run_logger, task
 
-from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticapi.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED, CHANNEL_READY
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event

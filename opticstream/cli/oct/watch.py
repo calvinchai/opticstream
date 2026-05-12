@@ -9,11 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from opticstream.cli.oct import oct_cli
-from opticstream.config.psoct_scan_config import (
+from opticapi.config.psoct_scan_config import (
     PSOCTScanConfigModel,
     TileSavingType,
-    get_psoct_scan_config,
 )
+from opticstream.config.psoct_scan_config import get_psoct_scan_config
 from opticstream.events import BATCH_READY
 from opticstream.events.psoct_event_emitters import emit_batch_psoct_event
 from opticstream.flows.psoct.tile_batch_process_flow import process_tile_batch

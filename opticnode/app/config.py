@@ -57,8 +57,10 @@ class Settings(BaseModel):
             logger.info("Loading settings from %s", p)
             raw = p.read_text(encoding="utf-8")
             return cls.model_validate_json(raw)
-        logger.info("No settings file at %s; using defaults.", p)
-        return cls()
+        logger.info("No settings file at %s; creating default.", p)
+        settings = cls()
+        settings.save(p)
+        return settings
 
     def save(self, path: Path | None = None) -> Path:
         """Persist settings to a JSON file, creating parent dirs as needed."""

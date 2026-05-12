@@ -12,7 +12,7 @@ Which modalities to require follows ``PSOCTScanConfigModel.volume_modalities`` a
 
 from pathlib import Path
 
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.flows.psoct.tile_file_reference import TileFileReference
 from opticstream.flows.psoct.utils import processed_output_prefix
 

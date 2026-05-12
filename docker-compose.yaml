@@ -85,9 +85,6 @@ services:
       - hub_uv_cache:/root/.cache/uv # persist download cache
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - GRPC_PING_TIMEOUT_MS=500
-      - ONLINE_GRACE_S=5
-      - DASHBOARD_REFRESH_S=2
       - UV_LINK_MODE=copy
     depends_on:
       redis:
@@ -113,7 +110,7 @@ services:
       - ./redis_data:/data
       - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
     ports:
-      - "127.0.0.1:6379:6379"
+      - "6379:6379"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

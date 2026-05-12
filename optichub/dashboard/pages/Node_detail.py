@@ -11,7 +11,7 @@ import streamlit as st
 
 from optichub.config import HubSettings
 from optichub.dashboard.hub_ui import fmt_age, hub_settings
-from optichub.dashboard.views.node_modules_ui import (
+from optichub.dashboard.node_modules import (
     KNOWN_NODE_MODULES,
     module_overview_rows,
     render_module_tab,
@@ -258,7 +258,7 @@ def main() -> None:
 
     if st.button(":material/arrow_back: Back to nodes", key="node_detail_back"):
         st.session_state.pop("_hub_open_node", None)
-        st.rerun()
+        st.switch_page("pages/Nodes.py")
 
     st.header(f"Node `{node_id}`")
     st.caption("Inspect modules, logs, and remote execution for this node.")
@@ -341,3 +341,6 @@ def main() -> None:
                 info=by_name.get(name),
                 key=key_fn,
             )
+
+
+main()

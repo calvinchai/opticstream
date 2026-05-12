@@ -21,7 +21,7 @@ from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.scripts import find_tile_plane
 from opticstream.scripts.filter_tiles_by_signal import filter_tiles_by_signal
 from opticstream.events import (

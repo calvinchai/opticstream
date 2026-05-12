@@ -3,10 +3,8 @@ from typing import Any, Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
-from opticstream.config.psoct_scan_config import (
-    PSOCTScanConfigModel,
-    get_psoct_scan_config,
-)
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel
+from opticstream.config.psoct_scan_config import get_psoct_scan_config
 from opticapi.project_state.oct_models import (
     OCTBatchId,
     OCTMosaicId,

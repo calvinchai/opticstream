@@ -15,7 +15,7 @@ from opticstream.hooks.publish_hooks import (
     publish_lsm_project_hook,
     publish_lsm_slice_hook,
 )
-from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticapi.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.events.lsm_events import CHANNEL_MIP_STITCHED, CHANNEL_VOLUME_STITCHED
 from opticstream.events.lsm_event_emitters import emit_channel_lsm_event
 from opticstream.events.utils import get_event_trigger

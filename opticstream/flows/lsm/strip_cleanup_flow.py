@@ -6,7 +6,7 @@ from typing import Optional
 from prefect import get_run_logger, task
 from prefect.futures import PrefectFuture
 
-from opticstream.config.lsm_scan_config import StripCleanupAction
+from opticapi.config.lsm_scan_config import StripCleanupAction
 from opticapi.project_state.lsm_models import LSMStripId
 
 

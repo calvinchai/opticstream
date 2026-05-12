@@ -21,7 +21,7 @@ from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel
 from opticstream.events.utils import get_event_trigger
 from opticstream.flows.psoct.utils import (
     MosaicContext,

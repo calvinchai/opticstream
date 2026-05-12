@@ -2,7 +2,7 @@
 
 import pytest
 
-from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticapi.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.flows.lsm.utils import (
     channel_zarr_volume_path,
     strip_mip_output_path,

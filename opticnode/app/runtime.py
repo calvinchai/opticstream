@@ -7,12 +7,13 @@ import logging.handlers
 import queue
 import signal
 import threading
+from pathlib import Path
 from typing import Any
 
-from opticnode.app.config import Settings
+from opticnode.app.config import Settings, default_settings_path
 from opticnode.app.heartbeat import HeartbeatLoop
 from opticnode.app.server import create_server
-from opticnode.app.telemetry import TelemetryEngine
+from opticnode.app.telemetry import TelemetryEngine, TelemetrySnapshot
 from opticapi.generated.command_runner_pb2_grpc import add_CommandRunnerServicer_to_server
 from opticapi.generated.prefect_worker_pb2_grpc import add_PrefectWorkerServicer_to_server
 from opticapi.generated.watcher_pb2_grpc import add_WatcherServicer_to_server
@@ -48,6 +49,7 @@ class NodeRuntime:
         self._stop = threading.Event()
         self._server: Any = None
         self._registry: ModuleRegistry | None = None
+        self._telemetry: TelemetryEngine | None = None
         self._core_queue: queue.Queue[logging.LogRecord] | None = None
 
     # ------------------------------------------------------------------
@@ -75,6 +77,7 @@ class NodeRuntime:
         )
 
         telemetry = TelemetryEngine(settings, planes)
+        self._telemetry = telemetry
 
         registry = ModuleRegistry(settings, gui_mode=gui_mode)
         registry.register_factory("command_runner", CommandRunnerModule)
@@ -163,7 +166,10 @@ class NodeRuntime:
 
         try:
             self._server.start()
-            self._stop.wait()
+            # Use gRPC's blocker, not threading.Event.wait(): SIGINT runs self.stop(),
+            # which sets _stop; doing that from a handler while the main thread sits in
+            # Event.wait() can deadlock. Native wait releases the GIL.
+            self._server.wait_for_termination()
         finally:
             self.stop()
 
@@ -190,6 +196,30 @@ class NodeRuntime:
         if self._core_queue is not None:
             queues["core"] = self._core_queue
         return queues
+
+    def get_registry(self) -> ModuleRegistry:
+        if self._registry is None:
+            raise RuntimeError("NodeRuntime.start() must be called before get_registry()")
+        return self._registry
+
+    def get_telemetry(self) -> TelemetryEngine:
+        if self._telemetry is None:
+            raise RuntimeError("NodeRuntime.start() must be called before get_telemetry()")
+        return self._telemetry
+
+    def snapshot_telemetry(self) -> TelemetrySnapshot:
+        return self.get_telemetry().collect()
+
+    def get_settings(self) -> Settings:
+        return self._settings
+
+    def replace_settings(self, settings: Settings) -> None:
+        """Point the runtime at a new Settings instance (after GUI save)."""
+        self._settings = settings
+
+    def reload_settings_from_disk(self, path: Path | None = None) -> None:
+        """Replace in-memory settings from disk (used by GUI Revert)."""
+        self._settings = Settings.load(path or default_settings_path())
 
 
 __all__ = ["NodeRuntime"]

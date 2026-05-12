@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Sequence
 
 from prefect import flow, get_run_logger, task
 
-from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticapi.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.events.lsm_events import (
     CHANNEL_VOLUME_STITCHED,
     CHANNEL_VOLUME_UPLOADED,

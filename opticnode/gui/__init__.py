@@ -1,4 +1,4 @@
-"""Optional desktop UI: log viewer and system tray."""
+"""Optional desktop UI: main window (dashboard, settings, modules) and system tray."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 def launch_gui(runtime: "NodeRuntime") -> None:
-    """Start tray + log viewer (call from main thread; blocks in tk mainloop)."""
+    """Start tray + main window (call from main thread; blocks in tk mainloop)."""
     from opticnode.gui.tray import run_gui_blocking
 
-    run_gui_blocking(runtime.get_log_queues(), runtime)
+    run_gui_blocking(runtime)

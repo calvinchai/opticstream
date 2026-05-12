@@ -13,7 +13,7 @@ from opticstream.hooks.publish_hooks import (
     publish_lsm_slice_hook,
 )
 from opticstream.hooks.check_channel_ready_hook import check_channel_ready_hook
-from opticstream.config.lsm_scan_config import LSMScanConfigModel
+from opticapi.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.data_processing.qc.convert_image import convert_image
 from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_READY
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event

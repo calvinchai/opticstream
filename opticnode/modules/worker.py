@@ -85,7 +85,8 @@ def _maybe_defer_to_backlog(payload: dict[str, Any], config: WorkerConfig) -> bo
 
 
 def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
-    from opticstream.config.lsm_scan_config import LSMScanConfigModel, get_lsm_scan_config
+    from opticapi.config.lsm_scan_config import LSMScanConfigModel
+    from opticstream.config.lsm_scan_config import get_lsm_scan_config
 
     task = StripTask.model_validate(payload)
     project_name = task.lsm_strip_id.project_name
@@ -103,7 +104,8 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
 
 
 def _run_oct_deployment(payload: dict[str, Any], deployment_name: str) -> None:
-    from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, get_psoct_scan_config
+    from opticapi.config.psoct_scan_config import PSOCTScanConfigModel
+    from opticstream.config.psoct_scan_config import get_psoct_scan_config
 
     task = OctBatchTask.model_validate(payload)
     project_name = task.batch_id.project_name

@@ -349,8 +349,8 @@ class ModuleRegistry:
         return self._modules[name]
 
     def start(self, name: str, config: dict) -> None:
-        with self._lock:
-            module = self._get_or_create(name)
+        # _get_or_create already takes self._lock; wrapping here deadlocks (non-reentrant Lock).
+        module = self._get_or_create(name)
         parsed = type(module).Config.model_validate(config)
         module.start(parsed)
         self._persist_config(name, parsed.model_dump(), enabled=True)
@@ -401,6 +401,32 @@ class ModuleRegistry:
         with self._lock:
             modules = dict(self._modules)
         return [m.status() for m in modules.values()]
+
+    def registered_module_names(self) -> list[str]:
+        with self._lock:
+            return sorted(self._factories.keys())
+
+    def status_for(self, name: str) -> ModuleStatus:
+        """Return live status for an instantiated module, or a synthetic STOPPED row."""
+        with self._lock:
+            if name not in self._factories:
+                raise KeyError(
+                    f"Unknown module '{name}'. Registered: {sorted(self._factories.keys())}"
+                )
+            module = self._modules.get(name)
+            factory = self._factories[name]
+        if module is not None:
+            return module.status()
+        probe = factory()
+        cfg = type(probe).Config().model_dump()
+        display_name = probe.name or name
+        return ModuleStatus(
+            name=display_name,
+            state=ModuleState.STOPPED,
+            config=cfg,
+            started_at=None,
+            error="",
+        )
 
     def get_logs(self, name: str, tail: int = 100) -> list[str]:
         """Return the last ``tail`` log lines for a module (0 = all available)."""

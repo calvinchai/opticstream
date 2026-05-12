@@ -10,7 +10,7 @@ from opticstream.hooks.publish_hooks import (
     publish_oct_mosaic_hook,
     publish_oct_project_hook,
 )
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
 from opticstream.events import BATCH_PROCESSED, BATCH_READY, get_event_trigger
 from opticstream.flows.psoct.tile_batch_archive_flow import archive_tile_batch
 from opticstream.flows.psoct.tile_batch_processed_validation import (

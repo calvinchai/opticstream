@@ -1,1 +1,1 @@
-"""Shared gRPC/protobuf stubs and hub–node wire constants."""
+"""Shared gRPC/protobuf stubs, hub–node wire constants, and config models."""

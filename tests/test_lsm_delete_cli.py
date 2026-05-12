@@ -1,6 +1,6 @@
 import pytest
 
-from opticstream.cli.lsm.delete import _validate_delete_args
+from opticstream.cli.lsm.state import _validate_delete_args
 
 
 def test_validate_delete_args_accepts_required_combinations():

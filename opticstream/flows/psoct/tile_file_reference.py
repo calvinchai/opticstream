@@ -3,7 +3,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from opticstream.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
+from opticapi.config.psoct_scan_config import PSOCTScanConfigModel, TileSavingType
 from opticstream.flows.psoct.utils import MosaicContext
 from opticstream.utils.filename_utils import (
     extract_processed_index_from_filename,
