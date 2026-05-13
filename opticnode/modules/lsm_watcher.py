@@ -38,7 +38,8 @@ class RedisLSMWatcherService(LSMWatcherService):
             timestamp=datetime.fromtimestamp(folder.stat().st_mtime),
         )
         self._rq_queue.enqueue(
-            _PROCESS_FN, task.model_dump(mode="python"), self._worker_config.model_dump()
+            _PROCESS_FN, task.model_dump(mode="python"), self._worker_config.model_dump(),
+            job_timeout=1800
         )
         with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident):
             pass
