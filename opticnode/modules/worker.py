@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+import os
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from redis import Redis
 from rq import Queue
 
+from opticstream.flows.lsm.utils import host_lsm_fs_path
 from opticstream.events.lsm_events import STRIP_READY
 from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
 from opticapi.project_state.lsm_models import LSMStripId
@@ -85,25 +87,59 @@ def _maybe_defer_to_backlog(payload: dict[str, Any], config: WorkerConfig) -> bo
         return True
     return False
 
-
+def _build_rclone_cmd(
+    source: str,
+    destination:str,
+    checkers: int =4,
+    transfers:int = 8
+    ):
+    cmd = [
+        "rclone",
+        "copy",
+        source,
+        destination,
+        "--checkers",
+        str(checkers),
+        "--transfers",
+        str(transfers),
+    ]
+    pass 
 def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
 
     task = StripTask.model_validate(payload)
-    # emit_strip_lsm_event(STRIP_READY, task.lsm_strip_id.model_dump(),)
-    param = {
-        "payload": {
-            "strip_ident": task.lsm_strip_id.model_dump(),
-            "strip_path": task.strip_path,
-            "force_rerun": task.force_rerun,
-        }
-    }
+    # copy the files over
+    # should have enough space
+    SPACE_AVAILABLE = True
+    if SPACE_AVAILABLE:
+        source_path = host_lsm_fs_path(payload['strip_path'])
+        dest_base = '/local_mount/space/zircon/6/users/tmp/'
+        dest_path = os.path.join(dest_base, os.path.basename(source_path.rstrip("/")))
+        cmd = _build_rclone_cmd(source_path, dest_path)
+    import subprocess
 
-    run_deployment(name="archive-strip-event-flow/local", parameters=param, timeout=0)
-    run_deployment(
-        name=deployment_name,
-        parameters=param,
-        timeout=None
-    )
+    # Run the rclone command and wait for it to finish
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        logger.error("rclone copy failed: %s", e)
+        raise
+    task.strip_path = dest_path
+    emit_strip_lsm_event(STRIP_READY, task.lsm_strip_id.model_dump(),)
+
+    # param = {
+    #     "payload": {
+    #         "strip_ident": task.lsm_strip_id.model_dump(),
+    #         "strip_path": task.strip_path,
+    #         "force_rerun": task.force_rerun,
+    #     }
+    # }
+
+    # run_deployment(name="archive-strip-event-flow/local", parameters=param, timeout=0)
+    # run_deployment(
+    #     name=deployment_name,
+    #     parameters=param,
+    #     timeout=None
+    # )
 
 
 def _run_oct_deployment(payload: dict[str, Any], deployment_name: str) -> None:
