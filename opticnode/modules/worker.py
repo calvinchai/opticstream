@@ -96,7 +96,7 @@ def _build_rclone_cmd(
     cmd = [
         "rclone",
         "copy",
-        source,
+        str(source),
         destination,
         "--checkers",
         str(checkers),
@@ -114,7 +114,7 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     if SPACE_AVAILABLE:
         source_path = host_lsm_fs_path(payload['strip_path'])
         dest_base = '/local_mount/space/zircon/6/users/tmp/'
-        dest_path = os.path.join(dest_base, os.path.basename(source_path.rstrip("/")))
+        dest_path = os.path.join(dest_base, os.path.basename(str(source_path).rstrip("/")))
         cmd = _build_rclone_cmd(source_path, dest_path)
     import subprocess
 
