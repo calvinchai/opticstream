@@ -103,6 +103,7 @@ def _build_rclone_cmd(
         "--transfers",
         str(transfers),
     ]
+    return cmd
     pass 
 def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
 
