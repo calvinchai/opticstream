@@ -125,7 +125,7 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
         logger.error("rclone copy failed: %s", e)
         raise
     task.strip_path = dest_path
-    emit_strip_lsm_event(STRIP_READY, task.lsm_strip_id.model_dump(),)
+    emit_strip_lsm_event(STRIP_READY, task.lsm_strip_id, extra_payload={"strip_path": str(dest_path)})
 
     # param = {
     #     "payload": {
