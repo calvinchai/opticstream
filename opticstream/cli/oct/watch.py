@@ -182,6 +182,8 @@ class OCTWatcherService:
         self.prefer_spectral_for_complex_with_spectral = (
             prefer_spectral_for_complex_with_spectral
         )
+        self._discover_cache_key: tuple[float, ...] | None = None
+        self._discover_cache_result: list[OCTBatchCandidate] = []
 
     def _selected_tile_saving_type(self) -> TileSavingType:
         saving_type = self.scan_config.acquisition.tile_saving_type
@@ -200,12 +202,35 @@ class OCTWatcherService:
             )
             return []
 
+        try:
+            dir_mtime = self.folder_path.stat().st_mtime
+        except OSError:
+            return []
+        mtimes: list[float] = [dir_mtime]
+        if self.scan_config.mosaics_per_slice == 3:
+            spectral_dir = self.folder_path / "spectral"
+            try:
+                if spectral_dir.is_dir():
+                    mtimes.append(spectral_dir.stat().st_mtime)
+            except OSError:
+                pass
+        cache_key = tuple(mtimes)
+        if cache_key == self._discover_cache_key:
+            logger.debug(
+                "discover_candidates: folder unchanged, using cached result (%s candidate(s))",
+                len(self._discover_cache_result),
+            )
+            return self._discover_cache_result
+
         logger.debug("Scanning folder: %s", self.folder_path)
 
         if self.scan_config.mosaics_per_slice == 3:
             candidates = self._discover_three_mosaic_candidates()
         else:
             candidates = self._discover_two_mosaic_candidates()
+
+        self._discover_cache_key = cache_key
+        self._discover_cache_result = candidates
 
         logger.debug("discover_candidates: found %s candidate(s)", len(candidates))
         return candidates

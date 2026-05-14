@@ -120,17 +120,29 @@ class LSMWatcherService:
         self.direct = direct
         self.force_resend = force_resend
         self._seen_folders: set[Path] = set()
+        self._should_process_cache: dict[str, tuple[float, bool]] = {}
+        self._fingerprint_cache: dict[str, tuple[float, object]] = {}
 
     def discover_candidates(self) -> list[LSMFolderCandidate]:
         if not _is_readable_dir(self.watch_dir):
             logger.warning("LSM watch directory is not readable: %s", self.watch_dir)
             return []
 
-        candidates = [
-            LSMFolderCandidate(folder=d)
-            for d in self.watch_dir.iterdir()
-            if _should_process_folder(d)
-        ]
+        candidates: list[LSMFolderCandidate] = []
+        for d in self.watch_dir.iterdir():
+            key = str(d)
+            try:
+                mtime = d.stat().st_mtime
+            except OSError:
+                continue
+            cached = self._should_process_cache.get(key)
+            if cached is not None and cached[0] == mtime:
+                should_process = cached[1]
+            else:
+                should_process = _should_process_folder(d)
+                self._should_process_cache[key] = (mtime, should_process)
+            if should_process:
+                candidates.append(LSMFolderCandidate(folder=d))
 
         for candidate in candidates:
             if candidate.folder not in self._seen_folders:
@@ -143,9 +155,20 @@ class LSMWatcherService:
         return str(candidate.folder.resolve())
 
     def fingerprint(self, candidate: LSMFolderCandidate) -> object:
-        if not _can_snapshot_folder(candidate.folder):
-            raise OSError(f"Folder is not readable/snapshot-able: {candidate.folder}")
-        return _folder_fingerprint(candidate.folder)
+        folder = candidate.folder
+        key = str(folder)
+        try:
+            mtime = folder.stat().st_mtime
+        except OSError as exc:
+            raise OSError(f"Cannot stat folder: {folder}") from exc
+        cached = self._fingerprint_cache.get(key)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+        if not _can_snapshot_folder(folder):
+            raise OSError(f"Folder is not readable/snapshot-able: {folder}")
+        fp = _folder_fingerprint(folder)
+        self._fingerprint_cache[key] = (mtime, fp)
+        return fp
 
     def process(self, candidate: LSMFolderCandidate) -> int:
         folder = candidate.folder
