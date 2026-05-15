@@ -1,0 +1,44 @@
+name: Release OpticNode (Windows)
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Build OpticNode with PyInstaller
+        run: uv run python -m PyInstaller opticnode/opticnode.spec
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          cp dist/opticnode.exe "opticnode-${GITHUB_REF_NAME}.exe"
+          cp opticnode/launch-opticnode.bat "Start OpticNode.bat"
+          ls -la "opticnode-${GITHUB_REF_NAME}.exe" "Start OpticNode.bat"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            opticnode-${{ github.ref_name }}.exe
+            Start OpticNode.bat
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

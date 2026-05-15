@@ -31,11 +31,8 @@ dependencies = [
     "requests>=2.32.0",
     "packaging>=24.0",
     "rq>=2.8.0",
-    "opticapi",
+    "protobuf>=5.26.1",
 ]
-
-[tool.uv.workspace]
-members = ["opticapi"]
 
 [project.optional-dependencies]
 dev = [
@@ -55,8 +52,6 @@ opticstream = "opticstream.cli:main"
 ops = "opticstream.cli:main"
 opticnode = "opticnode.main:main"
 
-[tool.uv.sources]
-opticapi = { workspace = true }
 #linc-convert = { path = "/space/megaera/1/users/kchai/linc-convert", editable = true }
 #nifti-zarr = { path = "/space/megaera/1/users/kchai/nifti-zarr", editable = true }
 #psoct-toolbox = { path = "/space/megaera/1/users/kchai/code/psoct-toolbox", editable = true }
@@ -66,11 +61,11 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["opticstream*", "opticnode*", "optichub*"]
+include = ["opticstream*", "opticnode*", "optichub*", "opticapi*"]
 exclude = ["notebooks*"]
 
 [tool.ruff]
-extend-exclude = ["opticapi/src/opticapi/generated"]
+extend-exclude = ["opticapi/generated"]
 
 [tool.pytest.ini_options]
 markers = [
