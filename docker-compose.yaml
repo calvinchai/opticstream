@@ -12,7 +12,7 @@ services:
     expose:
       - 5432
     volumes:
-      - ./db:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
   
   ### Prefect Server API and UI
   server:
@@ -94,7 +94,7 @@ services:
     container_name: opticstream-redis
     command: redis-server /usr/local/etc/redis/redis.conf
     volumes:
-      - ./redis_data:/data
+      - redis_data:/data
       - ./redis.conf:/usr/local/etc/redis/redis.conf:ro
     ports:
       - "6379:6379"
@@ -122,6 +122,8 @@ services:
 
 volumes:
   prefect:
+  postgres_data:
+  redis_data:
   hub_venv:
   hub_uv_cache:
 networks:
