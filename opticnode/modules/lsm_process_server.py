@@ -1,4 +1,4 @@
-"""LSMProcessServerModule: runs ``opticstream lsm serve process`` as a supervised subprocess."""
+"""LSMProcessServerModule: runs ``opticstream lsm serve`` as a supervised subprocess."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import threading
+from typing import Literal
 
 from pydantic import Field
 
@@ -24,12 +25,13 @@ def _find_cli() -> str:
 
 
 class LSMProcessServerConfig(ModuleConfig):
+    serve_mode: Literal["all", "process", "archive"] = Field(default="all")
     concurrent_workers: int = Field(default=2, ge=1)
     extra_args: list[str] = Field(default_factory=list)
 
 
 class LSMProcessServerModule(NodeModule):
-    """Runs ``opticstream lsm serve process`` as a subprocess with supervision."""
+    """Runs ``opticstream lsm serve <mode>`` as a subprocess with supervision."""
 
     name = "lsm_process_server"
     Config = LSMProcessServerConfig
@@ -42,7 +44,7 @@ class LSMProcessServerModule(NodeModule):
     def _launch(self, config: LSMProcessServerConfig) -> None:
         cli = _find_cli()
         cmd = [
-            cli, "lsm", "serve", "process",
+            cli, "lsm", "serve", config.serve_mode,
             "--concurrent-workers", str(config.concurrent_workers),
             *config.extra_args,
         ]
