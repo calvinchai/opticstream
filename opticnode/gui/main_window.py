@@ -32,6 +32,8 @@ class ModuleTab(ttk.Frame):
         self._runtime = runtime
         self._name = module_name
         self._root = master.winfo_toplevel()
+        self._form_fields: list[tuple[str, str, str]] = _MODULE_FORM_FIELDS.get(module_name, [])
+        self._form_vars: dict[str, tk.Variable] = {}
 
         top = ttk.Frame(self)
         top.pack(fill="x", padx=4, pady=4)
@@ -40,8 +42,24 @@ class ModuleTab(ttk.Frame):
         ttk.Label(top, textvariable=self._state_var, font=("TkDefaultFont", 10, "bold")).pack(anchor="w")
         ttk.Label(top, textvariable=self._err_var, foreground="red").pack(anchor="w")
 
+        if self._form_fields:
+            form = ttk.LabelFrame(self, text="Configuration")
+            form.pack(fill="x", padx=4, pady=4)
+            for row, (label, key, kind) in enumerate(self._form_fields):
+                ttk.Label(form, text=label).grid(row=row, column=0, sticky="w", padx=4, pady=2)
+                if kind == "bool":
+                    v = tk.BooleanVar(value=False)
+                    w = ttk.Checkbutton(form, variable=v)
+                else:
+                    v = tk.StringVar(value="")
+                    w = ttk.Entry(form, textvariable=v, width=52)
+                w.grid(row=row, column=1, sticky="ew", padx=4, pady=2)
+                self._form_vars[key] = v
+            form.columnconfigure(1, weight=1)
+
         ttk.Label(self, text="Config (JSON):").pack(anchor="w", padx=4)
-        self._json = scrolledtext.ScrolledText(self, height=10, wrap="word", font=("TkFixedFont", 10))
+        json_height = 4 if self._form_fields else 10
+        self._json = scrolledtext.ScrolledText(self, height=json_height, wrap="word", font=("TkFixedFont", 10))
         self._json.pack(fill="both", expand=False, padx=4, pady=2)
 
         btn = ttk.Frame(self)
@@ -68,16 +86,47 @@ class ModuleTab(ttk.Frame):
 
     def _reload_json(self) -> None:
         st = self._runtime.get_registry().status_for(self._name)
-        body = json.dumps(st.config, indent=2)
+        cfg = st.config
+        body = json.dumps(cfg, indent=2)
         self._json.delete("1.0", "end")
         self._json.insert("1.0", body)
+        self._load_form(cfg)
         self._refresh_status()
 
+    def _load_form(self, cfg: dict[str, Any]) -> None:
+        for _label, key, kind in self._form_fields:
+            var = self._form_vars[key]
+            val = cfg.get(key)
+            if kind == "bool":
+                var.set(bool(val))
+            elif val is None:
+                var.set("")
+            else:
+                var.set(str(val))
+
     def _parse_json(self) -> dict[str, Any]:
+        if self._form_fields:
+            return self._gather_form()
         raw = self._json.get("1.0", "end").strip()
         if not raw:
             return {}
         return json.loads(raw)
+
+    def _gather_form(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for _label, key, kind in self._form_fields:
+            var = self._form_vars[key]
+            if kind == "bool":
+                out[key] = bool(var.get())
+            elif kind == "int":
+                raw = str(var.get()).strip()
+                out[key] = int(raw) if raw else 0
+            elif kind == "float":
+                raw = str(var.get()).strip()
+                out[key] = float(raw) if raw else 0.0
+            else:
+                out[key] = str(var.get()).strip()
+        return out
 
     def _bg(self, fn: Any) -> None:
         def work() -> None:
@@ -350,6 +399,33 @@ class MainWindow:
     def hide(self) -> None:
         self._win.withdraw()
 
+
+_MODULE_FORM_FIELDS: dict[str, list[tuple[str, str, str]]] = {
+    "lsm_watcher": [
+        ("Watch path", "watch_path", "str"),
+        ("Project name", "project_name", "str"),
+        ("Poll interval (s)", "poll_interval", "int"),
+        ("Stability seconds", "stability_seconds", "int"),
+        ("Force resend", "force_resend", "bool"),
+        ("Slice offset", "slice_offset", "int"),
+        ("Prefect deployment", "prefect_deployment", "str"),
+        ("Allowed window (min)", "allowed_window_minutes", "float"),
+    ],
+    "oct_watcher": [
+        ("Watch path", "watch_path", "str"),
+        ("Project name", "project_name", "str"),
+        ("Poll interval (s)", "poll_interval", "int"),
+        ("Stability seconds", "stability_seconds", "int"),
+        ("Force resend", "force_resend", "bool"),
+        ("Slice offset", "slice_offset", "int"),
+        ("Mosaic ranges", "mosaic_ranges", "str"),
+        ("Project base path", "project_base_path", "str"),
+        ("Min complex file size (bytes)", "min_complex_file_size_bytes", "int"),
+        ("Prefer spectral for complex+spectral", "prefer_spectral_for_complex_with_spectral", "bool"),
+        ("Prefect deployment", "prefect_deployment", "str"),
+        ("Allowed window (min)", "allowed_window_minutes", "float"),
+    ],
+}
 
 _SETTINGS_FIELDS: list[tuple[str, str, str]] = [
     ("Node ID", "node_id", "str"),
