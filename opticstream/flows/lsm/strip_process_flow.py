@@ -7,6 +7,7 @@ import dask
 import psutil
 from niizarr.multizarr import ZarrConfig
 from prefect import flow, get_run_logger, task
+from prefect.deployments import run_deployment
 
 from opticstream.hooks.publish_hooks import (
     publish_lsm_project_hook,
@@ -15,8 +16,7 @@ from opticstream.hooks.publish_hooks import (
 from opticstream.hooks.check_channel_ready_hook import check_channel_ready_hook
 from opticapi.config.lsm_scan_config import LSMScanConfigModel
 from opticstream.data_processing.qc.convert_image import convert_image
-from opticstream.events.lsm_events import STRIP_COMPRESSED, STRIP_READY
-from opticstream.events.lsm_event_emitters import emit_strip_lsm_event
+from opticstream.events.lsm_events import STRIP_READY
 from opticstream.events.utils import get_event_trigger
 from opticstream.state.state_guards import (
     enter_flow_stage,
@@ -267,7 +267,12 @@ def check_compressed_result(
 
     with LSM_STATE_SERVICE.open_strip(strip_ident=strip_ident) as strip_state:
         strip_state.set_compressed(True)
-    emit_strip_lsm_event(STRIP_COMPRESSED, strip_ident)
+    run_deployment(
+        name="upload-strip-to-dandi-event-flow/local",
+        parameters={"payload": {"strip_ident": strip_ident.model_dump()}},
+        timeout=0,
+        as_subflow=False,
+    )
     return ValidationResult(ok=True, size_bytes=zarr_size_bytes)
 
 
