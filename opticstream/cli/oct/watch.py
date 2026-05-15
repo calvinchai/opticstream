@@ -184,6 +184,7 @@ class OCTWatcherService:
         )
         self._discover_cache_key: tuple[float, ...] | None = None
         self._discover_cache_result: list[OCTBatchCandidate] = []
+        self._skip_candidates: set[tuple[int, int]] = set()  # candidates confirmed dispatched or state-exists
 
     def _selected_tile_saving_type(self) -> TileSavingType:
         saving_type = self.scan_config.acquisition.tile_saving_type
@@ -215,25 +216,22 @@ class OCTWatcherService:
             except OSError:
                 pass
         cache_key = tuple(mtimes)
-        if cache_key == self._discover_cache_key:
-            logger.debug(
-                "discover_candidates: folder unchanged, using cached result (%s candidate(s))",
-                len(self._discover_cache_result),
-            )
-            return self._discover_cache_result
 
-        logger.debug("Scanning folder: %s", self.folder_path)
+        if cache_key != self._discover_cache_key:
+            logger.debug("Scanning folder: %s", self.folder_path)
+            if self.scan_config.mosaics_per_slice == 3:
+                self._discover_cache_result = self._discover_three_mosaic_candidates()
+            else:
+                self._discover_cache_result = self._discover_two_mosaic_candidates()
+            self._discover_cache_key = cache_key
+            logger.debug("discover_candidates: scanned %s candidate(s)", len(self._discover_cache_result))
 
-        if self.scan_config.mosaics_per_slice == 3:
-            candidates = self._discover_three_mosaic_candidates()
-        else:
-            candidates = self._discover_two_mosaic_candidates()
-
-        self._discover_cache_key = cache_key
-        self._discover_cache_result = candidates
-
-        logger.debug("discover_candidates: found %s candidate(s)", len(candidates))
-        return candidates
+        if not self.force_resend and self._skip_candidates:
+            return [
+                c for c in self._discover_cache_result
+                if (c.logical_mosaic_id, c.logical_batch) not in self._skip_candidates
+            ]
+        return self._discover_cache_result
 
     def _discover_two_mosaic_candidates(self) -> list[OCTBatchCandidate]:
         parsed_files = self._discover_two_mosaic_files()
@@ -519,6 +517,8 @@ class OCTWatcherService:
         return _batch_fingerprint(candidate.files, self.folder_path)
 
     def process(self, candidate: OCTBatchCandidate) -> int:
+        ckey = (candidate.logical_mosaic_id, candidate.logical_batch)
+
         if not _all_files_readable(candidate.files):
             logger.info(
                 "Candidate not ready yet; files unreadable logical_mosaic=%s logical_batch=%s",
@@ -535,14 +535,19 @@ class OCTWatcherService:
 
         existing = OCT_STATE_SERVICE.peek_batch(batch_ident=batch_ident)
         if existing is not None and not self.force_resend:
+            self._skip_candidates.add(ckey)
             logger.debug("[SKIP] batch state exists for %s: state=%r", batch_ident, existing)
             logger.info("[SKIP] batch state exists for %s", batch_ident)
             return 0
 
         if self.direct:
-            return self._process_direct(candidate, batch_ident)
+            dispatched = self._process_direct(candidate, batch_ident)
+        else:
+            dispatched = self._process_event(candidate, batch_ident)
 
-        return self._process_event(candidate, batch_ident)
+        if dispatched > 0:
+            self._skip_candidates.add(ckey)
+        return dispatched
 
     def _process_direct(self, candidate: OCTBatchCandidate, batch_ident: Any) -> int:
         logger.info(

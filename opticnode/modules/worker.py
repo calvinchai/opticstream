@@ -144,7 +144,7 @@ def _run_lsm_deployment(payload: dict[str, Any], config: WorkerConfig) -> None:
     run_deployment(
         name=config.deployment_name,
         parameters=param,
-        timeout=None
+        timeout=0
     )
 
 

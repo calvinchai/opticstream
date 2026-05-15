@@ -122,6 +122,7 @@ class LSMWatcherService:
         self._seen_folders: set[Path] = set()
         self._should_process_cache: dict[str, tuple[float, bool]] = {}
         self._fingerprint_cache: dict[str, tuple[float, object]] = {}
+        self._skip_folders: set[str] = set()  # folders confirmed dispatched or state-exists
 
     def discover_candidates(self) -> list[LSMFolderCandidate]:
         if not _is_readable_dir(self.watch_dir):
@@ -131,6 +132,8 @@ class LSMWatcherService:
         candidates: list[LSMFolderCandidate] = []
         for d in self.watch_dir.iterdir():
             key = str(d)
+            if not self.force_resend and key in self._skip_folders:
+                continue
             try:
                 mtime = d.stat().st_mtime
             except OSError:
@@ -195,6 +198,7 @@ class LSMWatcherService:
 
         existing = LSM_STATE_SERVICE.peek_strip(strip_ident=strip_ident)
         if existing is not None and not self.force_resend:
+            self._skip_folders.add(str(folder))
             logger.info(
                 "[SKIP] Strip state already exists for %s (use --force-resend to override)",
                 strip_ident,
@@ -202,9 +206,13 @@ class LSMWatcherService:
             return 0
 
         if self.direct:
-            return self._process_direct(strip_ident=strip_ident, folder=folder)
+            dispatched = self._process_direct(strip_ident=strip_ident, folder=folder)
+        else:
+            dispatched = self._process_event(strip_ident=strip_ident, folder=folder)
 
-        return self._process_event(strip_ident=strip_ident, folder=folder)
+        if dispatched > 0:
+            self._skip_folders.add(str(folder))
+        return dispatched
 
     def _process_event(self, *, strip_ident: LSMStripId, folder: Path) -> int:
         extra_payload: dict = {"strip_path": str(folder)}
