@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: opticapi
-Version: 0.1.0
-Summary: gRPC and shared wire contract for OpticNode / OpticHub
-Requires-Python: >=3.11
-Requires-Dist: grpcio>=1.60.0
-Requires-Dist: protobuf>=5.26.1
-Provides-Extra: dev
-Requires-Dist: grpcio-tools>=1.60.0; extra == "dev"
