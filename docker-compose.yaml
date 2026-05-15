@@ -13,19 +13,7 @@ services:
       - 5432
     volumes:
       - ./db:/var/lib/postgresql
-    profiles: ["server"]
-
-  ### MinIO for flow storage
-  minio:
-    image: minio/minio:latest
-    entrypoint: ["minio", "server", "--address", "0.0.0.0:9000", "--console-address", "0.0.0.0:9001", "/data"]
-    volumes:
-      - "minio:/data"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    profiles: ["minio"]
-
+  
   ### Prefect Server API and UI
   server:
     image: prefecthq/prefect:3-python3.12
@@ -100,7 +88,6 @@ services:
         uv run streamlit run optichub/dashboard/Dashboard.py
         --server.address=0.0.0.0 --server.port=8501
     restart: unless-stopped
-    profiles: ["server"]
 
   redis:
     image: redis:7-alpine
@@ -132,11 +119,9 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    profiles: ["server"]
 
 volumes:
   prefect:
-  minio:
   hub_venv:
   hub_uv_cache:
 networks:
