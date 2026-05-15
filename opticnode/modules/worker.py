@@ -36,6 +36,11 @@ class WorkerConfig(BaseModel):
     )
     allowed_window_minutes: float = Field(default=10, ge=0)
     redis_url: str = Field(default="")
+    process_cache_dir: str = Field(
+        default="/local_mount/space/zircon/6/users/tmp/",
+        min_length=1,
+        description="Local directory for rclone copy before Prefect LSM processing.",
+    )
 
     @property
     def queue_name(self) -> str:
@@ -105,7 +110,7 @@ def _build_rclone_cmd(
     ]
     return cmd
     pass 
-def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
+def _run_lsm_deployment(payload: dict[str, Any], config: WorkerConfig) -> None:
 
     task = StripTask.model_validate(payload)
     # copy the files over
@@ -113,7 +118,7 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     SPACE_AVAILABLE = True
     if SPACE_AVAILABLE:
         source_path = host_lsm_fs_path(payload['strip_path'])
-        dest_base = '/local_mount/space/zircon/6/users/tmp/'
+        dest_base = config.process_cache_dir.rstrip("/") + "/"
         dest_path = os.path.join(dest_base, os.path.basename(str(source_path).rstrip("/")))
         cmd = _build_rclone_cmd(source_path, dest_path)
     import subprocess
@@ -125,22 +130,22 @@ def _run_lsm_deployment(payload: dict[str, Any], deployment_name: str) -> None:
         logger.error("rclone copy failed: %s", e)
         raise
     task.strip_path = dest_path
-    emit_strip_lsm_event(STRIP_READY, task.lsm_strip_id, extra_payload={"strip_path": str(dest_path)})
+    # emit_strip_lsm_event(STRIP_READY, task.lsm_strip_id, extra_payload={"strip_path": str(dest_path)})
 
-    # param = {
-    #     "payload": {
-    #         "strip_ident": task.lsm_strip_id.model_dump(),
-    #         "strip_path": task.strip_path,
-    #         "force_rerun": task.force_rerun,
-    #     }
-    # }
+    param = {
+        "payload": {
+            "strip_ident": task.lsm_strip_id.model_dump(),
+            "strip_path": task.strip_path,
+            "force_rerun": task.force_rerun,
+        }
+    }
 
     # run_deployment(name="archive-strip-event-flow/local", parameters=param, timeout=0)
-    # run_deployment(
-    #     name=deployment_name,
-    #     parameters=param,
-    #     timeout=None
-    # )
+    run_deployment(
+        name=config.deployment_name,
+        parameters=param,
+        timeout=None
+    )
 
 
 def _run_oct_deployment(payload: dict[str, Any], deployment_name: str) -> None:
@@ -162,11 +167,11 @@ def _run_oct_deployment(payload: dict[str, Any], deployment_name: str) -> None:
     )
 
 
-def _run_deployment(payload: dict[str, Any], deployment_name: str) -> None:
+def _run_deployment(payload: dict[str, Any], config: WorkerConfig) -> None:
     if "lsm_strip_id" in payload:
-        _run_lsm_deployment(payload, deployment_name)
+        _run_lsm_deployment(payload, config)
     elif "batch_id" in payload:
-        _run_oct_deployment(payload, deployment_name)
+        _run_oct_deployment(payload, config.deployment_name)
     else:
         raise ValueError("Payload must include lsm_strip_id or batch_id")
 
@@ -176,10 +181,10 @@ def process(payload: dict[str, Any], config_dict: dict[str, Any]) -> None:
     config = WorkerConfig.model_validate(config_dict)
     if _maybe_defer_to_backlog(payload, config):
         return
-    _run_deployment(payload, config.deployment_name)
+    _run_deployment(payload, config)
 
 
 def process_backlog(payload: dict[str, Any], config_dict: dict[str, Any]) -> None:
     """Backlog RQ handler: always run deployment (no time-window check)."""
     config = WorkerConfig.model_validate(config_dict)
-    _run_deployment(payload, config.deployment_name)
+    _run_deployment(payload, config)

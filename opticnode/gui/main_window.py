@@ -410,6 +410,7 @@ _MODULE_FORM_FIELDS: dict[str, list[tuple[str, str, str]]] = {
         ("Slice offset", "slice_offset", "int"),
         ("Prefect deployment", "prefect_deployment", "str"),
         ("Allowed window (min)", "allowed_window_minutes", "float"),
+        ("Process cache dir", "process_cache_dir", "str"),
     ],
     "oct_watcher": [
         ("Watch path", "watch_path", "str"),

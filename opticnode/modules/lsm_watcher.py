@@ -56,6 +56,11 @@ class LSMWatcherConfig(ModuleConfig):
     slice_offset: int = Field(default=0)
     prefect_deployment: str = Field(default="")
     allowed_window_minutes: float = Field(default=10, ge=0)
+    process_cache_dir: str = Field(
+        default="/local_mount/space/zircon/6/users/tmp/",
+        min_length=1,
+        description="Local directory for rclone copy before Prefect LSM processing.",
+    )
 
 
 class LSMWatcherModule(NodeModule):
@@ -105,6 +110,7 @@ class LSMWatcherModule(NodeModule):
             queue_kind="lsm",
             allowed_window_minutes=config.allowed_window_minutes,
             redis_url=self._redis_url,
+            process_cache_dir=config.process_cache_dir,
         )
         rq_queue = self._make_rq_queue(worker_config.queue_name)
         self._poll_stop.clear()
