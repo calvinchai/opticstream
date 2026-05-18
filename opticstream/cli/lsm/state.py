@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from cyclopts import Parameter
 from typing import Annotated, Literal
 
@@ -12,6 +13,7 @@ from opticstream.cli.state_common import (
 from opticstream.cli.lsm.cli import lsm_cli
 from opticapi.project_state.lsm_models import (
     LSMChannelState,
+    LSMProjectState,
     LSMSliceState,
     LSMStripState,
 )
@@ -210,3 +212,29 @@ def mark(
         f"Updated {updated} {hierarchy}(s) in project={project_name!r}: "
         f"field={field!r}, value={value!r}, slice={slice}, channel={channel}, strip={strip}"
     )
+
+
+@lsm_state_cli.command(name="import")
+def import_json(
+    project_name: str,
+    json_file: Path,
+) -> None:
+    """
+    Import LSM project state from a JSON file into Redis.
+
+    The JSON should match the LSMProjectState schema (the full hierarchy
+    including slices, channels, and strips).
+
+    Examples:
+    - opticstream lsm state import myproject state.json
+    """
+    raw = json_file.read_text(encoding="utf-8")
+    state = LSMProjectState.model_validate_json(raw)
+    LSM_STATE_SERVICE._save_full_project(project_name, state)
+    n_slices = len(state.slices)
+    n_strips = sum(
+        len(ch.strips)
+        for sl in state.slices.values()
+        for ch in sl.channels.values()
+    )
+    print(f"Imported project={project_name!r}: {n_slices} slices, {n_strips} strips")

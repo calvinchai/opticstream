@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Annotated, Literal
 
 from cyclopts import App, Parameter
@@ -12,6 +13,7 @@ from opticstream.cli.state_common import (
 from opticapi.project_state.oct_models import (
     OCTBatchState,
     OCTMosaicState,
+    OCTProjectState,
     OCTSliceState,
 )
 from opticstream.state import OCT_STATE_SERVICE
@@ -199,3 +201,29 @@ def mark(
         f"Updated {updated} {hierarchy}(s) in project={project_name!r}: "
         f"field={field!r}, value={value!r}, slice={slice}, mosaic={mosaic}, batch={batch}"
     )
+
+
+@oct_state_cli.command(name="import")
+def import_json(
+    project_name: str,
+    json_file: Path,
+) -> None:
+    """
+    Import OCT project state from a JSON file into Redis.
+
+    The JSON should match the OCTProjectState schema (the full hierarchy
+    including slices, mosaics, and batches).
+
+    Examples:
+    - opticstream oct state import myproject state.json
+    """
+    raw = json_file.read_text(encoding="utf-8")
+    state = OCTProjectState.model_validate_json(raw)
+    OCT_STATE_SERVICE._save_full_project(project_name, state)
+    n_slices = len(state.slices)
+    n_batches = sum(
+        len(mo.batches)
+        for sl in state.slices.values()
+        for mo in sl.mosaics.values()
+    )
+    print(f"Imported project={project_name!r}: {n_slices} slices, {n_batches} batches")
