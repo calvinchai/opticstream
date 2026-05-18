@@ -17,6 +17,7 @@ from opticapi.project_state.lsm_models import (
     LSMSliceState,
     LSMStripState,
 )
+from opticapi.project_state.state_models import ProcessingState
 from opticstream.state import LSM_STATE_SERVICE
 
 lsm_state_cli = lsm_cli.command(App(name="state"))
@@ -128,6 +129,48 @@ def reset(
         )
 
     print(f"Reset {hierarchy} from project={project_name!r}: {target}")
+
+
+@lsm_state_cli.command(name="reset-incomplete")
+def reset_incomplete(
+    project_name: str,
+    *,
+    slice: int | None = None,
+    channel: int | None = None,
+) -> None:
+    """
+    Delete all strips that are not completed from an LSM project.
+
+    Optionally scope to a specific slice or channel.
+
+    Examples:
+    - opticstream lsm state reset-incomplete myproject
+    - opticstream lsm state reset-incomplete myproject --slice 1
+    - opticstream lsm state reset-incomplete myproject --slice 1 --channel 2
+    """
+    if channel is not None and slice is None:
+        raise ValueError("`--slice` is required when `--channel` is provided.")
+
+    removed = 0
+    with LSM_STATE_SERVICE.open_project_by_parts(project_name=project_name) as project:
+        for sid, sl in list(project.slices.items()):
+            if slice is not None and sid != slice:
+                continue
+            for cid, ch in list(sl.channels.items()):
+                if channel is not None and cid != channel:
+                    continue
+                to_delete = [
+                    stid
+                    for stid, strip in ch.strips.items()
+                    if strip.processing_state != ProcessingState.COMPLETED
+                ]
+                for stid in to_delete:
+                    del ch.strips[stid]
+                    removed += 1
+                if to_delete:
+                    ch.touch()
+
+    print(f"Removed {removed} incomplete strip(s) from project={project_name!r}")
 
 
 MarkHierarchy = Literal["slice", "channel", "strip"]
